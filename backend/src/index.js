@@ -6,6 +6,8 @@ const helmet = require('helmet');
 const pool = require('./db');
 const syncRoutes = require('./routes/sync');
 const employeeRoutes = require('./routes/employees');
+const punchIdentifyRoutes = require('./routes/punch');
+const punchesRoutes = require('./routes/punches');
 const { startArtifyCron } = require('./jobs/artifyCron');
 
 const app = express();
@@ -25,6 +27,13 @@ app.get('/health', async (req, res) => {
 
 app.use('/api/sync', syncRoutes);
 app.use('/api/employees', employeeRoutes);
+app.use('/api/punch', punchIdentifyRoutes);
+app.use('/api/punches', punchesRoutes);
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: 'Internal server error' });
+});
 
 const PORT = process.env.PORT || 3000;
 
