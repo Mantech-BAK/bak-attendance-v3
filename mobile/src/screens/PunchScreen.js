@@ -25,8 +25,13 @@ import {
   rejectPunch,
   fetchDirectReports,
   createTask,
+  devIdentifyBypass,
 } from '../api/client';
 import { SUPERVISOR_DESIGNATION } from '../config';
+
+// DEV ONLY — remove this constant, handleDevBypass, and the button that
+// calls it once real face recognition replaces the exact-hash stub.
+const DEV_BYPASS_EMP_ID = 'E1001';
 
 export default function PunchScreen() {
   const [showCamera, setShowCamera] = useState(false);
@@ -79,6 +84,25 @@ export default function PunchScreen() {
       }
     } catch (err) {
       Alert.alert('Face not recognized', err.message);
+    } finally {
+      setIdentifying(false);
+    }
+  }
+
+  // DEV ONLY — see DEV_BYPASS_EMP_ID above.
+  async function handleDevBypass() {
+    setIdentifying(true);
+    try {
+      const result = await devIdentifyBypass(DEV_BYPASS_EMP_ID);
+      setEmployee(result);
+      if (result.tasks?.length === 1) {
+        setSelectedProjectCode(result.tasks[0].project_code);
+      }
+      if (result.designation === SUPERVISOR_DESIGNATION) {
+        loadSupervisorData(result.emp_id);
+      }
+    } catch (err) {
+      Alert.alert('Dev bypass failed', err.message);
     } finally {
       setIdentifying(false);
     }
@@ -139,6 +163,11 @@ export default function PunchScreen() {
             <Text style={styles.subtitle}>Tap Punch and look at the camera</Text>
             <TouchableOpacity style={styles.punchButton} onPress={() => setShowCamera(true)}>
               <Text style={styles.punchButtonText}>Punch</Text>
+            </TouchableOpacity>
+
+            {/* DEV ONLY — remove this button along with handleDevBypass and DEV_BYPASS_EMP_ID above. */}
+            <TouchableOpacity style={styles.devBypassButton} onPress={handleDevBypass}>
+              <Text style={styles.devBypassButtonText}>DEV: Skip Face ID ({DEV_BYPASS_EMP_ID})</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -217,6 +246,16 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   punchButtonText: { color: '#fff', fontSize: 22, fontWeight: '800' },
+  devBypassButton: {
+    marginTop: 28,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+    backgroundColor: '#fffbeb',
+  },
+  devBypassButtonText: { color: '#b45309', fontSize: 12, fontWeight: '700' },
   identifiedContainer: { width: '100%' },
   hint: { color: '#dc2626', fontSize: 13, marginTop: 8, textAlign: 'center' },
   resetButton: { marginTop: 24, alignItems: 'center', paddingVertical: 10 },

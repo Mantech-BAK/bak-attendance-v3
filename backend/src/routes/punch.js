@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const pool = require('../db');
 const { matchFace } = require('../services/faceMatch');
+const { getTodaysTasks } = require('../services/tasks');
 
 const router = express.Router();
 
@@ -40,21 +41,7 @@ router.post('/identify', upload.single('face'), async (req, res, next) => {
       return res.status(403).json({ error: `Employee ${employee.emp_id} is inactive and cannot punch.` });
     }
 
-    const tasksResult = await pool.query(
-      `SELECT id, project_code, priority, description, location, status
-       FROM tasks
-       WHERE emp_id = $1 AND task_date = CURRENT_DATE
-       ORDER BY id`,
-      [employee.emp_id]
-    );
-
-    const tasks = tasksResult.rows.map((task) => ({
-      id: task.id,
-      project_code: task.project_code,
-      name: task.description || task.location || task.project_code,
-      priority: task.priority,
-      status: task.status,
-    }));
+    const tasks = await getTodaysTasks(employee.emp_id);
 
     res.json({
       emp_id: employee.emp_id,
