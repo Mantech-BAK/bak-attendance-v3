@@ -5,6 +5,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const pool = require('./db');
 const syncRoutes = require('./routes/sync');
+const employeeRoutes = require('./routes/employees');
 const { startArtifyCron } = require('./jobs/artifyCron');
 
 const app = express();
@@ -23,6 +24,7 @@ app.get('/health', async (req, res) => {
 });
 
 app.use('/api/sync', syncRoutes);
+app.use('/api/employees', employeeRoutes);
 
 const PORT = process.env.PORT || 3000;
 
