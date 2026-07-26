@@ -4,6 +4,8 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const pool = require('./db');
+const syncRoutes = require('./routes/sync');
+const { startArtifyCron } = require('./jobs/artifyCron');
 
 const app = express();
 
@@ -20,8 +22,11 @@ app.get('/health', async (req, res) => {
   }
 });
 
+app.use('/api/sync', syncRoutes);
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
+  startArtifyCron();
 });
