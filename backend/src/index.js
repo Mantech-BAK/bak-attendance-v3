@@ -10,6 +10,7 @@ const punchIdentifyRoutes = require('./routes/punch');
 const punchesRoutes = require('./routes/punches');
 const tasksRoutes = require('./routes/tasks');
 const projectsRoutes = require('./routes/projects');
+const attendanceRoutes = require('./routes/attendance');
 const devBypassRoutes = require('./routes/devBypass'); // DEV ONLY — remove with routes/devBypass.js once real face recognition lands
 const { startArtifyCron } = require('./jobs/artifyCron');
 
@@ -34,6 +35,7 @@ app.use('/api/punch', punchIdentifyRoutes);
 app.use('/api/punches', punchesRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/projects', projectsRoutes);
+app.use('/api/attendance', attendanceRoutes);
 app.use('/api/dev', devBypassRoutes); // DEV ONLY — remove with routes/devBypass.js once real face recognition lands
 
 app.use((err, req, res, next) => {

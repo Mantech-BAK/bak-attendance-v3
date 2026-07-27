@@ -13,20 +13,19 @@ async function upsertEmployees(client, employees) {
   for (const emp of employees) {
     await client.query(
       `INSERT INTO employees
-         (emp_id, name, company, department, site, designation, reporting_manager_emp_id, status, ot_eligible, artify_last_synced)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+         (emp_id, name, company, department, designation, reporting_manager_emp_id, status, ot_eligible, artify_last_synced)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
        ON CONFLICT (emp_id) DO UPDATE SET
          name = EXCLUDED.name,
          company = EXCLUDED.company,
          department = EXCLUDED.department,
-         site = EXCLUDED.site,
          designation = EXCLUDED.designation,
          reporting_manager_emp_id = EXCLUDED.reporting_manager_emp_id,
          status = EXCLUDED.status,
          ot_eligible = EXCLUDED.ot_eligible,
          artify_last_synced = now()`,
       [
-        emp.emp_id, emp.name, emp.company, emp.department, emp.site,
+        emp.emp_id, emp.name, emp.company, emp.department,
         emp.designation, emp.reporting_manager_emp_id, emp.status, emp.ot_eligible,
       ]
     );

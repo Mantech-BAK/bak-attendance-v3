@@ -32,7 +32,7 @@ router.get('/direct-reports', async (req, res, next) => {
     }
 
     const reportsResult = await pool.query(
-      `SELECT emp_id, name, designation, department, site, status
+      `SELECT emp_id, name, designation, department, status
        FROM employees
        WHERE reporting_manager_emp_id = $1
        ORDER BY name`,

@@ -10,19 +10,33 @@ import { API_BASE_URL } from '../config';
  *                                 note: matching is currently an exact-byte-hash stub, not real
  *                                 face recognition — will not match a live camera capture against
  *                                 a prior registration photo until a real matcher is wired in.
- *   POST /api/punches          — punch in/out. Body keys the backend actually reads:
- *                                 { emp_id, type, project_code, lat, lng, entered_by?, device_ref?, recorded_at? }
- *                                 There is no task_id column on punches — only project_code, so the
- *                                 selected task's project_code must be sent, not its id.
+ *   POST /api/punches          — records a punch. Body keys the backend actually reads:
+ *                                 { emp_id, project_code, lat, lng, entered_by? }
+ *                                 There is no "type" (IN/OUT) at capture time — it's derived later,
+ *                                 at attendance-calculation time, from punch_time ordering within a
+ *                                 day (earliest = IN, latest = OUT). punch_time is set server-side
+ *                                 from the moment the request is received — never accepted from the
+ *                                 client. There is no task_id column on punches — only project_code,
+ *                                 so the selected task's project_code must be sent, not its id.
+ *                                 When entered_by differs from emp_id (a supervisor punching on
+ *                                 behalf of someone), the backend verifies emp_id's
+ *                                 reporting_manager_emp_id actually equals entered_by — 403 otherwise.
+ *                                 Only auto-approved when entered_by's designation is "Supervisor".
+ *   GET   /api/attendance/:emp_id   — computed IN/OUT sessions grouped by project+day for that employee
+ *                                 response: { emp_id, sessions: [{ project_code, date, punch_count,
+ *                                 punch_in: {id, punch_time}, punch_out: {id, punch_time}|null, incomplete }],
+ *                                 exceptions_raised: [...] } — a single-punch day raises a
+ *                                 'single_punch_only' exception (visible to the supervisor) rather
+ *                                 than guessing IN vs OUT.
  *   GET   /api/punches/pending?supervisor_emp_id=   — pending punches for direct reports of that supervisor
- *                                 response: [{ id, emp_id, employee_name, type, project_code, punch_time, lat, lng, entry_method, entered_by }]
+ *                                 response: [{ id, emp_id, employee_name, project_code, punch_time, lat, lng, entry_method, entered_by }]
  *   PATCH /api/punches/:id/approve   body: { supervisor_emp_id }
  *   PATCH /api/punches/:id/reject    body: { supervisor_emp_id, reason }
  *                                 Both verify supervisor_emp_id is actually that punch's employee's
  *                                 reporting manager (403 otherwise) and that the punch is still
  *                                 'pending' (409 if already approved/rejected).
  *   GET   /api/employees/direct-reports?supervisor_emp_id=
- *                                 response: [{ emp_id, name, designation, department, site, status }]
+ *                                 response: [{ emp_id, name, designation, department, status }]
  *   POST  /api/tasks            body: { emp_id, project_code, priority?, description, location?, source, created_by }
  *                                 source must be one of: supervisor_app | backoffice | teams
  *   GET   /api/projects         response: [{ project_code, project_name, company, status }] (OPEN only)
@@ -83,19 +97,23 @@ export function devIdentifyBypass(empId) {
 }
 
 // CONFIRMED
-export function submitPunch({ empId, type, projectCode, lat, lng }) {
+export function submitPunch({ empId, projectCode, lat, lng, enteredBy }) {
   return request('/api/punches', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       emp_id: empId,
-      type,
       project_code: projectCode ?? null,
       lat,
       lng,
-      recorded_at: new Date().toISOString(),
+      entered_by: enteredBy ?? undefined,
     }),
   });
+}
+
+// CONFIRMED
+export function fetchAttendance(empId) {
+  return request(`/api/attendance/${encodeURIComponent(empId)}`);
 }
 
 // CONFIRMED

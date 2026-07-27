@@ -6,6 +6,7 @@ export default function SupervisorPanel({
   onApprove,
   onReject,
   onCreateTask,
+  onScanTeamMember,
   processingId,
 }) {
   return (
@@ -22,7 +23,7 @@ export default function SupervisorPanel({
             <View style={styles.approvalInfo}>
               <Text style={styles.approvalName}>{item.employee_name}</Text>
               <Text style={styles.approvalMeta}>
-                {item.type} · {new Date(item.punch_time).toLocaleTimeString()}
+                {item.project_code || 'No project'} · {new Date(item.punch_time).toLocaleTimeString()}
               </Text>
             </View>
             <View style={styles.approvalActions}>
@@ -47,6 +48,10 @@ export default function SupervisorPanel({
 
       <TouchableOpacity style={styles.createTaskButton} onPress={onCreateTask}>
         <Text style={styles.createTaskButtonText}>+ Create Task</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.scanTeamButton} onPress={onScanTeamMember}>
+        <Text style={styles.scanTeamButtonText}>Scan for Team Member</Text>
       </TouchableOpacity>
     </View>
   );
@@ -87,4 +92,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   createTaskButtonText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  scanTeamButton: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#2563eb',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  scanTeamButtonText: { color: '#2563eb', fontSize: 15, fontWeight: '700' },
 });

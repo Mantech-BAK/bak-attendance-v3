@@ -9,14 +9,14 @@
  */
 
 const FAKE_EMPLOYEES = [
-  ['E1001', 'Amina Yusuf', 'BAK Holdings', 'Engineering', 'Lagos HQ', 'Software Engineer', 'E1005', 'active', 'Y'],
-  ['E1002', 'Chidi Okafor', 'BAK Holdings', 'Engineering', 'Lagos HQ', 'QA Analyst', 'E1005', 'active', 'Y'],
-  ['E1003', 'Fatima Bello', 'BAK Logistics', 'Operations', 'Abuja Site', 'Fleet Coordinator', 'E1006', 'active', 'N'],
-  ['E1004', 'Tunde Adebayo', 'BAK Logistics', 'Operations', 'Abuja Site', 'Warehouse Supervisor', 'E1006', 'active', 'Y'],
-  ['E1005', 'Ngozi Eze', 'BAK Holdings', 'Engineering', 'Lagos HQ', 'Engineering Manager', 'E1007', 'active', 'N'],
-  ['E1006', 'Musa Ibrahim', 'BAK Logistics', 'Operations', 'Abuja Site', 'Operations Manager', 'E1007', 'active', 'N'],
-  ['E1007', 'Grace Nwosu', 'BAK Holdings', 'Executive', 'Lagos HQ', 'COO', null, 'active', 'N'],
-  ['E1008', 'Segun Alabi', 'BAK Logistics', 'Finance', 'Abuja Site', 'Payroll Officer', 'E1007', 'inactive', 'N'],
+  ['E1001', 'Amina Yusuf', 'BAK Holdings', 'Engineering', 'Software Engineer', 'E1005', 'active', 'Y'],
+  ['E1002', 'Chidi Okafor', 'BAK Holdings', 'Engineering', 'QA Analyst', 'E1005', 'active', 'Y'],
+  ['E1003', 'Fatima Bello', 'BAK Logistics', 'Operations', 'Fleet Coordinator', 'E1006', 'active', 'N'],
+  ['E1004', 'Tunde Adebayo', 'BAK Logistics', 'Operations', 'Warehouse Supervisor', 'E1006', 'active', 'Y'],
+  ['E1005', 'Ngozi Eze', 'BAK Holdings', 'Engineering', 'Engineering Manager', 'E1007', 'active', 'N'],
+  ['E1006', 'Musa Ibrahim', 'BAK Logistics', 'Operations', 'Operations Manager', 'E1007', 'active', 'N'],
+  ['E1007', 'Grace Nwosu', 'BAK Holdings', 'Executive', 'COO', null, 'active', 'N'],
+  ['E1008', 'Segun Alabi', 'BAK Logistics', 'Finance', 'Payroll Officer', 'E1007', 'inactive', 'N'],
 ];
 
 const FAKE_PROJECTS = [
@@ -26,7 +26,7 @@ const FAKE_PROJECTS = [
 ];
 
 const EMPLOYEE_FIELDS = [
-  'emp_id', 'name', 'company', 'department', 'site',
+  'emp_id', 'name', 'company', 'department',
   'designation', 'reporting_manager_emp_id', 'status', 'ot_eligible',
 ];
 
