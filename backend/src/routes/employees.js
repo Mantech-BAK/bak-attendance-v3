@@ -18,6 +18,33 @@ const upload = multer({
   },
 });
 
+router.get('/direct-reports', async (req, res, next) => {
+  try {
+    const { supervisor_emp_id } = req.query;
+
+    if (!supervisor_emp_id) {
+      return res.status(400).json({ error: 'supervisor_emp_id is required' });
+    }
+
+    const supervisorResult = await pool.query('SELECT emp_id FROM employees WHERE emp_id = $1', [supervisor_emp_id]);
+    if (supervisorResult.rows.length === 0) {
+      return res.status(404).json({ error: `employee ${supervisor_emp_id} not found` });
+    }
+
+    const reportsResult = await pool.query(
+      `SELECT emp_id, name, designation, department, site, status
+       FROM employees
+       WHERE reporting_manager_emp_id = $1
+       ORDER BY name`,
+      [supervisor_emp_id]
+    );
+
+    res.json(reportsResult.rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * Admin-only, onboarding-time face registration — not self-enrollment.
  * The caller (admin portal) must identify who is performing the

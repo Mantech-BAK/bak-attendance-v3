@@ -14,15 +14,18 @@ import { API_BASE_URL } from '../config';
  *                                 { emp_id, type, project_code, lat, lng, entered_by?, device_ref?, recorded_at? }
  *                                 There is no task_id column on punches — only project_code, so the
  *                                 selected task's project_code must be sent, not its id.
- *
- * ASSUMED — not specified by the requirement, invented here so the
- * supervisor UI has something concrete to target. Confirm/adjust shape
- * with backend before relying on it:
- *   GET  /api/punches/pending?manager_emp_id=
- *   POST /api/punches/:id/approve
- *   POST /api/punches/:id/reject
- *   GET  /api/employees/direct-reports?manager_emp_id=
- *   POST /api/tasks
+ *   GET   /api/punches/pending?supervisor_emp_id=   — pending punches for direct reports of that supervisor
+ *                                 response: [{ id, emp_id, employee_name, type, project_code, punch_time, lat, lng, entry_method, entered_by }]
+ *   PATCH /api/punches/:id/approve   body: { supervisor_emp_id }
+ *   PATCH /api/punches/:id/reject    body: { supervisor_emp_id, reason }
+ *                                 Both verify supervisor_emp_id is actually that punch's employee's
+ *                                 reporting manager (403 otherwise) and that the punch is still
+ *                                 'pending' (409 if already approved/rejected).
+ *   GET   /api/employees/direct-reports?supervisor_emp_id=
+ *                                 response: [{ emp_id, name, designation, department, site, status }]
+ *   POST  /api/tasks            body: { emp_id, project_code, priority?, description, location?, source, created_by }
+ *                                 source must be one of: supervisor_app | backoffice | teams
+ *   GET   /api/projects         response: [{ project_code, project_name, company, status }] (OPEN only)
  */
 
 async function parseJsonSafe(response) {
@@ -95,37 +98,52 @@ export function submitPunch({ empId, type, projectCode, lat, lng }) {
   });
 }
 
-// ASSUMED
-export function fetchPendingApprovals(managerEmpId) {
-  return request(`/api/punches/pending?manager_emp_id=${encodeURIComponent(managerEmpId)}`);
+// CONFIRMED
+export function fetchPendingApprovals(supervisorEmpId) {
+  return request(`/api/punches/pending?supervisor_emp_id=${encodeURIComponent(supervisorEmpId)}`);
 }
 
-// ASSUMED
-export function approvePunch(punchId) {
-  return request(`/api/punches/${encodeURIComponent(punchId)}/approve`, { method: 'POST' });
+// CONFIRMED
+export function approvePunch(punchId, supervisorEmpId) {
+  return request(`/api/punches/${encodeURIComponent(punchId)}/approve`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ supervisor_emp_id: supervisorEmpId }),
+  });
 }
 
-// ASSUMED
-export function rejectPunch(punchId) {
-  return request(`/api/punches/${encodeURIComponent(punchId)}/reject`, { method: 'POST' });
+// CONFIRMED
+export function rejectPunch(punchId, supervisorEmpId, reason) {
+  return request(`/api/punches/${encodeURIComponent(punchId)}/reject`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ supervisor_emp_id: supervisorEmpId, reason }),
+  });
 }
 
-// ASSUMED
-export function fetchDirectReports(managerEmpId) {
-  return request(`/api/employees/direct-reports?manager_emp_id=${encodeURIComponent(managerEmpId)}`);
+// CONFIRMED
+export function fetchDirectReports(supervisorEmpId) {
+  return request(`/api/employees/direct-reports?supervisor_emp_id=${encodeURIComponent(supervisorEmpId)}`);
 }
 
-// ASSUMED
-export function createTask({ title, description, assignedEmpId, dueDate, createdBy }) {
+// CONFIRMED
+export function createTask({ assignedEmpId, projectCode, priority, description, location, createdBy }) {
   return request('/api/tasks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      title,
+      emp_id: assignedEmpId,
+      project_code: projectCode,
+      priority,
       description,
-      assigned_emp_id: assignedEmpId,
-      due_date: dueDate,
+      location,
+      source: 'supervisor_app',
       created_by: createdBy,
     }),
   });
+}
+
+// CONFIRMED
+export function fetchProjects() {
+  return request('/api/projects');
 }

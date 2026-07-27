@@ -17,6 +17,7 @@ import TaskPicker from '../components/TaskPicker';
 import PunchButtons from '../components/PunchButtons';
 import SupervisorPanel from '../components/SupervisorPanel';
 import CreateTaskModal from '../components/CreateTaskModal';
+import RejectReasonModal from '../components/RejectReasonModal';
 import {
   identifyPunch,
   submitPunch,
@@ -24,6 +25,7 @@ import {
   approvePunch,
   rejectPunch,
   fetchDirectReports,
+  fetchProjects,
   createTask,
   devIdentifyBypass,
 } from '../api/client';
@@ -31,7 +33,7 @@ import { SUPERVISOR_DESIGNATION } from '../config';
 
 // DEV ONLY — remove this constant, handleDevBypass, and the button that
 // calls it once real face recognition replaces the exact-hash stub.
-const DEV_BYPASS_EMP_ID = 'E1001';
+const DEV_BYPASS_EMP_ID = 'E1005';
 
 export default function PunchScreen() {
   const [showCamera, setShowCamera] = useState(false);
@@ -43,7 +45,9 @@ export default function PunchScreen() {
   const [loadingApprovals, setLoadingApprovals] = useState(false);
   const [processingApprovalId, setProcessingApprovalId] = useState(null);
   const [directReports, setDirectReports] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [showCreateTask, setShowCreateTask] = useState(false);
+  const [rejectingPunchId, setRejectingPunchId] = useState(null);
 
   const isSupervisor = employee?.designation === SUPERVISOR_DESIGNATION;
 
@@ -52,17 +56,20 @@ export default function PunchScreen() {
     setSelectedProjectCode(null);
     setPendingApprovals([]);
     setDirectReports([]);
+    setProjects([]);
   }
 
-  const loadSupervisorData = useCallback(async (managerEmpId) => {
+  const loadSupervisorData = useCallback(async (supervisorEmpId) => {
     setLoadingApprovals(true);
     try {
-      const [approvals, reports] = await Promise.all([
-        fetchPendingApprovals(managerEmpId),
-        fetchDirectReports(managerEmpId),
+      const [approvals, reports, projectList] = await Promise.all([
+        fetchPendingApprovals(supervisorEmpId),
+        fetchDirectReports(supervisorEmpId),
+        fetchProjects(),
       ]);
       setPendingApprovals(approvals || []);
       setDirectReports(reports || []);
+      setProjects(projectList || []);
     } catch (err) {
       Alert.alert('Could not load team data', err.message);
     } finally {
@@ -123,7 +130,7 @@ export default function PunchScreen() {
   async function handleApprove(punchId) {
     setProcessingApprovalId(punchId);
     try {
-      await approvePunch(punchId);
+      await approvePunch(punchId, employee.emp_id);
       setPendingApprovals((prev) => prev.filter((p) => p.id !== punchId));
     } catch (err) {
       Alert.alert('Approve failed', err.message);
@@ -132,20 +139,14 @@ export default function PunchScreen() {
     }
   }
 
-  async function handleReject(punchId) {
-    setProcessingApprovalId(punchId);
-    try {
-      await rejectPunch(punchId);
-      setPendingApprovals((prev) => prev.filter((p) => p.id !== punchId));
-    } catch (err) {
-      Alert.alert('Reject failed', err.message);
-    } finally {
-      setProcessingApprovalId(null);
-    }
+  async function handleRejectSubmit(reason) {
+    await rejectPunch(rejectingPunchId, employee.emp_id, reason);
+    setPendingApprovals((prev) => prev.filter((p) => p.id !== rejectingPunchId));
+    setRejectingPunchId(null);
   }
 
-  async function handleCreateTask({ title, description, assignedEmpId }) {
-    await createTask({ title, description, assignedEmpId, dueDate: new Date().toISOString(), createdBy: employee.emp_id });
+  async function handleCreateTask({ assignedEmpId, projectCode, priority, description, location }) {
+    await createTask({ assignedEmpId, projectCode, priority, description, location, createdBy: employee.emp_id });
     setShowCreateTask(false);
     Alert.alert('Task created', 'The task was assigned successfully.');
   }
@@ -197,7 +198,7 @@ export default function PunchScreen() {
                 pendingApprovals={pendingApprovals}
                 loadingApprovals={loadingApprovals}
                 onApprove={handleApprove}
-                onReject={handleReject}
+                onReject={setRejectingPunchId}
                 onCreateTask={() => setShowCreateTask(true)}
                 processingId={processingApprovalId}
               />
@@ -219,8 +220,15 @@ export default function PunchScreen() {
       <CreateTaskModal
         visible={showCreateTask}
         directReports={directReports}
+        projects={projects}
         onSubmit={handleCreateTask}
         onClose={() => setShowCreateTask(false)}
+      />
+
+      <RejectReasonModal
+        visible={rejectingPunchId != null}
+        onSubmit={handleRejectSubmit}
+        onClose={() => setRejectingPunchId(null)}
       />
     </SafeAreaView>
   );

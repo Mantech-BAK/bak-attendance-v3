@@ -22,7 +22,7 @@ export default function SupervisorPanel({
             <View style={styles.approvalInfo}>
               <Text style={styles.approvalName}>{item.employee_name}</Text>
               <Text style={styles.approvalMeta}>
-                {item.type} · {new Date(item.requested_at).toLocaleTimeString()}
+                {item.type} · {new Date(item.punch_time).toLocaleTimeString()}
               </Text>
             </View>
             <View style={styles.approvalActions}>

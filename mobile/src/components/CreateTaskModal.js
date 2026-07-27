@@ -10,36 +10,52 @@ import {
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 
-export default function CreateTaskModal({ visible, directReports, onSubmit, onClose }) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+const PRIORITIES = ['low', 'medium', 'high'];
+
+export default function CreateTaskModal({ visible, directReports, projects, onSubmit, onClose }) {
   const [assignedEmpId, setAssignedEmpId] = useState(null);
+  const [projectCode, setProjectCode] = useState(null);
+  const [priority, setPriority] = useState('medium');
+  const [description, setDescription] = useState('');
+  const [location, setLocation] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     if (visible) {
-      setTitle('');
-      setDescription('');
       setAssignedEmpId(directReports?.[0]?.emp_id ?? null);
+      setProjectCode(projects?.[0]?.project_code ?? null);
+      setPriority('medium');
+      setDescription('');
+      setLocation('');
       setError(null);
     }
-  }, [visible, directReports]);
+  }, [visible, directReports, projects]);
 
   async function handleSubmit() {
-    if (!title.trim()) {
-      setError('Title is required');
-      return;
-    }
     if (!assignedEmpId) {
       setError('Choose who this task is assigned to');
+      return;
+    }
+    if (!projectCode) {
+      setError('Choose a project');
+      return;
+    }
+    if (!description.trim()) {
+      setError('Description is required');
       return;
     }
 
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit({ title: title.trim(), description: description.trim(), assignedEmpId });
+      await onSubmit({
+        assignedEmpId,
+        projectCode,
+        priority,
+        description: description.trim(),
+        location: location.trim() || null,
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -53,23 +69,6 @@ export default function CreateTaskModal({ visible, directReports, onSubmit, onCl
         <View style={styles.sheet}>
           <Text style={styles.heading}>Create Task</Text>
 
-          <Text style={styles.label}>Title</Text>
-          <TextInput
-            style={styles.input}
-            value={title}
-            onChangeText={setTitle}
-            placeholder="e.g. Restock aisle 3"
-          />
-
-          <Text style={styles.label}>Description (optional)</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Details for the assignee"
-            multiline
-          />
-
           <Text style={styles.label}>Assign To</Text>
           <View style={styles.pickerWrapper}>
             <Picker selectedValue={assignedEmpId} onValueChange={setAssignedEmpId}>
@@ -78,6 +77,45 @@ export default function CreateTaskModal({ visible, directReports, onSubmit, onCl
               ))}
             </Picker>
           </View>
+
+          <Text style={styles.label}>Project</Text>
+          <View style={styles.pickerWrapper}>
+            <Picker selectedValue={projectCode} onValueChange={setProjectCode}>
+              {(projects || []).map((project) => (
+                <Picker.Item
+                  key={project.project_code}
+                  label={project.project_name || project.project_code}
+                  value={project.project_code}
+                />
+              ))}
+            </Picker>
+          </View>
+
+          <Text style={styles.label}>Priority</Text>
+          <View style={styles.pickerWrapper}>
+            <Picker selectedValue={priority} onValueChange={setPriority}>
+              {PRIORITIES.map((p) => (
+                <Picker.Item key={p} label={p} value={p} />
+              ))}
+            </Picker>
+          </View>
+
+          <Text style={styles.label}>Description</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="What needs to be done"
+            multiline
+          />
+
+          <Text style={styles.label}>Location (optional)</Text>
+          <TextInput
+            style={styles.input}
+            value={location}
+            onChangeText={setLocation}
+            placeholder="e.g. Lagos HQ"
+          />
 
           {error && <Text style={styles.error}>{error}</Text>}
 
