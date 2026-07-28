@@ -11,12 +11,17 @@ const punchesRoutes = require('./routes/punches');
 const tasksRoutes = require('./routes/tasks');
 const projectsRoutes = require('./routes/projects');
 const attendanceRoutes = require('./routes/attendance');
+const exceptionsRoutes = require('./routes/exceptions');
 const devBypassRoutes = require('./routes/devBypass'); // DEV ONLY — remove with routes/devBypass.js once real face recognition lands
 const { startArtifyCron } = require('./jobs/artifyCron');
 
 const app = express();
 
-app.use(helmet());
+// crossOriginResourcePolicy defaults to 'same-origin', which makes browsers
+// (unlike React Native) silently block fetch() responses from a different
+// origin (e.g. the backoffice on :5173 fetching this API on :3000) even
+// though CORS itself allows it — CORP is enforced independently of CORS.
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors());
 app.use(express.json());
 
@@ -36,6 +41,7 @@ app.use('/api/punches', punchesRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/projects', projectsRoutes);
 app.use('/api/attendance', attendanceRoutes);
+app.use('/api/exceptions', exceptionsRoutes);
 app.use('/api/dev', devBypassRoutes); // DEV ONLY — remove with routes/devBypass.js once real face recognition lands
 
 app.use((err, req, res, next) => {

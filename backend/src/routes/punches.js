@@ -3,6 +3,23 @@ const pool = require('../db');
 
 const router = express.Router();
 
+router.get('/', async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `SELECT p.id, p.emp_id, e.name AS employee_name, e.designation AS employee_designation,
+              p.project_code, pr.project_name, p.punch_time, p.lat, p.lng, p.entry_method,
+              p.entered_by, p.approval_status, p.approved_by, p.approved_at, p.rejection_reason, p.created_at
+       FROM punches p
+       LEFT JOIN employees e ON e.emp_id = p.emp_id
+       LEFT JOIN projects pr ON pr.project_code = p.project_code
+       ORDER BY p.punch_time DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/pending', async (req, res, next) => {
   try {
     const { supervisor_emp_id } = req.query;
@@ -180,7 +197,15 @@ router.post('/', async (req, res, next) => {
         return res.status(403).json({ error: `${emp_id} does not report to ${enteredBy}` });
       }
 
-      // Only a true supervisor entering on someone else's behalf is auto-approved.
+      // Auto-approval is gated on the literal designation string "Supervisor",
+      // not on "is a reporting manager" generally. A reporting manager whose
+      // designation is something else (e.g. "Operations Manager") is a valid
+      // entered_by and passes the check above, but their entries still land
+      // as 'pending' and surface in their own GET /pending list for review.
+      //
+      // CONFIRMED INTENDED (2026-07-28) — not an oversight. Do not widen this
+      // to "any reporting manager" without an explicit product decision to
+      // do so; narrowing who gets auto-approval was a deliberate choice.
       approvalStatus = enteredByResult.rows[0].designation === 'Supervisor' ? 'approved' : 'pending';
     }
 

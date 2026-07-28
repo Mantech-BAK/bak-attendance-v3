@@ -56,7 +56,9 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     const message = body?.error || `Request to ${path} failed (${response.status})`;
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
 
   return body;
@@ -163,5 +165,5 @@ export function createTask({ assignedEmpId, projectCode, priority, description, 
 
 // CONFIRMED
 export function fetchProjects() {
-  return request('/api/projects');
+  return request('/api/projects?status=OPEN');
 }

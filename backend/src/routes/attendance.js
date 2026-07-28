@@ -1,8 +1,17 @@
 const express = require('express');
 const pool = require('../db');
-const { calculateAttendanceForEmployee } = require('../services/attendance');
+const { calculateAttendanceForEmployee, calculateAttendanceForAllEmployees } = require('../services/attendance');
 
 const router = express.Router();
+
+router.get('/', async (req, res, next) => {
+  try {
+    const { sessions, exceptionsRaised } = await calculateAttendanceForAllEmployees();
+    res.json({ sessions, exceptions_raised: exceptionsRaised });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/:emp_id', async (req, res, next) => {
   try {

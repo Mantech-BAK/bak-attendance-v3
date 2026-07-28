@@ -38,21 +38,30 @@ async function raiseSinglePunchException(empId, projectCode, date, punch) {
   return result.rows[0];
 }
 
-async function calculateAttendanceForEmployee(empId) {
+// empId === null computes attendance across all employees at once (used by
+// the backoffice Reports page) instead of one employee at a time.
+async function calculateAttendance(empId) {
+  const params = [];
+  let whereClause = "approval_status <> 'rejected'";
+  if (empId) {
+    whereClause += ' AND emp_id = $1';
+    params.push(empId);
+  }
+
   const { rows } = await pool.query(
-    `SELECT id, project_code, punch_time
+    `SELECT id, emp_id, project_code, punch_time
      FROM punches
-     WHERE emp_id = $1 AND approval_status <> 'rejected'
-     ORDER BY project_code, punch_time`,
-    [empId]
+     WHERE ${whereClause}
+     ORDER BY emp_id, project_code, punch_time`,
+    params
   );
 
   const groups = new Map();
   for (const row of rows) {
     const date = dateKey(row.punch_time);
-    const key = `${row.project_code}|${date}`;
+    const key = `${row.emp_id}|${row.project_code}|${date}`;
     if (!groups.has(key)) {
-      groups.set(key, { projectCode: row.project_code, date, punches: [] });
+      groups.set(key, { empId: row.emp_id, projectCode: row.project_code, date, punches: [] });
     }
     groups.get(key).punches.push(row);
   }
@@ -60,20 +69,21 @@ async function calculateAttendanceForEmployee(empId) {
   const sessions = [];
   const exceptionsRaised = [];
 
-  for (const { projectCode, date, punches } of groups.values()) {
+  for (const { empId: groupEmpId, projectCode, date, punches } of groups.values()) {
     const sorted = [...punches].sort((a, b) => a.punch_time - b.punch_time);
     const punchIn = sorted[0];
     const punchOut = sorted.length > 1 ? sorted[sorted.length - 1] : null;
     const incomplete = sorted.length === 1;
 
     if (incomplete) {
-      const raised = await raiseSinglePunchException(empId, projectCode, date, punchIn);
+      const raised = await raiseSinglePunchException(groupEmpId, projectCode, date, punchIn);
       if (raised) {
         exceptionsRaised.push(raised);
       }
     }
 
     sessions.push({
+      emp_id: groupEmpId,
       project_code: projectCode,
       date,
       punch_count: sorted.length,
@@ -88,4 +98,12 @@ async function calculateAttendanceForEmployee(empId) {
   return { sessions, exceptionsRaised };
 }
 
-module.exports = { calculateAttendanceForEmployee };
+function calculateAttendanceForEmployee(empId) {
+  return calculateAttendance(empId);
+}
+
+function calculateAttendanceForAllEmployees() {
+  return calculateAttendance(null);
+}
+
+module.exports = { calculateAttendanceForEmployee, calculateAttendanceForAllEmployees };

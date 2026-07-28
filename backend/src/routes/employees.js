@@ -18,6 +18,19 @@ const upload = multer({
   },
 });
 
+router.get('/', async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `SELECT emp_id, name, company, department, designation, reporting_manager_emp_id, status, ot_eligible, created_at
+       FROM employees
+       ORDER BY name`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/direct-reports', async (req, res, next) => {
   try {
     const { supervisor_emp_id } = req.query;

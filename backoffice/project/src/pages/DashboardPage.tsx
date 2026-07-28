@@ -1,0 +1,215 @@
+import { useEffect, useState } from 'react';
+import {
+  Users,
+  ClipboardList,
+  Clock,
+  Building2,
+  TrendingUp,
+  AlertTriangle,
+  CheckCircle2,
+} from 'lucide-react';
+import { fetchEmployees, fetchTasks, fetchPunches, fetchProjects, fetchExceptions } from '@/lib/api';
+import type { Employee, Task, Punch, Project, ExceptionRow } from '@/lib/api';
+import { PageHeader } from '@/components/PageHeader';
+import { Card, Badge, Spinner, EmptyState } from '@/components/ui';
+import { cn, formatDateTime, initials } from '@/lib/utils';
+
+type Stats = {
+  employees: Employee[];
+  tasks: Task[];
+  punches: Punch[];
+  projects: Project[];
+  exceptions: ExceptionRow[];
+};
+
+export function DashboardPage() {
+  const [data, setData] = useState<Stats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      const [employees, tasks, punches, projects, exceptions] = await Promise.all([
+        fetchEmployees(),
+        fetchTasks(),
+        fetchPunches(),
+        fetchProjects(),
+        fetchExceptions(),
+      ]);
+      setData({ employees, tasks, punches, projects, exceptions });
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  if (loading || !data) {
+    return (
+      <>
+        <PageHeader title="Dashboard" subtitle="Overview of attendance and operations" />
+        <Spinner />
+      </>
+    );
+  }
+
+  const activeEmployees = data.employees.filter((e) => e.status === 'active').length;
+  const activeProjects = data.projects.filter((p) => p.status === 'OPEN').length;
+  const openExceptions = data.exceptions.filter((e) => e.status === 'open');
+
+  const recentTasks = data.tasks.slice(0, 5);
+  const recentPunches = data.punches.slice(0, 5);
+
+  const departments = Array.from(new Set(data.employees.map((e) => e.department).filter(Boolean))) as string[];
+
+  const statCards = [
+    { label: 'Active Employees', value: activeEmployees, total: data.employees.length, icon: Users, color: 'teal' },
+    { label: 'Total Tasks', value: data.tasks.length, icon: ClipboardList, color: 'sky' },
+    { label: 'Total Punches', value: data.punches.length, icon: Clock, color: 'amber' },
+    { label: 'Open Projects', value: activeProjects, total: data.projects.length, icon: Building2, color: 'slate' },
+  ];
+
+  return (
+    <>
+      <PageHeader title="Dashboard" subtitle="Overview of attendance and operations" />
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {statCards.map((s) => {
+          const Icon = s.icon;
+          const colorMap: Record<string, string> = {
+            teal: 'bg-teal-50 text-teal-600',
+            sky: 'bg-sky-50 text-sky-600',
+            amber: 'bg-amber-50 text-amber-600',
+            slate: 'bg-slate-100 text-slate-600',
+          };
+          return (
+            <Card key={s.label} className="p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-500">{s.label}</p>
+                  <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
+                    {s.value}
+                    {s.total !== undefined && (
+                      <span className="ml-1 text-base font-medium text-slate-400">/ {s.total}</span>
+                    )}
+                  </p>
+                </div>
+                <div className={cn('flex h-12 w-12 items-center justify-center rounded-xl', colorMap[s.color])}>
+                  <Icon className="h-6 w-6" />
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card className="p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <ClipboardList className="h-5 w-5 text-slate-400" />
+            <h2 className="text-base font-semibold text-slate-900">Recent Tasks</h2>
+          </div>
+          {recentTasks.length === 0 ? (
+            <EmptyState icon={<ClipboardList className="h-6 w-6" />} title="No tasks yet" message="Created tasks will appear here." />
+          ) : (
+            <ul className="space-y-3">
+              {recentTasks.map((t) => {
+                const priorityVariant = t.priority === 'high' ? 'error' : t.priority === 'medium' ? 'warning' : 'neutral';
+                return (
+                  <li key={t.id} className="flex items-start gap-3 rounded-xl border border-slate-100 p-3 transition hover:border-slate-200 hover:bg-slate-50">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs font-semibold text-slate-600">
+                      {t.employee_name ? initials(t.employee_name) : '—'}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-slate-900">{t.description}</p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        <Badge variant={priorityVariant}>{t.priority ?? 'none'}</Badge>
+                        <Badge variant="info">{t.status}</Badge>
+                        <span className="text-xs text-slate-400">{t.employee_name ?? 'Unassigned'}</span>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
+
+        <Card className="p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-slate-400" />
+            <h2 className="text-base font-semibold text-slate-900">Recent Punches</h2>
+          </div>
+          {recentPunches.length === 0 ? (
+            <EmptyState icon={<Clock className="h-6 w-6" />} title="No punches yet" message="Time entries will appear here." />
+          ) : (
+            <ul className="space-y-3">
+              {recentPunches.map((p) => (
+                <li key={p.id} className="flex items-center gap-3 rounded-xl border border-slate-100 p-3 transition hover:border-slate-200 hover:bg-slate-50">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs font-semibold text-slate-600">
+                    {p.employee_name ? initials(p.employee_name) : '—'}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-slate-900">{p.employee_name ?? 'Unknown'}</p>
+                    <p className="truncate text-xs text-slate-500">{p.project_name ?? 'No project'}</p>
+                  </div>
+                  <div className="text-right">
+                    <Badge variant={p.approval_status === 'approved' ? 'success' : p.approval_status === 'rejected' ? 'error' : 'warning'}>
+                      {p.approval_status}
+                    </Badge>
+                    <p className="mt-1 text-xs text-slate-400">{formatDateTime(p.punch_time)}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+
+      <Card className="mt-6 p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <TrendingUp className="h-5 w-5 text-slate-400" />
+          <h2 className="text-base font-semibold text-slate-900">Department Overview</h2>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {departments.map((d) => {
+            const count = data.employees.filter((e) => e.department === d).length;
+            const pct = data.employees.length ? (count / data.employees.length) * 100 : 0;
+            return (
+              <div key={d} className="rounded-xl border border-slate-100 p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-slate-700">{d}</p>
+                  <span className="text-sm font-semibold text-slate-900">{count}</span>
+                </div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      <Card className="mt-6 p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5 text-amber-500" />
+          <h2 className="text-base font-semibold text-slate-900">Needs Attention</h2>
+        </div>
+        <div className="space-y-2">
+          {openExceptions.map((e) => (
+            <div key={e.id} className="flex items-center gap-3 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>
+                {e.employee_name && <strong>{e.employee_name}: </strong>}
+                {e.details}
+              </span>
+            </div>
+          ))}
+          {openExceptions.length === 0 && (
+            <div className="flex items-center gap-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              <span>All clear — no open exceptions.</span>
+            </div>
+          )}
+        </div>
+      </Card>
+    </>
+  );
+}

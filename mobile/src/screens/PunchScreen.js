@@ -1,7 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -70,6 +71,10 @@ export default function PunchScreen() {
   function handleBackToSelf() {
     setTeamMemberTarget(null);
     setSelectedProjectCode(employee?.tasks?.length === 1 ? employee.tasks[0].project_code : null);
+    // Returning to the panel is itself a "coming back into view" moment —
+    // refresh so anything that changed while punching on behalf of someone
+    // else isn't shown stale.
+    loadSupervisorDataRef.current(employee.emp_id);
   }
 
   const loadSupervisorData = useCallback(async (supervisorEmpId) => {
@@ -88,6 +93,28 @@ export default function PunchScreen() {
     } finally {
       setLoadingApprovals(false);
     }
+  }, []);
+
+  // Kept in a ref so the AppState listener and handleBackToSelf always call
+  // the latest version without needing to resubscribe on every render.
+  const loadSupervisorDataRef = useRef(loadSupervisorData);
+  loadSupervisorDataRef.current = loadSupervisorData;
+
+  // There's no multi-screen navigator here (single always-mounted screen),
+  // so AppState is the equivalent of a navigation focus listener: refresh
+  // the pending-approvals list whenever the app comes back to the
+  // foreground while a supervisor is identified, instead of only ever
+  // fetching once at identify-time.
+  const supervisorRef = useRef({ isSupervisor: false, empId: null });
+  supervisorRef.current = { isSupervisor, empId: employee?.emp_id ?? null };
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && supervisorRef.current.isSupervisor) {
+        loadSupervisorDataRef.current(supervisorRef.current.empId);
+      }
+    });
+    return () => subscription.remove();
   }, []);
 
   function applyTeamMemberResult(result) {
@@ -198,16 +225,34 @@ export default function PunchScreen() {
       await approvePunch(punchId, employee.emp_id);
       setPendingApprovals((prev) => prev.filter((p) => p.id !== punchId));
     } catch (err) {
-      Alert.alert('Approve failed', err.message);
+      if (err.status === 403) {
+        Alert.alert('No longer assigned to you', 'This punch is no longer assigned to you. Refreshing your list…');
+        loadSupervisorData(employee.emp_id);
+      } else {
+        Alert.alert('Approve failed', err.message);
+      }
     } finally {
       setProcessingApprovalId(null);
     }
   }
 
   async function handleRejectSubmit(reason) {
-    await rejectPunch(rejectingPunchId, employee.emp_id, reason);
-    setPendingApprovals((prev) => prev.filter((p) => p.id !== rejectingPunchId));
-    setRejectingPunchId(null);
+    try {
+      await rejectPunch(rejectingPunchId, employee.emp_id, reason);
+      setPendingApprovals((prev) => prev.filter((p) => p.id !== rejectingPunchId));
+      setRejectingPunchId(null);
+    } catch (err) {
+      if (err.status === 403) {
+        setRejectingPunchId(null);
+        Alert.alert('No longer assigned to you', 'This punch is no longer assigned to you. Refreshing your list…');
+        loadSupervisorData(employee.emp_id);
+        return;
+      }
+      // Any other error (validation, network, already-resolved conflict) is
+      // shown inline by RejectReasonModal, which keeps the modal open so
+      // the supervisor can retry.
+      throw err;
+    }
   }
 
   async function handleCreateTask({ assignedEmpId, projectCode, priority, description, location }) {

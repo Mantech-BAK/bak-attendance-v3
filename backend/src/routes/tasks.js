@@ -54,6 +54,22 @@ router.post('/', async (req, res, next) => {
   }
 });
 
+router.get('/', async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `SELECT t.id, t.emp_id, e.name AS employee_name, t.project_code, p.project_name,
+              t.task_date, t.priority, t.description, t.location, t.status, t.source, t.created_by, t.created_at
+       FROM tasks t
+       LEFT JOIN employees e ON e.emp_id = t.emp_id
+       LEFT JOIN projects p ON p.project_code = t.project_code
+       ORDER BY t.created_at DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/me/:emp_id', async (req, res, next) => {
   try {
     const { emp_id } = req.params;
