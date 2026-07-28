@@ -17,7 +17,7 @@ export default function CreateTaskModal({ visible, directReports, projects, onSu
   const [projectCode, setProjectCode] = useState(null);
   const [priority, setPriority] = useState('medium');
   const [description, setDescription] = useState('');
-  const [location, setLocation] = useState('');
+  const [locationSite, setLocationSite] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -27,7 +27,7 @@ export default function CreateTaskModal({ visible, directReports, projects, onSu
       setProjectCode(projects?.[0]?.project_code ?? null);
       setPriority('medium');
       setDescription('');
-      setLocation('');
+      setLocationSite('');
       setError(null);
     }
   }, [visible, directReports, projects]);
@@ -54,7 +54,7 @@ export default function CreateTaskModal({ visible, directReports, projects, onSu
         projectCode,
         priority,
         description: description.trim(),
-        location: location.trim() || null,
+        locationSite: locationSite.trim() || null,
       });
     } catch (err) {
       setError(err.message);
@@ -112,8 +112,8 @@ export default function CreateTaskModal({ visible, directReports, projects, onSu
           <Text style={styles.label}>Location (optional)</Text>
           <TextInput
             style={styles.input}
-            value={location}
-            onChangeText={setLocation}
+            value={locationSite}
+            onChangeText={setLocationSite}
             placeholder="e.g. Lagos HQ"
           />
 

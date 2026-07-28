@@ -37,7 +37,7 @@ import { API_BASE_URL } from '../config';
  *                                 'pending' (409 if already approved/rejected).
  *   GET   /api/employees/direct-reports?supervisor_emp_id=
  *                                 response: [{ emp_id, name, designation, department, status }]
- *   POST  /api/tasks            body: { emp_id, project_code, priority?, description, location?, source, created_by }
+ *   POST  /api/tasks            body: { emp_id, project_code, priority?, description, location_site?, source, created_by }
  *                                 source must be one of: supervisor_app | backoffice | teams
  *   GET   /api/projects         response: [{ project_code, project_name, company, status }] (OPEN only)
  */
@@ -147,7 +147,7 @@ export function fetchDirectReports(supervisorEmpId) {
 }
 
 // CONFIRMED
-export function createTask({ assignedEmpId, projectCode, priority, description, location, createdBy }) {
+export function createTask({ assignedEmpId, projectCode, priority, description, locationSite, createdBy }) {
   return request('/api/tasks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -156,7 +156,7 @@ export function createTask({ assignedEmpId, projectCode, priority, description, 
       project_code: projectCode,
       priority,
       description,
-      location,
+      location_site: locationSite,
       source: 'supervisor_app',
       created_by: createdBy,
     }),

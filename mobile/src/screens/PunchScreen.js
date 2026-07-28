@@ -255,8 +255,8 @@ export default function PunchScreen() {
     }
   }
 
-  async function handleCreateTask({ assignedEmpId, projectCode, priority, description, location }) {
-    await createTask({ assignedEmpId, projectCode, priority, description, location, createdBy: employee.emp_id });
+  async function handleCreateTask({ assignedEmpId, projectCode, priority, description, locationSite }) {
+    await createTask({ assignedEmpId, projectCode, priority, description, locationSite, createdBy: employee.emp_id });
     setShowCreateTask(false);
     Alert.alert('Task created', 'The task was assigned successfully.');
   }

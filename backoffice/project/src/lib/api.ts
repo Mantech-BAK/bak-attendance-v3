@@ -37,7 +37,7 @@ export type Task = {
   task_date: string;
   priority: string | null;
   description: string;
-  location: string | null;
+  location_site: string | null;
   status: string;
   source: string;
   created_by: string;
@@ -60,6 +60,7 @@ export type Punch = {
   approved_by: string | null;
   approved_at: string | null;
   rejection_reason: string | null;
+  resolved_area: string | null;
   created_at: string;
 };
 
@@ -103,7 +104,7 @@ export function createTask(input: {
   projectCode: string;
   priority: string;
   description: string;
-  location: string | null;
+  locationSite: string | null;
   createdBy: string;
 }): Promise<Task> {
   return request('/api/tasks', {
@@ -114,7 +115,7 @@ export function createTask(input: {
       project_code: input.projectCode,
       priority: input.priority,
       description: input.description,
-      location: input.location,
+      location_site: input.locationSite,
       source: 'backoffice',
       created_by: input.createdBy,
     }),

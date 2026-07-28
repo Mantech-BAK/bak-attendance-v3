@@ -35,12 +35,13 @@ async function upsertEmployees(client, employees) {
 async function upsertProjects(client, projects) {
   for (const proj of projects) {
     await client.query(
-      `INSERT INTO projects (project_code, project_name, company, status)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO projects (project_code, project_name, company, status, artify_last_synced)
+       VALUES ($1, $2, $3, $4, now())
        ON CONFLICT (project_code) DO UPDATE SET
          project_name = EXCLUDED.project_name,
          company = EXCLUDED.company,
-         status = EXCLUDED.status`,
+         status = EXCLUDED.status,
+         artify_last_synced = now()`,
       [proj.project_code, proj.project_name, proj.company, proj.status]
     );
   }

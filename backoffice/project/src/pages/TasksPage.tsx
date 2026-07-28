@@ -11,7 +11,7 @@ type FormState = {
   projectCode: string;
   priority: string;
   description: string;
-  location: string;
+  locationSite: string;
   createdBy: string;
 };
 
@@ -20,7 +20,7 @@ const EMPTY_FORM: FormState = {
   projectCode: '',
   priority: 'medium',
   description: '',
-  location: '',
+  locationSite: '',
   createdBy: '',
 };
 
@@ -65,7 +65,7 @@ export function TasksPage() {
         projectCode: form.projectCode,
         priority: form.priority,
         description: form.description.trim(),
-        location: form.location.trim() || null,
+        locationSite: form.locationSite.trim() || null,
         createdBy: form.createdBy,
       });
       setSubmitSuccess(true);
@@ -130,7 +130,7 @@ export function TasksPage() {
 
               <Textarea value={form.description} onChange={(v) => setForm({ ...form, description: v })} label="Description" id="task-description" placeholder="Describe the task in detail…" rows={4} />
 
-              <Input value={form.location} onChange={(v) => setForm({ ...form, location: v })} label="Location" id="task-location" placeholder="e.g. Site office, Dock 2…" />
+              <Input value={form.locationSite} onChange={(v) => setForm({ ...form, locationSite: v })} label="Location" id="task-location" placeholder="e.g. Site office, Dock 2…" />
 
               <Select value={form.createdBy} onChange={(v) => setForm({ ...form, createdBy: v })} label="Created By" id="task-created-by">
                 <option value="">Select admin…</option>
@@ -194,7 +194,7 @@ export function TasksPage() {
                           <span className="text-xs text-slate-500">{t.project_name ?? 'No project'}</span>
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-slate-400">
-                          {t.location && (<span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {t.location}</span>)}
+                          {t.location_site && (<span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {t.location_site}</span>)}
                           <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {formatDate(t.created_at)}</span>
                           <span>Created by {t.created_by}</span>
                         </div>
