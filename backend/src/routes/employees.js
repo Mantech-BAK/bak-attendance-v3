@@ -84,30 +84,15 @@ router.post('/:emp_id/register-face', upload.single('face'), async (req, res, ne
 
     const faceTemplate = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
 
-    const existing = await pool.query(
-      'SELECT id FROM biometric_templates WHERE emp_id = $1',
-      [emp_id]
+    const result = await pool.query(
+      `UPDATE employees
+       SET face_template = $1, registered_by = $2, registered_at = now()
+       WHERE emp_id = $3
+       RETURNING emp_id, registered_by, registered_at`,
+      [faceTemplate, registered_by.trim(), emp_id]
     );
 
-    let result;
-    if (existing.rows.length > 0) {
-      result = await pool.query(
-        `UPDATE biometric_templates
-         SET face_template = $1, registered_by = $2, registered_at = now()
-         WHERE emp_id = $3
-         RETURNING id, emp_id, registered_by, registered_at`,
-        [faceTemplate, registered_by.trim(), emp_id]
-      );
-    } else {
-      result = await pool.query(
-        `INSERT INTO biometric_templates (emp_id, face_template, registered_by, registered_at)
-         VALUES ($1, $2, $3, now())
-         RETURNING id, emp_id, registered_by, registered_at`,
-        [emp_id, faceTemplate, registered_by.trim()]
-      );
-    }
-
-    res.status(existing.rows.length > 0 ? 200 : 201).json(result.rows[0]);
+    res.status(200).json(result.rows[0]);
   } catch (err) {
     next(err);
   }

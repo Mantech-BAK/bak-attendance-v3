@@ -9,6 +9,14 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// face_template, fingerprint_template, registered_by, and registered_at are
+// deliberately absent from both the column list and the SET clause below.
+// ARTIFY owns identity/org fields only — it has no concept of biometric
+// enrollment, so this upsert must never touch those four columns. Postgres
+// only overwrites columns explicitly named in ON CONFLICT ... DO UPDATE SET,
+// so omitting them here is sufficient to leave existing enrollments intact.
+// Covered by test/artifySync.test.js — do not add these columns here
+// without updating that test.
 async function upsertEmployees(client, employees) {
   for (const emp of employees) {
     await client.query(
