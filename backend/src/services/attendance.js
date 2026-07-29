@@ -6,7 +6,9 @@ const { getAllSettings, parseRamzanPeriods } = require('./settings');
  * time, from punch_time ordering within an (emp_id, project_code, day)
  * group: earliest = IN, latest = OUT (First-In-Last-Out). A group with
  * only one punch is an incomplete session and raises a 'single_punch_only'
- * exception for supervisor review.
+ * exception for supervisor review — but only for past days. A single punch
+ * for today is normal and expected mid-day (the employee just hasn't
+ * pressed Punch again to close that project yet), not an anomaly.
  *
  * Rejected punches are excluded — a supervisor rejection explicitly
  * invalidates that punch, so letting it stand in as an official IN/OUT
@@ -68,6 +70,77 @@ async function raiseSinglePunchException(empId, projectCode, date, punch) {
   return result.rows[0];
 }
 
+/**
+ * Nested-project time, within one employee's one day: if a project's entire
+ * punch span (its own first-to-last) falls chronologically inside another
+ * project's wider span, that inner project's counted time is subtracted
+ * from the outer one's — otherwise the same stretch of time would be
+ * double-counted as "worked" under two different projects at once. Can
+ * nest more than two levels deep (a project nested inside a project that's
+ * itself nested inside another).
+ *
+ * Only sessions with a real punch_in/punch_out pair participate — a
+ * single-punch (incomplete) session has no span to nest or be nested by.
+ *
+ * Algorithm: for each session, find its *direct* parent — the smallest
+ * span that strictly contains it (not the largest/outermost one, to avoid
+ * double-subtracting a grandchild once via its parent and again via its
+ * grandparent). Process sessions from smallest span to largest so every
+ * child's counted_minutes is already resolved by the time its parent needs
+ * it: counted_minutes = raw span minutes − sum of direct children's
+ * (already-adjusted) counted_minutes.
+ */
+function applyNestedSubtraction(sessionsForDay) {
+  const spans = sessionsForDay
+    .filter((session) => !session.incomplete)
+    .map((session) => ({
+      session,
+      startMs: session.punch_in.punch_time.getTime(),
+      endMs: session.punch_out.punch_time.getTime(),
+    }));
+
+  const directParent = new Map();
+  for (const candidate of spans) {
+    let best = null;
+    let bestLength = Infinity;
+    for (const other of spans) {
+      if (other === candidate) continue;
+      const strictlyContains =
+        other.startMs <= candidate.startMs &&
+        candidate.endMs <= other.endMs &&
+        (other.startMs < candidate.startMs || candidate.endMs < other.endMs);
+      if (strictlyContains) {
+        const length = other.endMs - other.startMs;
+        if (length < bestLength) {
+          bestLength = length;
+          best = other;
+        }
+      }
+    }
+    directParent.set(candidate.session, best ? best.session : null);
+  }
+
+  const bySpanLengthAscending = [...spans].sort((a, b) => (a.endMs - a.startMs) - (b.endMs - b.startMs));
+  const subtractionForParent = new Map();
+
+  for (const { session, startMs, endMs } of bySpanLengthAscending) {
+    const rawMinutes = Math.round((endMs - startMs) / 60000);
+    const subtract = subtractionForParent.get(session) || 0;
+    session.counted_minutes = Math.max(0, rawMinutes - subtract);
+
+    const parent = directParent.get(session);
+    if (parent) {
+      subtractionForParent.set(parent, (subtractionForParent.get(parent) || 0) + session.counted_minutes);
+    }
+  }
+
+  for (const session of sessionsForDay) {
+    if (session.incomplete) {
+      session.counted_minutes = null;
+    }
+  }
+}
+
 // empId === null computes attendance across all employees at once (used by
 // the backoffice Reports page) instead of one employee at a time.
 async function calculateAttendance(empId) {
@@ -92,6 +165,7 @@ async function calculateAttendance(empId) {
   ]);
   const ramzanPeriods = parseRamzanPeriods(settingsMap);
   const religionByEmpId = new Map(religionRows.rows.map((row) => [row.emp_id, row.religion]));
+  const today = dateKey(new Date());
 
   const groups = new Map();
   for (const row of rows) {
@@ -112,19 +186,13 @@ async function calculateAttendance(empId) {
     const punchOut = sorted.length > 1 ? sorted[sorted.length - 1] : null;
     const incomplete = sorted.length === 1;
 
-    if (incomplete) {
+    if (incomplete && date !== today) {
       const raised = await raiseSinglePunchException(groupEmpId, projectCode, date, punchIn);
       if (raised) {
         exceptionsRaised.push(raised);
       }
     }
 
-    const threshold = getEffectiveThreshold({
-      religion: religionByEmpId.get(groupEmpId) ?? null,
-      date,
-      settingsMap,
-      ramzanPeriods,
-    });
     const workedMinutes = incomplete ? null : Math.round((punchOut.punch_time - punchIn.punch_time) / 60000);
 
     sessions.push({
@@ -136,11 +204,30 @@ async function calculateAttendance(empId) {
       punch_out: punchOut ? { id: punchOut.id, punch_time: punchOut.punch_time } : null,
       incomplete,
       worked_minutes: workedMinutes,
-      threshold_minutes: threshold.minutes,
-      threshold_source: threshold.source,
-      is_overtime: incomplete ? null : workedMinutes > threshold.minutes,
-      overtime_minutes: incomplete ? null : Math.max(0, workedMinutes - threshold.minutes),
     });
+  }
+
+  const byEmpDay = new Map();
+  for (const session of sessions) {
+    const key = `${session.emp_id}|${session.date}`;
+    if (!byEmpDay.has(key)) byEmpDay.set(key, []);
+    byEmpDay.get(key).push(session);
+  }
+  for (const group of byEmpDay.values()) {
+    applyNestedSubtraction(group);
+  }
+
+  for (const session of sessions) {
+    const threshold = getEffectiveThreshold({
+      religion: religionByEmpId.get(session.emp_id) ?? null,
+      date: session.date,
+      settingsMap,
+      ramzanPeriods,
+    });
+    session.threshold_minutes = threshold.minutes;
+    session.threshold_source = threshold.source;
+    session.is_overtime = session.incomplete ? null : session.counted_minutes > threshold.minutes;
+    session.overtime_minutes = session.incomplete ? null : Math.max(0, session.counted_minutes - threshold.minutes);
   }
 
   sessions.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -156,4 +243,30 @@ function calculateAttendanceForAllEmployees() {
   return calculateAttendance(null);
 }
 
-module.exports = { calculateAttendanceForEmployee, calculateAttendanceForAllEmployees };
+/**
+ * Returns the project_code of the one project (if any) the employee has
+ * left "open" today — an odd punch count, meaning it hasn't been closed
+ * with a matching punch yet. Scoped to today via an explicit date
+ * parameter rather than SQL's CURRENT_DATE, so it can never disagree with
+ * dateKey()'s UTC-based day boundary depending on the Postgres server's own
+ * timezone configuration.
+ */
+async function getOpenProjectForToday(empId) {
+  const today = dateKey(new Date());
+
+  const { rows } = await pool.query(
+    `SELECT project_code, count(*)::int AS cnt
+     FROM punches
+     WHERE emp_id = $1 AND approval_status <> 'rejected'
+       AND project_code IS NOT NULL
+       AND punch_time >= $2::date AND punch_time < ($2::date + interval '1 day')
+     GROUP BY project_code
+     ORDER BY project_code`,
+    [empId, today]
+  );
+
+  const open = rows.find((row) => row.cnt % 2 !== 0);
+  return open ? open.project_code : null;
+}
+
+module.exports = { calculateAttendanceForEmployee, calculateAttendanceForAllEmployees, getOpenProjectForToday };

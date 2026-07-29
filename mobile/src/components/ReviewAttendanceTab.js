@@ -1,14 +1,9 @@
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-export default function SupervisorPanel({
-  pendingApprovals,
-  loadingApprovals,
-  onApprove,
-  onReject,
-  onCreateTask,
-  onScanTeamMember,
-  processingId,
-}) {
+// Create Task and Scan Team Member used to be buttons at the bottom of this
+// panel — they're now their own separate tabs, so this is just the pending-
+// approvals list.
+export default function ReviewAttendanceTab({ pendingApprovals, loadingApprovals, onApprove, onReject, processingId }) {
   return (
     <View style={styles.container}>
       <Text style={styles.heading}>Team Punch Approvals</Text>
@@ -45,21 +40,12 @@ export default function SupervisorPanel({
           </View>
         ))
       )}
-
-      <TouchableOpacity style={styles.createTaskButton} onPress={onCreateTask}>
-        <Text style={styles.createTaskButtonText}>+ Create Task</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.scanTeamButton} onPress={onScanTeamMember}>
-        <Text style={styles.scanTeamButtonText}>Scan for Team Member</Text>
-      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 24,
     width: '100%',
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -84,21 +70,4 @@ const styles = StyleSheet.create({
   approveButton: { backgroundColor: '#16a34a' },
   rejectButton: { backgroundColor: '#dc2626' },
   smallButtonText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  createTaskButton: {
-    marginTop: 14,
-    backgroundColor: '#2563eb',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  createTaskButtonText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  scanTeamButton: {
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: '#2563eb',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  scanTeamButtonText: { color: '#2563eb', fontSize: 15, fontWeight: '700' },
 });

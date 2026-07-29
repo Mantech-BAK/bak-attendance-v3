@@ -1,8 +1,33 @@
 const express = require('express');
 const pool = require('../db');
 const { reverseGeocode } = require('../services/reverseGeocode');
+const { getOpenProjectForToday } = require('../services/attendance');
 
 const router = express.Router();
+
+// Client-side hint for the mobile app's project picker — which project (if
+// any) is currently open for this employee today. Not itself the
+// enforcement point; POST / re-checks this same thing server-side
+// regardless of what the client believes.
+router.get('/today-status', async (req, res, next) => {
+  try {
+    const { emp_id } = req.query;
+
+    if (!emp_id) {
+      return res.status(400).json({ error: 'emp_id is required' });
+    }
+
+    const employeeResult = await pool.query('SELECT emp_id FROM employees WHERE emp_id = $1', [emp_id]);
+    if (employeeResult.rows.length === 0) {
+      return res.status(404).json({ error: `employee ${emp_id} not found` });
+    }
+
+    const openProjectCode = await getOpenProjectForToday(emp_id);
+    res.json({ open_project_code: openProjectCode });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/', async (req, res, next) => {
   try {
@@ -177,6 +202,18 @@ router.post('/', async (req, res, next) => {
       );
       if (projectResult.rows.length === 0) {
         return res.status(400).json({ error: `project ${project_code} not found` });
+      }
+
+      // Only one project can be genuinely "in progress" at a time. Punching
+      // a different project than whichever one is currently open (odd punch
+      // count today) is rejected — punching that same open project again
+      // (to close it) is always allowed regardless of this check.
+      const openProjectCode = await getOpenProjectForToday(emp_id);
+      if (openProjectCode && openProjectCode !== project_code) {
+        return res.status(409).json({
+          error: `${emp_id} has an open punch for project ${openProjectCode} today — close it before punching a different project`,
+          open_project_code: openProjectCode,
+        });
       }
     }
 

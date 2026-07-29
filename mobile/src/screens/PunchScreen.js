@@ -14,14 +14,15 @@ import {
 
 import CameraCapture from '../components/CameraCapture';
 import EmployeeCard from '../components/EmployeeCard';
-import TaskPicker from '../components/TaskPicker';
-import PunchButtons from '../components/PunchButtons';
-import SupervisorPanel from '../components/SupervisorPanel';
-import CreateTaskModal from '../components/CreateTaskModal';
+import TabBar from '../components/TabBar';
+import PunchProjectList from '../components/PunchProjectList';
+import TaskAssignmentForm from '../components/TaskAssignmentForm';
+import ReviewAttendanceTab from '../components/ReviewAttendanceTab';
 import RejectReasonModal from '../components/RejectReasonModal';
 import {
   identifyPunch,
   submitPunch,
+  fetchTodayPunchStatus,
   fetchPendingApprovals,
   approvePunch,
   rejectPunch,
@@ -35,9 +36,21 @@ import { SUPERVISOR_DESIGNATION } from '../config';
 // DEV ONLY — remove this constant, handleDevBypass, and the button that
 // calls it once real face recognition replaces the exact-hash stub.
 const DEV_BYPASS_EMP_ID = 'E1005';
-// DEV ONLY — a direct report of DEV_BYPASS_EMP_ID, for testing "Scan for
-// Team Member" without real face recognition. Remove alongside the above.
+// DEV ONLY — a direct report of DEV_BYPASS_EMP_ID, for testing "Scan Team
+// Member" without real face recognition. Remove alongside the above.
 const DEV_BYPASS_TEAM_EMP_ID = 'E1001';
+
+const EMPLOYEE_TABS = [
+  { key: 'punch', label: 'Punch' },
+  { key: 'scan-another', label: 'Scan Another Employee' },
+];
+
+const SUPERVISOR_TABS = [
+  { key: 'punch', label: 'Punch' },
+  { key: 'task-assignment', label: 'Task Assignment' },
+  { key: 'scan-team-member', label: 'Scan Team Member' },
+  { key: 'review-attendance', label: 'Review Attendance' },
+];
 
 export default function PunchScreen() {
   const [showCamera, setShowCamera] = useState(false);
@@ -45,36 +58,31 @@ export default function PunchScreen() {
   const [identifying, setIdentifying] = useState(false);
   const [identifyingTeamMember, setIdentifyingTeamMember] = useState(false);
   const [employee, setEmployee] = useState(null);
+  const [activeTab, setActiveTab] = useState('punch');
+  const [selfOpenProjectCode, setSelfOpenProjectCode] = useState(null);
+
   const [teamMemberTarget, setTeamMemberTarget] = useState(null);
-  const [selectedProjectCode, setSelectedProjectCode] = useState(null);
+  const [teamOpenProjectCode, setTeamOpenProjectCode] = useState(null);
 
   const [pendingApprovals, setPendingApprovals] = useState([]);
   const [loadingApprovals, setLoadingApprovals] = useState(false);
   const [processingApprovalId, setProcessingApprovalId] = useState(null);
   const [directReports, setDirectReports] = useState([]);
   const [projects, setProjects] = useState([]);
-  const [showCreateTask, setShowCreateTask] = useState(false);
   const [rejectingPunchId, setRejectingPunchId] = useState(null);
 
   const isSupervisor = employee?.designation === SUPERVISOR_DESIGNATION;
-  const activePerson = teamMemberTarget || employee;
+  const tabs = isSupervisor ? SUPERVISOR_TABS : EMPLOYEE_TABS;
 
   function resetToIdle() {
     setEmployee(null);
+    setActiveTab('punch');
+    setSelfOpenProjectCode(null);
     setTeamMemberTarget(null);
-    setSelectedProjectCode(null);
+    setTeamOpenProjectCode(null);
     setPendingApprovals([]);
     setDirectReports([]);
     setProjects([]);
-  }
-
-  function handleBackToSelf() {
-    setTeamMemberTarget(null);
-    setSelectedProjectCode(employee?.tasks?.length === 1 ? employee.tasks[0].project_code : null);
-    // Returning to the panel is itself a "coming back into view" moment —
-    // refresh so anything that changed while punching on behalf of someone
-    // else isn't shown stale.
-    loadSupervisorDataRef.current(employee.emp_id);
   }
 
   const loadSupervisorData = useCallback(async (supervisorEmpId) => {
@@ -95,8 +103,8 @@ export default function PunchScreen() {
     }
   }, []);
 
-  // Kept in a ref so the AppState listener and handleBackToSelf always call
-  // the latest version without needing to resubscribe on every render.
+  // Kept in a ref so the AppState listener always calls the latest version
+  // without needing to resubscribe on every render.
   const loadSupervisorDataRef = useRef(loadSupervisorData);
   loadSupervisorDataRef.current = loadSupervisorData;
 
@@ -117,14 +125,29 @@ export default function PunchScreen() {
     return () => subscription.remove();
   }, []);
 
-  function applyTeamMemberResult(result) {
+  async function applySelfIdentifyResult(result) {
+    setEmployee(result);
+    setActiveTab('punch');
+    setTeamMemberTarget(null);
+    setTeamOpenProjectCode(null);
+
+    const status = await fetchTodayPunchStatus(result.emp_id);
+    setSelfOpenProjectCode(status.open_project_code);
+
+    if (result.designation === SUPERVISOR_DESIGNATION) {
+      loadSupervisorData(result.emp_id);
+    }
+  }
+
+  async function applyTeamMemberResult(result) {
     const isDirectReport = directReports.some((r) => r.emp_id === result.emp_id);
     if (!isDirectReport) {
-      Alert.alert('Not your direct report', `${result.name} does not report to you.`);
+      Alert.alert('Not in your team.', `${result.name} does not report to you.`);
       return;
     }
     setTeamMemberTarget(result);
-    setSelectedProjectCode(result.tasks?.length === 1 ? result.tasks[0].project_code : null);
+    const status = await fetchTodayPunchStatus(result.emp_id);
+    setTeamOpenProjectCode(status.open_project_code);
   }
 
   async function handleCapture(photoUri) {
@@ -134,7 +157,7 @@ export default function PunchScreen() {
       setIdentifyingTeamMember(true);
       try {
         const result = await identifyPunch(photoUri);
-        applyTeamMemberResult(result);
+        await applyTeamMemberResult(result);
       } catch (err) {
         Alert.alert('Face not recognized', err.message);
       } finally {
@@ -146,12 +169,7 @@ export default function PunchScreen() {
     setIdentifying(true);
     try {
       const result = await identifyPunch(photoUri);
-      setEmployee(result);
-      setTeamMemberTarget(null);
-      setSelectedProjectCode(result.tasks?.length === 1 ? result.tasks[0].project_code : null);
-      if (result.designation === SUPERVISOR_DESIGNATION) {
-        loadSupervisorData(result.emp_id);
-      }
+      await applySelfIdentifyResult(result);
     } catch (err) {
       Alert.alert('Face not recognized', err.message);
     } finally {
@@ -164,12 +182,7 @@ export default function PunchScreen() {
     setIdentifying(true);
     try {
       const result = await devIdentifyBypass(DEV_BYPASS_EMP_ID);
-      setEmployee(result);
-      setTeamMemberTarget(null);
-      setSelectedProjectCode(result.tasks?.length === 1 ? result.tasks[0].project_code : null);
-      if (result.designation === SUPERVISOR_DESIGNATION) {
-        loadSupervisorData(result.emp_id);
-      }
+      await applySelfIdentifyResult(result);
     } catch (err) {
       Alert.alert('Dev bypass failed', err.message);
     } finally {
@@ -182,7 +195,7 @@ export default function PunchScreen() {
     setIdentifyingTeamMember(true);
     try {
       const result = await devIdentifyBypass(DEV_BYPASS_TEAM_EMP_ID);
-      applyTeamMemberResult(result);
+      await applyTeamMemberResult(result);
     } catch (err) {
       Alert.alert('Dev bypass failed', err.message);
     } finally {
@@ -195,28 +208,39 @@ export default function PunchScreen() {
     setShowCamera(true);
   }
 
-  function handlePunchButtonPress() {
+  function handleScanSelf() {
     setCameraMode('self');
     setShowCamera(true);
   }
 
-  async function handlePunch({ lat, lng }) {
-    const result = await submitPunch({
-      empId: activePerson.emp_id,
-      projectCode: selectedProjectCode,
-      lat,
-      lng,
-      enteredBy: teamMemberTarget ? employee.emp_id : undefined,
-    });
-    // Whether this counts as an IN or OUT isn't known yet — that's derived
-    // later, at attendance-calculation time, from punch ordering within the day.
+  async function handlePunchSelf(projectCode, projectName, { lat, lng }) {
+    const wasOpen = selfOpenProjectCode === projectCode;
+    await submitPunch({ empId: employee.emp_id, projectCode, lat, lng });
+
+    const status = await fetchTodayPunchStatus(employee.emp_id);
+    setSelfOpenProjectCode(status.open_project_code);
+
+    Alert.alert('Punch recorded', wasOpen ? `${projectName} closed.` : `${projectName} is now open.`);
+  }
+
+  async function handlePunchTeamMember(projectCode, projectName, { lat, lng }) {
+    const wasOpen = teamOpenProjectCode === projectCode;
+    await submitPunch({ empId: teamMemberTarget.emp_id, projectCode, lat, lng, enteredBy: employee.emp_id });
+
+    const status = await fetchTodayPunchStatus(teamMemberTarget.emp_id);
+    setTeamOpenProjectCode(status.open_project_code);
+
     Alert.alert(
       'Punch recorded',
-      teamMemberTarget
-        ? `${teamMemberTarget.name}'s punch was recorded successfully.`
-        : 'Your punch was recorded successfully.'
+      wasOpen
+        ? `${teamMemberTarget.name}'s ${projectName} was closed.`
+        : `${teamMemberTarget.name}'s ${projectName} is now open.`
     );
-    return result;
+  }
+
+  function handleScanDifferentTeamMember() {
+    setTeamMemberTarget(null);
+    setTeamOpenProjectCode(null);
   }
 
   async function handleApprove(punchId) {
@@ -257,11 +281,93 @@ export default function PunchScreen() {
 
   async function handleCreateTask({ assignedEmpId, projectCode, priority, description, locationSite }) {
     await createTask({ assignedEmpId, projectCode, priority, description, locationSite, createdBy: employee.emp_id });
-    setShowCreateTask(false);
-    Alert.alert('Task created', 'The task was assigned successfully.');
   }
 
-  const taskSelectionRequired = (activePerson?.tasks?.length ?? 0) > 1 && !selectedProjectCode;
+  function renderTabContent() {
+    if (activeTab === 'punch') {
+      return (
+        <PunchProjectList
+          tasks={employee.tasks}
+          openProjectCode={selfOpenProjectCode}
+          onPunch={handlePunchSelf}
+        />
+      );
+    }
+
+    if (activeTab === 'scan-another') {
+      return (
+        <View style={styles.scanAnotherContainer}>
+          <Text style={styles.scanAnotherHint}>Hand the device to the next person.</Text>
+          <TouchableOpacity style={styles.scanButton} onPress={handleScanSelf}>
+            <Text style={styles.scanButtonText}>Scan</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (activeTab === 'task-assignment') {
+      return (
+        <TaskAssignmentForm directReports={directReports} projects={projects} onSubmit={handleCreateTask} />
+      );
+    }
+
+    if (activeTab === 'scan-team-member') {
+      if (identifyingTeamMember) {
+        return (
+          <View style={styles.teamIdentifyingRow}>
+            <ActivityIndicator size="small" color="#2563eb" />
+            <Text style={styles.teamIdentifyingText}>Identifying team member…</Text>
+          </View>
+        );
+      }
+
+      if (!teamMemberTarget) {
+        return (
+          <View style={styles.scanAnotherContainer}>
+            <TouchableOpacity style={styles.scanButton} onPress={handleScanTeamMember}>
+              <Text style={styles.scanButtonText}>Scan Team Member</Text>
+            </TouchableOpacity>
+
+            {/* DEV ONLY — remove alongside DEV_BYPASS_TEAM_EMP_ID above. */}
+            <TouchableOpacity style={styles.devBypassButton} onPress={handleDevBypassTeamMember}>
+              <Text style={styles.devBypassButtonText}>
+                DEV: Scan Team Member ({DEV_BYPASS_TEAM_EMP_ID})
+              </Text>
+            </TouchableOpacity>
+          </View>
+        );
+      }
+
+      return (
+        <View style={styles.teamMemberContainer}>
+          <Text style={styles.onBehalfBanner}>Punching on behalf of {teamMemberTarget.name}</Text>
+          <EmployeeCard employee={teamMemberTarget} />
+          <PunchProjectList
+            tasks={teamMemberTarget.tasks}
+            openProjectCode={teamOpenProjectCode}
+            onPunch={handlePunchTeamMember}
+          />
+          <TouchableOpacity style={styles.resetButton} onPress={handleScanDifferentTeamMember}>
+            <Text style={styles.resetButtonText}>Scan a different team member</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (activeTab === 'review-attendance') {
+      return (
+        <ReviewAttendanceTab
+          pendingApprovals={pendingApprovals}
+          loadingApprovals={loadingApprovals}
+          onApprove={handleApprove}
+          onReject={setRejectingPunchId}
+          processingId={processingApprovalId}
+        />
+      );
+    }
+
+    return null;
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -272,7 +378,7 @@ export default function PunchScreen() {
         {!employee && !identifying && (
           <View style={styles.idleContainer}>
             <Text style={styles.subtitle}>Tap Punch and look at the camera</Text>
-            <TouchableOpacity style={styles.punchButton} onPress={handlePunchButtonPress}>
+            <TouchableOpacity style={styles.punchButton} onPress={handleScanSelf}>
               <Text style={styles.punchButtonText}>Punch</Text>
             </TouchableOpacity>
 
@@ -292,53 +398,12 @@ export default function PunchScreen() {
 
         {employee && (
           <View style={styles.identifiedContainer}>
-            {teamMemberTarget && (
-              <Text style={styles.onBehalfBanner}>Punching on behalf of {employee.name}</Text>
-            )}
-            <EmployeeCard employee={activePerson} />
-            <TaskPicker
-              tasks={activePerson.tasks}
-              selectedProjectCode={selectedProjectCode}
-              onSelect={setSelectedProjectCode}
-            />
-            <PunchButtons onPunch={handlePunch} disabled={taskSelectionRequired} />
-            {taskSelectionRequired && (
-              <Text style={styles.hint}>Select a task before punching.</Text>
-            )}
+            <EmployeeCard employee={employee} />
+            <TabBar tabs={tabs} activeTab={activeTab} onSelectTab={setActiveTab} />
+            {renderTabContent()}
 
-            {isSupervisor && (
-              <SupervisorPanel
-                pendingApprovals={pendingApprovals}
-                loadingApprovals={loadingApprovals}
-                onApprove={handleApprove}
-                onReject={setRejectingPunchId}
-                onCreateTask={() => setShowCreateTask(true)}
-                onScanTeamMember={handleScanTeamMember}
-                processingId={processingApprovalId}
-              />
-            )}
-
-            {isSupervisor && identifyingTeamMember && (
-              <View style={styles.teamIdentifyingRow}>
-                <ActivityIndicator size="small" color="#2563eb" />
-                <Text style={styles.teamIdentifyingText}>Identifying team member…</Text>
-              </View>
-            )}
-
-            {/* DEV ONLY — remove alongside DEV_BYPASS_TEAM_EMP_ID above. */}
-            {isSupervisor && (
-              <TouchableOpacity style={styles.devBypassButton} onPress={handleDevBypassTeamMember}>
-                <Text style={styles.devBypassButtonText}>
-                  DEV: Scan Team Member ({DEV_BYPASS_TEAM_EMP_ID})
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity
-              style={styles.resetButton}
-              onPress={teamMemberTarget ? handleBackToSelf : resetToIdle}
-            >
-              <Text style={styles.resetButtonText}>{teamMemberTarget ? 'Back to my view' : 'Scan again'}</Text>
+            <TouchableOpacity style={styles.resetButton} onPress={resetToIdle}>
+              <Text style={styles.resetButtonText}>Log out</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -348,14 +413,6 @@ export default function PunchScreen() {
         visible={showCamera}
         onCapture={handleCapture}
         onCancel={() => setShowCamera(false)}
-      />
-
-      <CreateTaskModal
-        visible={showCreateTask}
-        directReports={directReports}
-        projects={projects}
-        onSubmit={handleCreateTask}
-        onClose={() => setShowCreateTask(false)}
       />
 
       <RejectReasonModal
@@ -405,15 +462,24 @@ const styles = StyleSheet.create({
     color: '#2563eb',
     marginBottom: 8,
   },
-  hint: { color: '#dc2626', fontSize: 13, marginTop: 8, textAlign: 'center' },
+  scanAnotherContainer: { alignItems: 'center', paddingVertical: 24 },
+  scanAnotherHint: { fontSize: 14, color: '#6b7280', marginBottom: 20, textAlign: 'center' },
+  scanButton: {
+    backgroundColor: '#2563eb',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 10,
+  },
+  scanButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  teamMemberContainer: { width: '100%' },
   teamIdentifyingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    marginTop: 12,
+    marginTop: 24,
   },
   teamIdentifyingText: { color: '#2563eb', fontSize: 13, fontWeight: '600' },
-  resetButton: { marginTop: 24, alignItems: 'center', paddingVertical: 10 },
+  resetButton: { marginTop: 20, alignItems: 'center', paddingVertical: 10 },
   resetButtonText: { color: '#2563eb', fontSize: 14, fontWeight: '600' },
 });

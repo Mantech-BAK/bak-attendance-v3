@@ -22,6 +22,12 @@ import { API_BASE_URL } from '../config';
  *                                 behalf of someone), the backend verifies emp_id's
  *                                 reporting_manager_emp_id actually equals entered_by — 403 otherwise.
  *                                 Only auto-approved when entered_by's designation is "Supervisor".
+ *                                 409 if emp_id already has a different project open today (odd punch
+ *                                 count) — error.body.open_project_code names which one; punching that
+ *                                 same open project again (to close it) is always allowed.
+ *   GET   /api/punches/today-status?emp_id=   — { open_project_code: string|null } — which project (if
+ *                                 any) is currently open for that employee today. A client-side hint
+ *                                 only; POST /api/punches re-checks this server-side regardless.
  *   GET   /api/attendance/:emp_id   — computed IN/OUT sessions grouped by project+day for that employee
  *                                 response: { emp_id, sessions: [{ project_code, date, punch_count,
  *                                 punch_in: {id, punch_time}, punch_out: {id, punch_time}|null, incomplete }],
@@ -58,6 +64,7 @@ async function request(path, options = {}) {
     const message = body?.error || `Request to ${path} failed (${response.status})`;
     const error = new Error(message);
     error.status = response.status;
+    error.body = body;
     throw error;
   }
 
@@ -116,6 +123,11 @@ export function submitPunch({ empId, projectCode, lat, lng, enteredBy }) {
 // CONFIRMED
 export function fetchAttendance(empId) {
   return request(`/api/attendance/${encodeURIComponent(empId)}`);
+}
+
+// CONFIRMED
+export function fetchTodayPunchStatus(empId) {
+  return request(`/api/punches/today-status?emp_id=${encodeURIComponent(empId)}`);
 }
 
 // CONFIRMED
