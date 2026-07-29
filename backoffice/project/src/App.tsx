@@ -8,6 +8,7 @@ import { TasksPage } from '@/pages/TasksPage';
 import { PunchesPage } from '@/pages/PunchesPage';
 import { ReportsPage } from '@/pages/ReportsPage';
 import { ExceptionsPage } from '@/pages/ExceptionsPage';
+import { SettingsPage } from '@/pages/SettingsPage';
 
 function CurrentPage() {
   const { route } = useRouter();
@@ -24,6 +25,8 @@ function CurrentPage() {
       return <ExceptionsPage />;
     case 'reports':
       return <ReportsPage />;
+    case 'settings':
+      return <SettingsPage />;
     default:
       return <DashboardPage />;
   }

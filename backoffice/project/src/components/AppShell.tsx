@@ -7,6 +7,7 @@ import {
   BarChart3,
   LogOut,
   AlertTriangle,
+  Settings,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { useRouter, type RouteName } from '@/lib/router';
@@ -19,6 +20,7 @@ const NAV: { name: RouteName; label: string; icon: typeof LayoutDashboard }[] = 
   { name: 'punches', label: 'Punches', icon: Clock },
   { name: 'exceptions', label: 'Exceptions', icon: AlertTriangle },
   { name: 'reports', label: 'Reports', icon: BarChart3 },
+  { name: 'settings', label: 'Settings', icon: Settings },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {

@@ -1,4 +1,5 @@
 const pool = require('../db');
+const { getAllSettings, parseRamzanPeriods } = require('./settings');
 
 /**
  * Punch type (IN/OUT) is never stored — it's derived here, at calculation
@@ -12,8 +13,37 @@ const pool = require('../db');
  * time would defeat the point of the approval workflow.
  */
 
+const GLOBAL_DEFAULT_MINUTES = 510; // used only if overtime_threshold_minutes is somehow missing entirely
+const RAMZAN_THRESHOLD_MINUTES = 360; // fixed 6 hours
+
 function dateKey(punchTime) {
   return punchTime.toISOString().slice(0, 10);
+}
+
+function isWithinRamzan(dateStr, ramzanPeriods) {
+  return ramzanPeriods.some((period) => dateStr >= period.start_date && dateStr <= period.end_date);
+}
+
+/**
+ * Precedence: a Muslim employee's date falling within a declared Ramzan
+ * period always wins (fixed 6h), regardless of any daily override or the
+ * global default. Otherwise: that day's daily_working_hours:<date> entry if
+ * an admin set one, else the global overtime_threshold_minutes default.
+ */
+function getEffectiveThreshold({ religion, date, settingsMap, ramzanPeriods }) {
+  if (religion === 'Muslim' && isWithinRamzan(date, ramzanPeriods)) {
+    return { minutes: RAMZAN_THRESHOLD_MINUTES, source: 'ramzan' };
+  }
+
+  const dailyOverride = settingsMap[`daily_working_hours:${date}`];
+  if (dailyOverride !== undefined) {
+    return { minutes: Number(dailyOverride) * 60, source: 'daily_override' };
+  }
+
+  const globalMinutes = settingsMap.overtime_threshold_minutes !== undefined
+    ? Number(settingsMap.overtime_threshold_minutes)
+    : GLOBAL_DEFAULT_MINUTES;
+  return { minutes: globalMinutes, source: 'global_default' };
 }
 
 async function raiseSinglePunchException(empId, projectCode, date, punch) {
@@ -56,6 +86,13 @@ async function calculateAttendance(empId) {
     params
   );
 
+  const [settingsMap, religionRows] = await Promise.all([
+    getAllSettings(),
+    pool.query('SELECT emp_id, religion FROM employees'),
+  ]);
+  const ramzanPeriods = parseRamzanPeriods(settingsMap);
+  const religionByEmpId = new Map(religionRows.rows.map((row) => [row.emp_id, row.religion]));
+
   const groups = new Map();
   for (const row of rows) {
     const date = dateKey(row.punch_time);
@@ -82,6 +119,14 @@ async function calculateAttendance(empId) {
       }
     }
 
+    const threshold = getEffectiveThreshold({
+      religion: religionByEmpId.get(groupEmpId) ?? null,
+      date,
+      settingsMap,
+      ramzanPeriods,
+    });
+    const workedMinutes = incomplete ? null : Math.round((punchOut.punch_time - punchIn.punch_time) / 60000);
+
     sessions.push({
       emp_id: groupEmpId,
       project_code: projectCode,
@@ -90,6 +135,11 @@ async function calculateAttendance(empId) {
       punch_in: { id: punchIn.id, punch_time: punchIn.punch_time },
       punch_out: punchOut ? { id: punchOut.id, punch_time: punchOut.punch_time } : null,
       incomplete,
+      worked_minutes: workedMinutes,
+      threshold_minutes: threshold.minutes,
+      threshold_source: threshold.source,
+      is_overtime: incomplete ? null : workedMinutes > threshold.minutes,
+      overtime_minutes: incomplete ? null : Math.max(0, workedMinutes - threshold.minutes),
     });
   }
 

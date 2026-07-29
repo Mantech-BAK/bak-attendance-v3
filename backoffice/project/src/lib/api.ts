@@ -85,6 +85,11 @@ export type AttendanceSession = {
   punch_in: { id: number; punch_time: string };
   punch_out: { id: number; punch_time: string } | null;
   incomplete: boolean;
+  worked_minutes: number | null;
+  threshold_minutes: number;
+  threshold_source: 'ramzan' | 'daily_override' | 'global_default';
+  is_overtime: boolean | null;
+  overtime_minutes: number | null;
 };
 
 export function fetchEmployees(): Promise<Employee[]> {
@@ -140,4 +145,40 @@ export function resolveException(id: number): Promise<ExceptionRow> {
 
 export function fetchAttendance(): Promise<{ sessions: AttendanceSession[]; exceptions_raised: unknown[] }> {
   return request('/api/attendance');
+}
+
+export type DailyWorkingHours = {
+  date: string;
+  hours: number | null;
+};
+
+export type RamzanPeriod = {
+  start_date: string;
+  end_date: string;
+  declared_by: string;
+  declared_at: string;
+};
+
+export function fetchDailyWorkingHours(): Promise<DailyWorkingHours> {
+  return request('/api/settings/daily-working-hours');
+}
+
+export function saveDailyWorkingHours(hours: number): Promise<DailyWorkingHours> {
+  return request('/api/settings/daily-working-hours', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hours }),
+  });
+}
+
+export function fetchRamzanPeriods(): Promise<{ periods: RamzanPeriod[] }> {
+  return request('/api/settings/ramzan-periods');
+}
+
+export function declareRamzanPeriod(input: { start_date: string; end_date: string; declared_by: string }): Promise<{ periods: RamzanPeriod[] }> {
+  return request('/api/settings/ramzan-periods', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
 }

@@ -12,8 +12,10 @@ const tasksRoutes = require('./routes/tasks');
 const projectsRoutes = require('./routes/projects');
 const attendanceRoutes = require('./routes/attendance');
 const exceptionsRoutes = require('./routes/exceptions');
+const settingsRoutes = require('./routes/settings');
 const devBypassRoutes = require('./routes/devBypass'); // DEV ONLY — remove with routes/devBypass.js once real face recognition lands
 const { startArtifyCron } = require('./jobs/artifyCron');
+const { startTeamsCron } = require('./jobs/teamsCron');
 
 const app = express();
 
@@ -42,6 +44,7 @@ app.use('/api/tasks', tasksRoutes);
 app.use('/api/projects', projectsRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/exceptions', exceptionsRoutes);
+app.use('/api/settings', settingsRoutes);
 app.use('/api/dev', devBypassRoutes); // DEV ONLY — remove with routes/devBypass.js once real face recognition lands
 
 app.use((err, req, res, next) => {
@@ -54,4 +57,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
   startArtifyCron();
+  startTeamsCron();
 });
