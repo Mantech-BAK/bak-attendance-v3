@@ -2,10 +2,10 @@
  * STUB — replace with real ARTIFY API calls once credentials arrive.
  *
  * Real implementation should call ARTIFY's endpoints for employees,
- * departments, projects, and job codes, then normalize the response
- * into the shape below. Department and job-code info is folded into
- * the employee/project records rather than kept as separate lists,
- * since there are no standalone department/job_code tables to sync into.
+ * departments, projects, and job codes, then normalize the response into
+ * the shape below. Departments are a standalone list, keyed by
+ * (company, department_name) — job-code info is still folded into the
+ * employee/project records since there's no standalone job_code table.
  */
 
 const FAKE_EMPLOYEES = [
@@ -25,12 +25,25 @@ const FAKE_PROJECTS = [
   ['PRJ-003', 'Payroll System Migration', 'BAK Holdings', 'CLOSED'],
 ];
 
+// Company-scoped: the same department_name can exist independently under
+// different companies (a real scenario across BAK's multiple companies),
+// so (company, department_name) together is the identity ARTIFY sends —
+// there is no separate department_code in the source system.
+const FAKE_DEPARTMENTS = [
+  ['BAK Holdings', 'Engineering'],
+  ['BAK Holdings', 'Executive'],
+  ['BAK Logistics', 'Finance'],
+  ['BAK Logistics', 'Operations'],
+];
+
 const EMPLOYEE_FIELDS = [
   'emp_id', 'name', 'company', 'department',
   'designation', 'reporting_manager_emp_id', 'status', 'ot_eligible',
 ];
 
 const PROJECT_FIELDS = ['project_code', 'project_name', 'company', 'status'];
+
+const DEPARTMENT_FIELDS = ['company', 'department_name'];
 
 function rowToObject(fields, row) {
   return fields.reduce((obj, field, i) => {
@@ -48,6 +61,7 @@ async function fetchArtifyData() {
   await new Promise((resolve) => setTimeout(resolve, 50));
 
   return {
+    departments: FAKE_DEPARTMENTS.map((row) => rowToObject(DEPARTMENT_FIELDS, row)),
     employees: FAKE_EMPLOYEES.map((row) => rowToObject(EMPLOYEE_FIELDS, row)),
     projects: FAKE_PROJECTS.map((row) => rowToObject(PROJECT_FIELDS, row)),
   };

@@ -60,7 +60,7 @@ export type Punch = {
   approved_by: string | null;
   approved_at: string | null;
   rejection_reason: string | null;
-  resolved_area: string | null;
+  resolved_address: string | null;
   created_at: string;
 };
 

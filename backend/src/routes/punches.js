@@ -1,6 +1,6 @@
 const express = require('express');
 const pool = require('../db');
-const { resolveArea } = require('../services/areaLookup');
+const { reverseGeocode } = require('../services/reverseGeocode');
 
 const router = express.Router();
 
@@ -10,7 +10,7 @@ router.get('/', async (req, res, next) => {
       `SELECT p.id, p.emp_id, e.name AS employee_name, e.designation AS employee_designation,
               p.project_code, pr.project_name, p.punch_time, p.lat, p.lng, p.entry_method,
               p.entered_by, p.approval_status, p.approved_by, p.approved_at, p.rejection_reason,
-              p.resolved_area, p.created_at
+              p.resolved_address, p.created_at
        FROM punches p
        LEFT JOIN employees e ON e.emp_id = p.emp_id
        LEFT JOIN projects pr ON pr.project_code = p.project_code
@@ -216,17 +216,18 @@ router.post('/', async (req, res, next) => {
     // would corrupt the ordering that attendance calculation depends on.
     const punchTime = new Date();
 
-    // Rough nearest-area match against bahrain_areas — not real reverse
-    // geocoding, just a human-readable hint for reporting/review.
-    const resolvedArea = await resolveArea(lat, lng);
+    // Real reverse geocoding via Nominatim, resolved synchronously right
+    // here. Never blocks or fails the punch — reverseGeocode() resolves to
+    // null on any timeout/error rather than throwing.
+    const resolvedAddress = await reverseGeocode(lat, lng);
 
     const result = await pool.query(
       `INSERT INTO punches
-         (emp_id, project_code, punch_time, lat, lng, device_ref, entered_by, entry_method, approval_status, resolved_area)
+         (emp_id, project_code, punch_time, lat, lng, device_ref, entered_by, entry_method, approval_status, resolved_address)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id, emp_id, project_code, punch_time, lat, lng, device_ref,
-                 entered_by, entry_method, approval_status, approved_by, approved_at, resolved_area, created_at`,
-      [emp_id, project_code || null, punchTime, lat, lng, device_ref || null, enteredBy, entryMethod, approvalStatus, resolvedArea]
+                 entered_by, entry_method, approval_status, approved_by, approved_at, resolved_address, created_at`,
+      [emp_id, project_code || null, punchTime, lat, lng, device_ref || null, enteredBy, entryMethod, approvalStatus, resolvedAddress]
     );
 
     res.status(201).json(result.rows[0]);

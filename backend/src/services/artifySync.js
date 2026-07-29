@@ -9,6 +9,25 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// default_project_code is deliberately absent from both the column list and
+// the SET clause below — it's a locally-managed pointer (which project this
+// department defaults to for attendance purposes), and ARTIFY has no concept
+// of it. Must run before upsertEmployees/upsertProjects in the same
+// transaction: employees.department and projects.department are FKs into
+// (company, department_name) here, so a department has to exist before any
+// row referencing it is upserted.
+async function upsertDepartments(client, departments) {
+  for (const dept of departments) {
+    await client.query(
+      `INSERT INTO departments (company, department_name, artify_last_synced)
+       VALUES ($1, $2, now())
+       ON CONFLICT (company, department_name) DO UPDATE SET
+         artify_last_synced = now()`,
+      [dept.company, dept.department_name]
+    );
+  }
+}
+
 // face_template, fingerprint_template, registered_by, and registered_at are
 // deliberately absent from both the column list and the SET clause below.
 // ARTIFY owns identity/org fields only — it has no concept of biometric
@@ -77,6 +96,7 @@ async function runSyncAttempt() {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await upsertDepartments(client, data.departments);
     await upsertEmployees(client, data.employees);
     await upsertProjects(client, data.projects);
     await client.query('COMMIT');
@@ -88,6 +108,7 @@ async function runSyncAttempt() {
   }
 
   return {
+    departmentCount: data.departments.length,
     employeeCount: data.employees.length,
     projectCount: data.projects.length,
   };
@@ -104,7 +125,7 @@ async function runArtifySync() {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const result = await runSyncAttempt();
-      const detail = `Synced ${result.employeeCount} employees, ${result.projectCount} projects`;
+      const detail = `Synced ${result.departmentCount} departments, ${result.employeeCount} employees, ${result.projectCount} projects`;
       await logSyncRun({ status: 'success', detail, attemptCount: attempt });
       return { success: true, attempt, ...result };
     } catch (err) {
