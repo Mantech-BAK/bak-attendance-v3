@@ -87,7 +87,7 @@ router.post('/ramzan-periods', async (req, res, next) => {
       return res.status(400).json({ error: `a Ramzan period cannot span more than ${MAX_RAMZAN_SPAN_DAYS} days` });
     }
 
-    const declarerResult = await pool.query('SELECT emp_id FROM employees WHERE emp_id = $1', [declared_by]);
+    const declarerResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [declared_by]);
     if (declarerResult.rows.length === 0) {
       return res.status(400).json({ error: `declared_by ${declared_by} not found` });
     }

@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 
-import CameraCapture from '../components/CameraCapture';
+import IdentifyCodeForm from '../components/IdentifyCodeForm';
 import EmployeeCard from '../components/EmployeeCard';
 import TabBar from '../components/TabBar';
 import PunchProjectList from '../components/PunchProjectList';
@@ -32,16 +32,8 @@ import {
   fetchDirectReports,
   fetchProjects,
   createTask,
-  devIdentifyBypass,
 } from '../api/client';
 import { SUPERVISOR_DESIGNATION } from '../config';
-
-// DEV ONLY — remove this constant, handleDevBypass, and the button that
-// calls it once real face recognition replaces the exact-hash stub.
-const DEV_BYPASS_EMP_ID = 'E1005';
-// DEV ONLY — a direct report of DEV_BYPASS_EMP_ID, for testing "Scan Team
-// Member" without real face recognition. Remove alongside the above.
-const DEV_BYPASS_TEAM_EMP_ID = 'E1001';
 
 const EMPLOYEE_TABS = [
   { key: 'punch', label: 'Punch' },
@@ -56,8 +48,8 @@ const SUPERVISOR_TABS = [
 ];
 
 export default function PunchScreen() {
-  const [showCamera, setShowCamera] = useState(false);
-  const [cameraMode, setCameraMode] = useState('self'); // 'self' | 'team'
+  const [showIdentifyForm, setShowIdentifyForm] = useState(false);
+  const [identifyMode, setIdentifyMode] = useState('self'); // 'self' | 'team'
   const [identifying, setIdentifying] = useState(false);
   const [identifyingTeamMember, setIdentifyingTeamMember] = useState(false);
   const [employee, setEmployee] = useState(null);
@@ -162,16 +154,13 @@ export default function PunchScreen() {
     setTeamOpenProjectCode(status.open_project_code);
   }
 
-  async function handleCapture(photoUri) {
-    setShowCamera(false);
-
-    if (cameraMode === 'team') {
+  async function handleIdentifySubmit({ empId, loginCode }) {
+    if (identifyMode === 'team') {
       setIdentifyingTeamMember(true);
       try {
-        const result = await identifyPunch(photoUri);
+        const result = await identifyPunch(empId, loginCode);
         await applyTeamMemberResult(result);
-      } catch (err) {
-        Alert.alert('Face not recognized', err.message);
+        setShowIdentifyForm(false);
       } finally {
         setIdentifyingTeamMember(false);
       }
@@ -180,49 +169,22 @@ export default function PunchScreen() {
 
     setIdentifying(true);
     try {
-      const result = await identifyPunch(photoUri);
+      const result = await identifyPunch(empId, loginCode);
       await applySelfIdentifyResult(result);
-    } catch (err) {
-      Alert.alert('Face not recognized', err.message);
+      setShowIdentifyForm(false);
     } finally {
       setIdentifying(false);
-    }
-  }
-
-  // DEV ONLY — see DEV_BYPASS_EMP_ID above.
-  async function handleDevBypass() {
-    setIdentifying(true);
-    try {
-      const result = await devIdentifyBypass(DEV_BYPASS_EMP_ID);
-      await applySelfIdentifyResult(result);
-    } catch (err) {
-      Alert.alert('Dev bypass failed', err.message);
-    } finally {
-      setIdentifying(false);
-    }
-  }
-
-  // DEV ONLY — see DEV_BYPASS_TEAM_EMP_ID above.
-  async function handleDevBypassTeamMember() {
-    setIdentifyingTeamMember(true);
-    try {
-      const result = await devIdentifyBypass(DEV_BYPASS_TEAM_EMP_ID);
-      await applyTeamMemberResult(result);
-    } catch (err) {
-      Alert.alert('Dev bypass failed', err.message);
-    } finally {
-      setIdentifyingTeamMember(false);
     }
   }
 
   function handleScanTeamMember() {
-    setCameraMode('team');
-    setShowCamera(true);
+    setIdentifyMode('team');
+    setShowIdentifyForm(true);
   }
 
   function handleScanSelf() {
-    setCameraMode('self');
-    setShowCamera(true);
+    setIdentifyMode('self');
+    setShowIdentifyForm(true);
   }
 
   async function handlePunchSelf(projectCode, projectName, { lat, lng }) {
@@ -337,7 +299,7 @@ export default function PunchScreen() {
         <View style={styles.scanAnotherContainer}>
           <Text style={styles.scanAnotherHint}>Hand the device to the next person.</Text>
           <TouchableOpacity style={styles.scanButton} onPress={handleScanSelf}>
-            <Text style={styles.scanButtonText}>Scan</Text>
+            <Text style={styles.scanButtonText}>Enter Code</Text>
           </TouchableOpacity>
         </View>
       );
@@ -363,14 +325,7 @@ export default function PunchScreen() {
         return (
           <View style={styles.scanAnotherContainer}>
             <TouchableOpacity style={styles.scanButton} onPress={handleScanTeamMember}>
-              <Text style={styles.scanButtonText}>Scan Team Member</Text>
-            </TouchableOpacity>
-
-            {/* DEV ONLY — remove alongside DEV_BYPASS_TEAM_EMP_ID above. */}
-            <TouchableOpacity style={styles.devBypassButton} onPress={handleDevBypassTeamMember}>
-              <Text style={styles.devBypassButtonText}>
-                DEV: Scan Team Member ({DEV_BYPASS_TEAM_EMP_ID})
-              </Text>
+              <Text style={styles.scanButtonText}>Enter Team Member Code</Text>
             </TouchableOpacity>
           </View>
         );
@@ -420,14 +375,9 @@ export default function PunchScreen() {
 
         {!employee && !identifying && (
           <View style={styles.idleContainer}>
-            <Text style={styles.subtitle}>Tap Punch and look at the camera</Text>
+            <Text style={styles.subtitle}>Tap Punch and enter your Employee ID and code</Text>
             <TouchableOpacity style={styles.punchButton} onPress={handleScanSelf}>
               <Text style={styles.punchButtonText}>Punch</Text>
-            </TouchableOpacity>
-
-            {/* DEV ONLY — remove this button along with handleDevBypass and DEV_BYPASS_EMP_ID above. */}
-            <TouchableOpacity style={styles.devBypassButton} onPress={handleDevBypass}>
-              <Text style={styles.devBypassButtonText}>DEV: Skip Face ID ({DEV_BYPASS_EMP_ID})</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -452,10 +402,11 @@ export default function PunchScreen() {
         )}
       </ScrollView>
 
-      <CameraCapture
-        visible={showCamera}
-        onCapture={handleCapture}
-        onCancel={() => setShowCamera(false)}
+      <IdentifyCodeForm
+        visible={showIdentifyForm}
+        onSubmit={handleIdentifySubmit}
+        onCancel={() => setShowIdentifyForm(false)}
+        title={identifyMode === 'team' ? "Enter Team Member's Code" : 'Enter Your Code'}
       />
 
       <RejectReasonModal
@@ -493,16 +444,6 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   punchButtonText: { color: '#fff', fontSize: 22, fontWeight: '800' },
-  devBypassButton: {
-    marginTop: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#f59e0b',
-    backgroundColor: '#fffbeb',
-  },
-  devBypassButtonText: { color: '#b45309', fontSize: 12, fontWeight: '700' },
   identifiedContainer: { width: '100%' },
   onBehalfBanner: {
     textAlign: 'center',

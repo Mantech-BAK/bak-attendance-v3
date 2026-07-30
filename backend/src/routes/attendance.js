@@ -17,7 +17,7 @@ router.get('/:emp_id', async (req, res, next) => {
   try {
     const { emp_id } = req.params;
 
-    const employeeResult = await pool.query('SELECT emp_id FROM employees WHERE emp_id = $1', [emp_id]);
+    const employeeResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
     if (employeeResult.rows.length === 0) {
       return res.status(404).json({ error: `employee ${emp_id} not found` });
     }

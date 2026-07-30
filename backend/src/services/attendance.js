@@ -181,7 +181,11 @@ async function calculateAttendance(empId) {
 
   const [settingsMap, religionRows] = await Promise.all([
     getAllSettings(),
-    pool.query('SELECT emp_id, religion FROM employees'),
+    pool.query(
+      `SELECT e."EmpId" AS emp_id, r.religion_name AS religion
+       FROM employees e
+       LEFT JOIN religions r ON e."EmpReligionId" = r.religion_code`
+    ),
   ]);
   const ramzanPeriods = parseRamzanPeriods(settingsMap);
   const religionByEmpId = new Map(religionRows.rows.map((row) => [row.emp_id, row.religion]));

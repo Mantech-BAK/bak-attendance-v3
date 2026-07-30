@@ -1,41 +1,48 @@
 const express = require('express');
-const multer = require('multer');
 const pool = require('../db');
-const { matchFace } = require('../services/faceMatch');
 const { getTodaysTasks } = require('../services/tasks');
 
 const router = express.Router();
 
-const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter(req, file, cb) {
-    if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-      cb(new Error('Unsupported image type. Use JPEG, PNG, or WEBP.'));
-      return;
-    }
-    cb(null, true);
-  },
-});
-
-router.post('/identify', upload.single('face'), async (req, res, next) => {
+/**
+ * TEMPORARY TESTING MEASURE — identification is currently a typed
+ * { emp_id, login_code } pair instead of real face capture/recognition.
+ * employees.login_code is a random 5-letter code (see ../services/loginCode
+ * and artifySync.js's upsertEmployees, which assigns one to every new
+ * employee), viewable/regeneratable by an admin from the backoffice
+ * Employees page. This replaces both the old camera-capture flow and the
+ * DEV identify-bypass route (routes/devBypass.js, now removed) — it's the
+ * practical way to exercise the full punch/approval/OT flow without
+ * biometric hardware.
+ *
+ * face_template/fingerprint_template and services/faceMatch.js are left
+ * completely untouched and unused. Swap this back to real face capture once
+ * biometric hardware/data is available — open item, tracked the same way as
+ * the ARTIFY/Teams pending items.
+ */
+router.post('/identify', async (req, res, next) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'face image file is required (field name: "face")' });
-    }
+    const { emp_id, login_code } = req.body || {};
 
-    const matchedEmpId = await matchFace(req.file.buffer);
-    if (!matchedEmpId) {
-      return res.status(404).json({ error: 'No matching employee found. Please try again or ask your supervisor for help.' });
+    if (!emp_id || !login_code) {
+      return res.status(400).json({ error: 'emp_id and login_code are required' });
     }
 
     const employeeResult = await pool.query(
-      'SELECT emp_id, name, designation, status FROM employees WHERE emp_id = $1',
-      [matchedEmpId]
+      `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, g.designation_name AS designation,
+              e."EmpStatus" AS status, e.login_code
+       FROM employees e
+       LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
+       WHERE e."EmpId" = $1`,
+      [String(emp_id).trim()]
     );
     const employee = employeeResult.rows[0];
+
+    // Generic "invalid" message either way (unknown emp_id vs. wrong code) —
+    // don't let this endpoint reveal whether an emp_id exists.
+    if (!employee || employee.login_code !== String(login_code).trim().toUpperCase()) {
+      return res.status(401).json({ error: 'Invalid employee ID or code.' });
+    }
 
     if (employee.status !== 'active') {
       return res.status(403).json({ error: `Employee ${employee.emp_id} is inactive and cannot punch.` });
@@ -52,14 +59,6 @@ router.post('/identify', upload.single('face'), async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-});
-
-// Handles Multer errors (bad mime type, file too large) with a clean 400.
-router.use((err, req, res, next) => {
-  if (err instanceof multer.MulterError || err.message.startsWith('Unsupported image type')) {
-    return res.status(400).json({ error: err.message });
-  }
-  next(err);
 });
 
 module.exports = router;

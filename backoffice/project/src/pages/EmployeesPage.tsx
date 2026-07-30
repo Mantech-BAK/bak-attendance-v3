@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Users, Search, Briefcase, Building2 } from 'lucide-react';
-import { fetchEmployees } from '@/lib/api';
+import { Users, Search, Briefcase, Building2, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { fetchEmployees, regenerateLoginCode } from '@/lib/api';
 import type { Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, Badge, Spinner, EmptyState, Select } from '@/components/ui';
+import { Card, Badge, Spinner, EmptyState, Select, Button } from '@/components/ui';
 import { initials } from '@/lib/utils';
 
 export function EmployeesPage() {
@@ -12,6 +12,33 @@ export function EmployeesPage() {
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+
+  function toggleRevealed(empId: string) {
+    setRevealedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(empId)) next.delete(empId);
+      else next.add(empId);
+      return next;
+    });
+  }
+
+  async function handleRegenerate(empId: string) {
+    if (!window.confirm(`Regenerate ${empId}'s login code? Their current code will stop working immediately.`)) {
+      return;
+    }
+    setRegeneratingId(empId);
+    try {
+      const { login_code } = await regenerateLoginCode(empId);
+      setEmployees((prev) => prev.map((e) => (e.emp_id === empId ? { ...e, login_code } : e)));
+      setRevealedIds((prev) => new Set(prev).add(empId));
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not regenerate login code.');
+    } finally {
+      setRegeneratingId(null);
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -97,6 +124,7 @@ export function EmployeesPage() {
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Reports To</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
+                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Login Code</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -129,6 +157,32 @@ export function EmployeesPage() {
                       <Badge variant={e.status === 'active' ? 'success' : 'neutral'}>
                         {e.status}
                       </Badge>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm tracking-widest text-slate-700">
+                          {e.login_code ? (revealedIds.has(e.emp_id) ? e.login_code : '•••••') : '—'}
+                        </span>
+                        {e.login_code && (
+                          <button
+                            type="button"
+                            onClick={() => toggleRevealed(e.emp_id)}
+                            className="text-slate-400 hover:text-slate-600"
+                            title={revealedIds.has(e.emp_id) ? 'Hide code' : 'Show code'}
+                          >
+                            {revealedIds.has(e.emp_id) ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRegenerate(e.emp_id)}
+                          disabled={regeneratingId === e.emp_id}
+                          className="!px-2 !py-1"
+                        >
+                          <RefreshCw className={`h-3.5 w-3.5 ${regeneratingId === e.emp_id ? 'animate-spin' : ''}`} />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -18,6 +18,10 @@ export type Employee = {
   reporting_manager_emp_id: string | null;
   status: string;
   ot_eligible: string | null;
+  // TEMPORARY TESTING MEASURE — typed-code identification standing in for
+  // face capture (see backend/src/routes/punch.js). Testers need to see an
+  // employee's code to log in as them from the mobile app.
+  login_code: string | null;
   created_at: string;
 };
 
@@ -94,6 +98,12 @@ export type AttendanceSession = {
 
 export function fetchEmployees(): Promise<Employee[]> {
   return request('/api/employees');
+}
+
+export function regenerateLoginCode(empId: string): Promise<{ emp_id: string; login_code: string }> {
+  return request(`/api/employees/${encodeURIComponent(empId)}/login-code/regenerate`, {
+    method: 'POST',
+  });
 }
 
 export function fetchProjects(status?: string): Promise<Project[]> {

@@ -15,7 +15,6 @@ const exceptionsRoutes = require('./routes/exceptions');
 const settingsRoutes = require('./routes/settings');
 const reportsRoutes = require('./routes/reports');
 const otApprovalsRoutes = require('./routes/otApprovals');
-const devBypassRoutes = require('./routes/devBypass'); // DEV ONLY — remove with routes/devBypass.js once real face recognition lands
 const { startArtifyCron } = require('./jobs/artifyCron');
 const { startTeamsCron } = require('./jobs/teamsCron');
 const { startOtApprovalCron } = require('./jobs/otApprovalCron');
@@ -50,7 +49,6 @@ app.use('/api/exceptions', exceptionsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/ot-approvals', otApprovalsRoutes);
-app.use('/api/dev', devBypassRoutes); // DEV ONLY — remove with routes/devBypass.js once real face recognition lands
 
 app.use((err, req, res, next) => {
   console.error(err);

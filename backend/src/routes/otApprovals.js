@@ -25,7 +25,7 @@ router.get('/pending', async (req, res, next) => {
       return res.status(400).json({ error: 'supervisor_emp_id is required' });
     }
 
-    const supervisorResult = await pool.query('SELECT emp_id FROM employees WHERE emp_id = $1', [supervisor_emp_id]);
+    const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
     if (supervisorResult.rows.length === 0) {
       return res.status(404).json({ error: `employee ${supervisor_emp_id} not found` });
     }
@@ -36,11 +36,11 @@ router.get('/pending', async (req, res, next) => {
     // value), even though the stored date itself is correct. Casting to
     // text sends the plain 'YYYY-MM-DD' string a JSON API consumer expects.
     const result = await pool.query(
-      `SELECT o.id, o.emp_id, e.name AS employee_name, o.work_date::text AS work_date, o.worked_minutes,
+      `SELECT o.id, o.emp_id, e."EmpName" AS employee_name, o.work_date::text AS work_date, o.worked_minutes,
               o.threshold_minutes, o.ot_minutes, o.status
        FROM ot_approvals o
-       JOIN employees e ON e.emp_id = o.emp_id
-       WHERE e.reporting_manager_emp_id = $1 AND o.status = 'pending'
+       JOIN employees e ON e."EmpId" = o.emp_id
+       WHERE e."EmpReportMgrId" = $1 AND o.status = 'pending'
        ORDER BY o.work_date ASC`,
       [supervisor_emp_id]
     );
@@ -53,9 +53,9 @@ router.get('/pending', async (req, res, next) => {
 
 async function loadOtApprovalForAction(id, supervisorEmpId) {
   const result = await pool.query(
-    `SELECT o.id, o.status, e.reporting_manager_emp_id
+    `SELECT o.id, o.status, e."EmpReportMgrId" AS reporting_manager_emp_id
      FROM ot_approvals o
-     JOIN employees e ON e.emp_id = o.emp_id
+     JOIN employees e ON e."EmpId" = o.emp_id
      WHERE o.id = $1`,
     [id]
   );

@@ -44,10 +44,10 @@ async function createTask({ emp_id, project_code, priority, description, locatio
   }
   if (!created_by) throw new TaskValidationError(400, 'created_by is required');
 
-  const employeeResult = await pool.query('SELECT emp_id FROM employees WHERE emp_id = $1', [emp_id]);
+  const employeeResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
   if (employeeResult.rows.length === 0) throw new TaskValidationError(404, `employee ${emp_id} not found`);
 
-  const creatorResult = await pool.query('SELECT emp_id FROM employees WHERE emp_id = $1', [created_by]);
+  const creatorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [created_by]);
   if (creatorResult.rows.length === 0) throw new TaskValidationError(400, `created_by ${created_by} not found`);
 
   const projectResult = await pool.query('SELECT project_code FROM projects WHERE project_code = $1', [project_code]);

@@ -20,8 +20,15 @@ async function runDailyOtJob(date = yesterday()) {
   const [settingsMap, employeesResult] = await Promise.all([
     getAllSettings(),
     pool.query(
-      `SELECT emp_id, name, designation, company, department, religion, ot_eligible, reporting_manager_emp_id
-       FROM employees WHERE status = 'active' AND ot_eligible = 'Y' ORDER BY emp_id`
+      `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, g.designation_name AS designation,
+              d.division_name AS company, e."EmpDeptId" AS department, r.religion_name AS religion,
+              CASE WHEN e."EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
+              e."EmpReportMgrId" AS reporting_manager_emp_id
+       FROM employees e
+       LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
+       LEFT JOIN divisions d ON e."EmpDivision" = d.division_code
+       LEFT JOIN religions r ON e."EmpReligionId" = r.religion_code
+       WHERE e."EmpStatus" = 'active' AND e."EmpOtStatus" = true ORDER BY e."EmpId"`
     ),
   ]);
   const ramzanPeriods = parseRamzanPeriods(settingsMap);

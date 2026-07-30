@@ -8,10 +8,11 @@ const VALID_STATUSES = ['open', 'resolved'];
 router.get('/', async (req, res, next) => {
   try {
     const result = await pool.query(
-      `SELECT ex.id, ex.type, ex.emp_id, e.name AS employee_name, e.designation AS employee_designation,
+      `SELECT ex.id, ex.type, ex.emp_id, e."EmpName" AS employee_name, g.designation_name AS employee_designation,
               ex.ref_table, ex.ref_id, ex.details, ex.status, ex.created_at
        FROM exceptions ex
-       LEFT JOIN employees e ON e.emp_id = ex.emp_id
+       LEFT JOIN employees e ON e."EmpId" = ex.emp_id
+       LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
        ORDER BY ex.created_at DESC`
     );
     res.json(result.rows);

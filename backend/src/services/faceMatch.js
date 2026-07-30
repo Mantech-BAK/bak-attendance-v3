@@ -31,7 +31,7 @@ async function matchFace(imageBuffer) {
   const uploadedHash = hashBuffer(imageBuffer);
 
   const { rows } = await pool.query(
-    'SELECT emp_id, face_template FROM employees WHERE face_template IS NOT NULL'
+    'SELECT "EmpId" AS emp_id, "EmpFaceId" AS face_template FROM employees WHERE "EmpFaceId" IS NOT NULL'
   );
 
   const match = rows.find((row) => hashDataUri(row.face_template) === uploadedHash);

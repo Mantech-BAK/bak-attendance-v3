@@ -105,7 +105,7 @@ async function runTeamsSyncAttempt() {
     getSetting('teams_authorized_sender'),
     getSetting('teams_authorized_sender_emp_id'),
     getSetting('teams_last_synced'),
-    pool.query('SELECT emp_id FROM employees'),
+    pool.query('SELECT "EmpId" AS emp_id FROM employees'),
     pool.query('SELECT project_code FROM projects'),
   ]);
 

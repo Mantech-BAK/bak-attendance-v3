@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const pool = require('../db');
+const { generateUniqueLoginCode } = require('../services/loginCode');
 
 const router = express.Router();
 
@@ -18,12 +19,21 @@ const upload = multer({
   },
 });
 
+// company/designation are now FK-constrained into divisions/designations
+// (schema-rename revision) — joined and aliased back to their original
+// external names so this response shape is unchanged for every consumer.
 router.get('/', async (req, res, next) => {
   try {
     const result = await pool.query(
-      `SELECT emp_id, name, company, department, designation, reporting_manager_emp_id, status, ot_eligible, created_at
-       FROM employees
-       ORDER BY name`
+      `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, d.division_name AS company,
+              e."EmpDeptId" AS department, g.designation_name AS designation,
+              e."EmpReportMgrId" AS reporting_manager_emp_id, e."EmpStatus" AS status,
+              CASE WHEN e."EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
+              e.login_code, e."EmpCreatedOn" AS created_at
+       FROM employees e
+       LEFT JOIN divisions d ON e."EmpDivision" = d.division_code
+       LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
+       ORDER BY e."EmpName"`
     );
     res.json(result.rows);
   } catch (err) {
@@ -39,16 +49,18 @@ router.get('/direct-reports', async (req, res, next) => {
       return res.status(400).json({ error: 'supervisor_emp_id is required' });
     }
 
-    const supervisorResult = await pool.query('SELECT emp_id FROM employees WHERE emp_id = $1', [supervisor_emp_id]);
+    const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
     if (supervisorResult.rows.length === 0) {
       return res.status(404).json({ error: `employee ${supervisor_emp_id} not found` });
     }
 
     const reportsResult = await pool.query(
-      `SELECT emp_id, name, designation, department, status
-       FROM employees
-       WHERE reporting_manager_emp_id = $1
-       ORDER BY name`,
+      `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, g.designation_name AS designation,
+              e."EmpDeptId" AS department, e."EmpStatus" AS status
+       FROM employees e
+       LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
+       WHERE e."EmpReportMgrId" = $1
+       ORDER BY e."EmpName"`,
       [supervisor_emp_id]
     );
 
@@ -77,7 +89,7 @@ router.post('/:emp_id/register-face', upload.single('face'), async (req, res, ne
       return res.status(400).json({ error: 'registered_by is required' });
     }
 
-    const employee = await pool.query('SELECT emp_id FROM employees WHERE emp_id = $1', [emp_id]);
+    const employee = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
     if (employee.rows.length === 0) {
       return res.status(404).json({ error: `employee ${emp_id} not found` });
     }
@@ -86,13 +98,37 @@ router.post('/:emp_id/register-face', upload.single('face'), async (req, res, ne
 
     const result = await pool.query(
       `UPDATE employees
-       SET face_template = $1, registered_by = $2, registered_at = now()
-       WHERE emp_id = $3
-       RETURNING emp_id, registered_by, registered_at`,
+       SET "EmpFaceId" = $1, "EmpRegistredBy" = $2, "EmpRegisteredAt" = now()
+       WHERE "EmpId" = $3
+       RETURNING "EmpId" AS emp_id, "EmpRegistredBy" AS registered_by, "EmpRegisteredAt" AS registered_at`,
       [faceTemplate, registered_by.trim(), emp_id]
     );
 
     res.status(200).json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin-only: regenerate an employee's login_code (the temporary typed-code
+// identification measure — see routes/punch.js). Testers need a way to
+// recover/rotate a code, e.g. after it leaks or is forgotten.
+router.post('/:emp_id/login-code/regenerate', async (req, res, next) => {
+  try {
+    const { emp_id } = req.params;
+
+    const existing = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: `employee ${emp_id} not found` });
+    }
+
+    const loginCode = await generateUniqueLoginCode();
+    const result = await pool.query(
+      'UPDATE employees SET login_code = $1 WHERE "EmpId" = $2 RETURNING "EmpId" AS emp_id, login_code',
+      [loginCode, emp_id]
+    );
+
+    res.json(result.rows[0]);
   } catch (err) {
     next(err);
   }

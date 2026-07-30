@@ -17,7 +17,7 @@ router.get('/today-status', async (req, res, next) => {
       return res.status(400).json({ error: 'emp_id is required' });
     }
 
-    const employeeResult = await pool.query('SELECT emp_id FROM employees WHERE emp_id = $1', [emp_id]);
+    const employeeResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
     if (employeeResult.rows.length === 0) {
       return res.status(404).json({ error: `employee ${emp_id} not found` });
     }
@@ -32,12 +32,13 @@ router.get('/today-status', async (req, res, next) => {
 router.get('/', async (req, res, next) => {
   try {
     const result = await pool.query(
-      `SELECT p.id, p.emp_id, e.name AS employee_name, e.designation AS employee_designation,
+      `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, g.designation_name AS employee_designation,
               p.project_code, pr.project_name, p.punch_time, p.lat, p.lng, p.entry_method,
               p.entered_by, p.approval_status, p.approved_by, p.approved_at, p.rejection_reason,
               p.resolved_address, p.created_at
        FROM punches p
-       LEFT JOIN employees e ON e.emp_id = p.emp_id
+       LEFT JOIN employees e ON e."EmpId" = p.emp_id
+       LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
        LEFT JOIN projects pr ON pr.project_code = p.project_code
        ORDER BY p.punch_time DESC`
     );
@@ -55,17 +56,17 @@ router.get('/pending', async (req, res, next) => {
       return res.status(400).json({ error: 'supervisor_emp_id is required' });
     }
 
-    const supervisorResult = await pool.query('SELECT emp_id FROM employees WHERE emp_id = $1', [supervisor_emp_id]);
+    const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
     if (supervisorResult.rows.length === 0) {
       return res.status(404).json({ error: `employee ${supervisor_emp_id} not found` });
     }
 
     const pendingResult = await pool.query(
-      `SELECT p.id, p.emp_id, e.name AS employee_name, p.project_code,
+      `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, p.project_code,
               p.punch_time, p.lat, p.lng, p.entry_method, p.entered_by
        FROM punches p
-       JOIN employees e ON e.emp_id = p.emp_id
-       WHERE e.reporting_manager_emp_id = $1 AND p.approval_status = 'pending'
+       JOIN employees e ON e."EmpId" = p.emp_id
+       WHERE e."EmpReportMgrId" = $1 AND p.approval_status = 'pending'
        ORDER BY p.punch_time ASC`,
       [supervisor_emp_id]
     );
@@ -78,9 +79,9 @@ router.get('/pending', async (req, res, next) => {
 
 async function loadPunchForApproval(punchId, supervisorEmpId) {
   const punchResult = await pool.query(
-    `SELECT p.id, p.approval_status, e.reporting_manager_emp_id
+    `SELECT p.id, p.approval_status, e."EmpReportMgrId" AS reporting_manager_emp_id
      FROM punches p
-     JOIN employees e ON e.emp_id = p.emp_id
+     JOIN employees e ON e."EmpId" = p.emp_id
      WHERE p.id = $1`,
     [punchId]
   );
@@ -111,7 +112,7 @@ router.patch('/:id/approve', async (req, res, next) => {
       return res.status(400).json({ error: 'supervisor_emp_id is required' });
     }
 
-    const supervisorResult = await pool.query('SELECT emp_id FROM employees WHERE emp_id = $1', [supervisor_emp_id]);
+    const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
     if (supervisorResult.rows.length === 0) {
       return res.status(400).json({ error: `supervisor_emp_id ${supervisor_emp_id} not found` });
     }
@@ -148,7 +149,7 @@ router.patch('/:id/reject', async (req, res, next) => {
       return res.status(400).json({ error: 'reason is required' });
     }
 
-    const supervisorResult = await pool.query('SELECT emp_id FROM employees WHERE emp_id = $1', [supervisor_emp_id]);
+    const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
     if (supervisorResult.rows.length === 0) {
       return res.status(400).json({ error: `supervisor_emp_id ${supervisor_emp_id} not found` });
     }
@@ -187,7 +188,7 @@ router.post('/', async (req, res, next) => {
     const enteredBy = entered_by || emp_id;
 
     const employeeResult = await pool.query(
-      'SELECT emp_id, reporting_manager_emp_id FROM employees WHERE emp_id = $1',
+      'SELECT "EmpId" AS emp_id, "EmpReportMgrId" AS reporting_manager_emp_id FROM employees WHERE "EmpId" = $1',
       [emp_id]
     );
     if (employeeResult.rows.length === 0) {
@@ -224,7 +225,10 @@ router.post('/', async (req, res, next) => {
       entryMethod = 'supervisor';
 
       const enteredByResult = await pool.query(
-        'SELECT emp_id, designation FROM employees WHERE emp_id = $1',
+        `SELECT e."EmpId" AS emp_id, g.designation_name AS designation
+         FROM employees e
+         LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
+         WHERE e."EmpId" = $1`,
         [enteredBy]
       );
       if (enteredByResult.rows.length === 0) {

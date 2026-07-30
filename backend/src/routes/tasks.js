@@ -20,10 +20,10 @@ router.post('/', async (req, res, next) => {
 router.get('/', async (req, res, next) => {
   try {
     const result = await pool.query(
-      `SELECT t.id, t.emp_id, e.name AS employee_name, t.project_code, p.project_name,
+      `SELECT t.id, t.emp_id, e."EmpName" AS employee_name, t.project_code, p.project_name,
               t.task_date, t.priority, t.description, t.location_site, t.status, t.source, t.created_by, t.created_at
        FROM tasks t
-       LEFT JOIN employees e ON e.emp_id = t.emp_id
+       LEFT JOIN employees e ON e."EmpId" = t.emp_id
        LEFT JOIN projects p ON p.project_code = t.project_code
        ORDER BY t.created_at DESC`
     );

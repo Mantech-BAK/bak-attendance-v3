@@ -215,6 +215,46 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
   return { rows, totalWorkedMinutes, thresholdMinutes: threshold.minutes, otMinutes, trueExcessMinutes };
 }
 
+/**
+ * Persists one finalized confirmation-sheet row into confirmation_sheet_records
+ * — the real ARTIFY-format output table, distinct from the on-demand Excel
+ * export. Upserted on (EmpId, AttendanceDate, ProjectId, StartTime) so
+ * re-generating the report for an already-persisted date updates existing
+ * records instead of duplicating them. Postgres treats NULL as never equal
+ * to NULL in a unique constraint, so untimed rows (shortfall/absentee/OT)
+ * would never actually conflict on a true NULL StartTime — a fixed
+ * midnight-of-the-report-date placeholder is used for those instead of NULL,
+ * so idempotency holds uniformly across every row shape.
+ */
+async function persistConfirmationSheetRecord(row) {
+  const startTimeForKey = row.start_time || new Date(`${row.attendance_date}T00:00:00.000Z`);
+
+  await pool.query(
+    `INSERT INTO confirmation_sheet_records
+       ("EmpId", "CPR", "EmpName", "Designation", "CostCenter", "AttendanceDate", "ProjectId", "ProjectName",
+        "StartDate", "StartTime", "EndDate", "EndTime", "TotalWorkingHours", "OverTime", "Remarks", "ApprovedBy")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+     ON CONFLICT ("EmpId", "AttendanceDate", "ProjectId", "StartTime") DO UPDATE SET
+       "CPR" = EXCLUDED."CPR",
+       "EmpName" = EXCLUDED."EmpName",
+       "Designation" = EXCLUDED."Designation",
+       "CostCenter" = EXCLUDED."CostCenter",
+       "ProjectName" = EXCLUDED."ProjectName",
+       "StartDate" = EXCLUDED."StartDate",
+       "EndDate" = EXCLUDED."EndDate",
+       "EndTime" = EXCLUDED."EndTime",
+       "TotalWorkingHours" = EXCLUDED."TotalWorkingHours",
+       "OverTime" = EXCLUDED."OverTime",
+       "Remarks" = EXCLUDED."Remarks",
+       "ApprovedBy" = EXCLUDED."ApprovedBy"`,
+    [
+      row.emp_id, row.cpr, row.employee_name, row.designation, row.cost_center, row.attendance_date,
+      row.job, row.project_name, row.start_date, startTimeForKey, row.end_date, row.end_time,
+      row.working_hours, row.ot === '' ? null : row.ot, row.remarks, row.approved_by,
+    ]
+  );
+}
+
 async function ensureOtApproval({ empId, date, workedMinutes, thresholdMinutes, otMinutes, reportingManagerEmpId }) {
   await pool.query(
     `INSERT INTO ot_approvals (emp_id, work_date, worked_minutes, threshold_minutes, ot_minutes, reporting_manager_emp_id, status)
@@ -236,12 +276,19 @@ async function generateConfirmationSheetRows(date) {
   const [settingsMap, employeesResult, projectsResult, departmentsResult, otApprovalsResult] = await Promise.all([
     getAllSettings(),
     pool.query(
-      `SELECT emp_id, name, designation, company, department, religion, ot_eligible, reporting_manager_emp_id
-       FROM employees WHERE status = 'active' ORDER BY emp_id`
+      `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, g.designation_name AS designation,
+              d.division_name AS company, e."EmpDeptId" AS department, r.religion_name AS religion,
+              CASE WHEN e."EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
+              e."EmpReportMgrId" AS reporting_manager_emp_id, e."EmpCpr" AS cpr
+       FROM employees e
+       LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
+       LEFT JOIN divisions d ON e."EmpDivision" = d.division_code
+       LEFT JOIN religions r ON e."EmpReligionId" = r.religion_code
+       WHERE e."EmpStatus" = 'active' ORDER BY e."EmpId"`
     ),
     pool.query('SELECT project_code, project_name, cost_center FROM projects'),
-    pool.query('SELECT company, department_name, default_project_code FROM departments'),
-    pool.query('SELECT emp_id, status FROM ot_approvals WHERE work_date = $1', [date]),
+    pool.query('SELECT company_dept_id AS company, department_name, default_project_code FROM departments'),
+    pool.query('SELECT emp_id, status, approved_by FROM ot_approvals WHERE work_date = $1', [date]),
   ]);
 
   const ramzanPeriods = parseRamzanPeriods(settingsMap);
@@ -251,7 +298,7 @@ async function generateConfirmationSheetRows(date) {
     const project = d.default_project_code ? projectsByCode.get(d.default_project_code) : null;
     departmentDefaults.set(`${d.company}|${d.department_name}`, project || null);
   }
-  const otStatusByEmp = new Map(otApprovalsResult.rows.map((o) => [o.emp_id, o.status]));
+  const otStatusByEmp = new Map(otApprovalsResult.rows.map((o) => [o.emp_id, { status: o.status, approvedBy: o.approved_by }]));
 
   const { start, end } = getUtcDayBounds(date);
   const punchesResult = await pool.query(
@@ -302,13 +349,17 @@ async function generateConfirmationSheetRows(date) {
     const untimed = rows.filter((r) => !r.start_time);
 
     for (const row of [...timed, ...untimed]) {
-      const approvalRequired = row.is_ot_row
-        ? (otStatusByEmp.get(employee.emp_id) ?? 'pending') === 'pending'
-        : false;
+      const otRecord = otStatusByEmp.get(employee.emp_id);
+      const approvalRequired = row.is_ot_row ? (otRecord?.status ?? 'pending') === 'pending' : false;
+      // Approved By has no meaning for ordinary project-session rows — only
+      // the OT row has a per-day approval concept at all (ot_approvals),
+      // and only once it's actually been approved.
+      const approvedBy = row.is_ot_row && otRecord?.status === 'approved' ? otRecord.approvedBy : null;
 
-      reportRows.push({
+      const reportRow = {
         rowNumber: rowNumber++,
         emp_id: employee.emp_id,
+        cpr: employee.cpr,
         employee_name: employee.name,
         designation: employee.designation,
         cost_center: row.cost_center,
@@ -324,7 +375,11 @@ async function generateConfirmationSheetRows(date) {
         ot_eligible: employee.ot_eligible,
         ot: row.is_ot_row ? formatHours(row.working_minutes) : '',
         approval_required: approvalRequired ? 'Y' : 'N',
-      });
+        approved_by: approvedBy,
+      };
+
+      reportRows.push(reportRow);
+      await persistConfirmationSheetRecord(reportRow);
     }
   }
 

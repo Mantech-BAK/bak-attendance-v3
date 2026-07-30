@@ -1,15 +1,15 @@
-import { File, UploadType } from 'expo-file-system';
 import { API_BASE_URL } from '../config';
 
 /**
  * Endpoint contract status:
  *
  * CONFIRMED (built on backend, response shapes verified against it):
- *   POST /api/punch/identify   — multipart face image -> matched employee + today's tasks
+ *   POST /api/punch/identify   — TEMPORARY TESTING MEASURE: identification is a typed
+ *                                 { emp_id, login_code } pair, not real face capture/recognition
+ *                                 (see backend/src/routes/punch.js for full rationale — open item,
+ *                                 tracked the same way as the ARTIFY/Teams pending items).
  *                                 response: { emp_id, name, designation, tasks: [{ id, project_code, name, priority, status }] }
- *                                 note: matching is currently an exact-byte-hash stub, not real
- *                                 face recognition — will not match a live camera capture against
- *                                 a prior registration photo until a real matcher is wired in.
+ *                                 401 with a generic "Invalid employee ID or code." on any mismatch.
  *   POST /api/punches          — records a punch. Body keys the backend actually reads:
  *                                 { emp_id, project_code, lat, lng, entered_by? }
  *                                 There is no "type" (IN/OUT) at capture time — it's derived later,
@@ -81,37 +81,12 @@ async function request(path, options = {}) {
 }
 
 // CONFIRMED
-//
-// Deliberately NOT using fetch()+FormData here: on this SDK/RN version,
-// appending a { uri, name, type } file part to FormData and posting it via
-// fetch throws "Unsupported FormDataPart implementation" on Android before
-// the request ever reaches the network (confirmed against a live emulator;
-// matches an open, unresolved upstream issue — expo/expo#33134). Using
-// expo-file-system's upload task instead bypasses fetch/FormData entirely.
-export async function identifyPunch(photoUri) {
-  const file = new File(photoUri);
-  const task = file.createUploadTask(`${API_BASE_URL}/api/punch/identify`, {
-    uploadType: UploadType.MULTIPART,
-    fieldName: 'face',
-    mimeType: 'image/jpeg',
+export function identifyPunch(empId, loginCode) {
+  return request('/api/punch/identify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ emp_id: empId, login_code: loginCode }),
   });
-
-  const result = await task.uploadAsync();
-  const body = result?.body ? JSON.parse(result.body) : null;
-
-  if (!result || result.status < 200 || result.status >= 300) {
-    const message = body?.error || `Request to /api/punch/identify failed (${result?.status})`;
-    throw new Error(message);
-  }
-
-  return body;
-}
-
-// DEV ONLY — remove this function and its call site in PunchScreen.js once
-// real face recognition replaces the exact-hash stub in faceMatch.js. Hits
-// GET /api/dev/identify-bypass/:emp_id, which skips face matching entirely.
-export function devIdentifyBypass(empId) {
-  return request(`/api/dev/identify-bypass/${encodeURIComponent(empId)}`);
 }
 
 // CONFIRMED
