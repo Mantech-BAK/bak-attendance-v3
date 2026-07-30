@@ -1,4 +1,4 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:3000';
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:3000';
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, options);
@@ -145,6 +145,10 @@ export function resolveException(id: number): Promise<ExceptionRow> {
 
 export function fetchAttendance(): Promise<{ sessions: AttendanceSession[]; exceptions_raised: unknown[] }> {
   return request('/api/attendance');
+}
+
+export function confirmationSheetUrl(date: string): string {
+  return `${API_BASE_URL}/api/reports/confirmation-sheet?date=${encodeURIComponent(date)}`;
 }
 
 export type DailyWorkingHours = {

@@ -46,6 +46,15 @@ import { API_BASE_URL } from '../config';
  *   POST  /api/tasks            body: { emp_id, project_code, priority?, description, location_site?, source, created_by }
  *                                 source must be one of: supervisor_app | backoffice | teams
  *   GET   /api/projects         response: [{ project_code, project_name, company, status }] (OPEN only)
+ *   GET   /api/ot-approvals/pending?supervisor_emp_id=   — pending OT approvals for direct reports
+ *                                 response: [{ id, emp_id, employee_name, work_date, worked_minutes,
+ *                                 threshold_minutes, ot_minutes, status }] — a distinct concept from
+ *                                 punch approvals (day-level total OT, computed by a nightly job or
+ *                                 by generating the backoffice confirmation-sheet report for that day).
+ *   PATCH /api/ot-approvals/:id/approve   body: { supervisor_emp_id }
+ *   PATCH /api/ot-approvals/:id/reject    body: { supervisor_emp_id, reason }
+ *                                 Same verification pattern as punch approve/reject (403 if not the
+ *                                 employee's reporting manager, 409 if already resolved).
  */
 
 async function parseJsonSafe(response) {
@@ -178,4 +187,27 @@ export function createTask({ assignedEmpId, projectCode, priority, description, 
 // CONFIRMED
 export function fetchProjects() {
   return request('/api/projects?status=OPEN');
+}
+
+// CONFIRMED
+export function fetchPendingOtApprovals(supervisorEmpId) {
+  return request(`/api/ot-approvals/pending?supervisor_emp_id=${encodeURIComponent(supervisorEmpId)}`);
+}
+
+// CONFIRMED
+export function approveOt(otApprovalId, supervisorEmpId) {
+  return request(`/api/ot-approvals/${encodeURIComponent(otApprovalId)}/approve`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ supervisor_emp_id: supervisorEmpId }),
+  });
+}
+
+// CONFIRMED
+export function rejectOt(otApprovalId, supervisorEmpId, reason) {
+  return request(`/api/ot-approvals/${encodeURIComponent(otApprovalId)}/reject`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ supervisor_emp_id: supervisorEmpId, reason }),
+  });
 }

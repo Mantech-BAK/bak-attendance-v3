@@ -22,6 +22,24 @@ function dateKey(punchTime) {
   return punchTime.toISOString().slice(0, 10);
 }
 
+/**
+ * Returns the [start, end) instant bounds of a UTC calendar day as JS Date
+ * objects. These must be used — never a plain 'YYYY-MM-DD' string cast to
+ * ::date — when filtering punch_time by day in SQL. node-pg serializes a JS
+ * Date bound to a "timestamp without time zone" column through the
+ * process's local timezone (the same conversion applied when punch_time was
+ * originally written from a JS Date), so comparing Date-to-Date stays
+ * internally consistent. A bare date string bypasses that conversion
+ * entirely and silently mis-buckets any punch within the local-offset
+ * window of midnight (confirmed: a 23:00 UTC punch was excluded from its
+ * own day using the ::date form, in an environment offset at UTC+3).
+ */
+function getUtcDayBounds(date) {
+  const start = new Date(`${date}T00:00:00.000Z`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end };
+}
+
 function isWithinRamzan(dateStr, ramzanPeriods) {
   return ramzanPeriods.some((period) => dateStr >= period.start_date && dateStr <= period.end_date);
 }
@@ -129,6 +147,7 @@ function applyNestedSubtraction(sessionsForDay) {
     session.counted_minutes = Math.max(0, rawMinutes - subtract);
 
     const parent = directParent.get(session);
+    session.nested_within = parent ? parent.project_code : null;
     if (parent) {
       subtractionForParent.set(parent, (subtractionForParent.get(parent) || 0) + session.counted_minutes);
     }
@@ -137,6 +156,7 @@ function applyNestedSubtraction(sessionsForDay) {
   for (const session of sessionsForDay) {
     if (session.incomplete) {
       session.counted_minutes = null;
+      session.nested_within = null;
     }
   }
 }
@@ -246,27 +266,34 @@ function calculateAttendanceForAllEmployees() {
 /**
  * Returns the project_code of the one project (if any) the employee has
  * left "open" today — an odd punch count, meaning it hasn't been closed
- * with a matching punch yet. Scoped to today via an explicit date
- * parameter rather than SQL's CURRENT_DATE, so it can never disagree with
- * dateKey()'s UTC-based day boundary depending on the Postgres server's own
- * timezone configuration.
+ * with a matching punch yet. Scoped to today via explicit JS Date bounds
+ * (see getUtcDayBounds) rather than SQL's CURRENT_DATE or a ::date-cast
+ * string, so it can never disagree with dateKey()'s UTC-based day boundary.
  */
 async function getOpenProjectForToday(empId) {
-  const today = dateKey(new Date());
+  const { start, end } = getUtcDayBounds(dateKey(new Date()));
 
   const { rows } = await pool.query(
     `SELECT project_code, count(*)::int AS cnt
      FROM punches
      WHERE emp_id = $1 AND approval_status <> 'rejected'
        AND project_code IS NOT NULL
-       AND punch_time >= $2::date AND punch_time < ($2::date + interval '1 day')
+       AND punch_time >= $2 AND punch_time < $3
      GROUP BY project_code
      ORDER BY project_code`,
-    [empId, today]
+    [empId, start, end]
   );
 
   const open = rows.find((row) => row.cnt % 2 !== 0);
   return open ? open.project_code : null;
 }
 
-module.exports = { calculateAttendanceForEmployee, calculateAttendanceForAllEmployees, getOpenProjectForToday };
+module.exports = {
+  calculateAttendanceForEmployee,
+  calculateAttendanceForAllEmployees,
+  getOpenProjectForToday,
+  dateKey,
+  getUtcDayBounds,
+  getEffectiveThreshold,
+  applyNestedSubtraction,
+};

@@ -26,6 +26,9 @@ import {
   fetchPendingApprovals,
   approvePunch,
   rejectPunch,
+  fetchPendingOtApprovals,
+  approveOt,
+  rejectOt,
   fetchDirectReports,
   fetchProjects,
   createTask,
@@ -67,9 +70,13 @@ export default function PunchScreen() {
   const [pendingApprovals, setPendingApprovals] = useState([]);
   const [loadingApprovals, setLoadingApprovals] = useState(false);
   const [processingApprovalId, setProcessingApprovalId] = useState(null);
+  const [pendingOtApprovals, setPendingOtApprovals] = useState([]);
+  const [loadingOt, setLoadingOt] = useState(false);
+  const [processingOtId, setProcessingOtId] = useState(null);
   const [directReports, setDirectReports] = useState([]);
   const [projects, setProjects] = useState([]);
-  const [rejectingPunchId, setRejectingPunchId] = useState(null);
+  // { type: 'punch' | 'ot', id } — one modal shared by both approval flows.
+  const [rejectingItem, setRejectingItem] = useState(null);
 
   const isSupervisor = employee?.designation === SUPERVISOR_DESIGNATION;
   const tabs = isSupervisor ? SUPERVISOR_TABS : EMPLOYEE_TABS;
@@ -81,25 +88,30 @@ export default function PunchScreen() {
     setTeamMemberTarget(null);
     setTeamOpenProjectCode(null);
     setPendingApprovals([]);
+    setPendingOtApprovals([]);
     setDirectReports([]);
     setProjects([]);
   }
 
   const loadSupervisorData = useCallback(async (supervisorEmpId) => {
     setLoadingApprovals(true);
+    setLoadingOt(true);
     try {
-      const [approvals, reports, projectList] = await Promise.all([
+      const [approvals, otApprovals, reports, projectList] = await Promise.all([
         fetchPendingApprovals(supervisorEmpId),
+        fetchPendingOtApprovals(supervisorEmpId),
         fetchDirectReports(supervisorEmpId),
         fetchProjects(),
       ]);
       setPendingApprovals(approvals || []);
+      setPendingOtApprovals(otApprovals || []);
       setDirectReports(reports || []);
       setProjects(projectList || []);
     } catch (err) {
       Alert.alert('Could not load team data', err.message);
     } finally {
       setLoadingApprovals(false);
+      setLoadingOt(false);
     }
   }, []);
 
@@ -260,15 +272,41 @@ export default function PunchScreen() {
     }
   }
 
-  async function handleRejectSubmit(reason) {
+  async function handleApproveOt(otApprovalId) {
+    setProcessingOtId(otApprovalId);
     try {
-      await rejectPunch(rejectingPunchId, employee.emp_id, reason);
-      setPendingApprovals((prev) => prev.filter((p) => p.id !== rejectingPunchId));
-      setRejectingPunchId(null);
+      await approveOt(otApprovalId, employee.emp_id);
+      setPendingOtApprovals((prev) => prev.filter((o) => o.id !== otApprovalId));
     } catch (err) {
       if (err.status === 403) {
-        setRejectingPunchId(null);
-        Alert.alert('No longer assigned to you', 'This punch is no longer assigned to you. Refreshing your list…');
+        Alert.alert('No longer assigned to you', 'This employee is no longer assigned to you. Refreshing your list…');
+        loadSupervisorData(employee.emp_id);
+      } else {
+        Alert.alert('Approve failed', err.message);
+      }
+    } finally {
+      setProcessingOtId(null);
+    }
+  }
+
+  async function handleRejectSubmit(reason) {
+    const { type, id } = rejectingItem;
+    try {
+      if (type === 'ot') {
+        await rejectOt(id, employee.emp_id, reason);
+        setPendingOtApprovals((prev) => prev.filter((o) => o.id !== id));
+      } else {
+        await rejectPunch(id, employee.emp_id, reason);
+        setPendingApprovals((prev) => prev.filter((p) => p.id !== id));
+      }
+      setRejectingItem(null);
+    } catch (err) {
+      if (err.status === 403) {
+        setRejectingItem(null);
+        const message = type === 'ot'
+          ? 'This employee is no longer assigned to you. Refreshing your list…'
+          : 'This punch is no longer assigned to you. Refreshing your list…';
+        Alert.alert('No longer assigned to you', message);
         loadSupervisorData(employee.emp_id);
         return;
       }
@@ -360,8 +398,13 @@ export default function PunchScreen() {
           pendingApprovals={pendingApprovals}
           loadingApprovals={loadingApprovals}
           onApprove={handleApprove}
-          onReject={setRejectingPunchId}
+          onReject={(id) => setRejectingItem({ type: 'punch', id })}
           processingId={processingApprovalId}
+          pendingOtApprovals={pendingOtApprovals}
+          loadingOt={loadingOt}
+          onApproveOt={handleApproveOt}
+          onRejectOt={(id) => setRejectingItem({ type: 'ot', id })}
+          processingOtId={processingOtId}
         />
       );
     }
@@ -416,9 +459,15 @@ export default function PunchScreen() {
       />
 
       <RejectReasonModal
-        visible={rejectingPunchId != null}
+        visible={rejectingItem != null}
         onSubmit={handleRejectSubmit}
-        onClose={() => setRejectingPunchId(null)}
+        onClose={() => setRejectingItem(null)}
+        title={rejectingItem?.type === 'ot' ? 'Reject Overtime' : 'Reject Punch'}
+        placeholder={
+          rejectingItem?.type === 'ot'
+            ? 'Why is this overtime being rejected?'
+            : 'Why is this punch being rejected?'
+        }
       />
     </SafeAreaView>
   );

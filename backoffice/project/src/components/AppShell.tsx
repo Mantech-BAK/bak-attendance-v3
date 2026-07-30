@@ -8,6 +8,7 @@ import {
   LogOut,
   AlertTriangle,
   Settings,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { useRouter, type RouteName } from '@/lib/router';
@@ -20,6 +21,7 @@ const NAV: { name: RouteName; label: string; icon: typeof LayoutDashboard }[] = 
   { name: 'punches', label: 'Punches', icon: Clock },
   { name: 'exceptions', label: 'Exceptions', icon: AlertTriangle },
   { name: 'reports', label: 'Reports', icon: BarChart3 },
+  { name: 'confirmation-sheet', label: 'Confirmation Sheet', icon: FileSpreadsheet },
   { name: 'settings', label: 'Settings', icon: Settings },
 ];
 

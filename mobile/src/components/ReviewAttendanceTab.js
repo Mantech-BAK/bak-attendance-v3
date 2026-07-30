@@ -1,45 +1,68 @@
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import OvertimeApprovalsCard from './OvertimeApprovalsCard';
 
 // Create Task and Scan Team Member used to be buttons at the bottom of this
 // panel — they're now their own separate tabs, so this is just the pending-
-// approvals list.
-export default function ReviewAttendanceTab({ pendingApprovals, loadingApprovals, onApprove, onReject, processingId }) {
+// approvals list, plus a separate Overtime Approvals card below it (OT is a
+// distinct, day-level concept from per-punch approval, not bundled in).
+export default function ReviewAttendanceTab({
+  pendingApprovals,
+  loadingApprovals,
+  onApprove,
+  onReject,
+  processingId,
+  pendingOtApprovals,
+  loadingOt,
+  onApproveOt,
+  onRejectOt,
+  processingOtId,
+}) {
   return (
-    <View style={styles.container}>
-      <Text style={styles.heading}>Team Punch Approvals</Text>
+    <View>
+      <View style={styles.container}>
+        <Text style={styles.heading}>Team Punch Approvals</Text>
 
-      {loadingApprovals ? (
-        <ActivityIndicator style={styles.spinner} />
-      ) : pendingApprovals.length === 0 ? (
-        <Text style={styles.empty}>No pending approvals</Text>
-      ) : (
-        pendingApprovals.map((item) => (
-          <View key={item.id} style={styles.approvalRow}>
-            <View style={styles.approvalInfo}>
-              <Text style={styles.approvalName}>{item.employee_name}</Text>
-              <Text style={styles.approvalMeta}>
-                {item.project_code || 'No project'} · {new Date(item.punch_time).toLocaleTimeString()}
-              </Text>
+        {loadingApprovals ? (
+          <ActivityIndicator style={styles.spinner} />
+        ) : pendingApprovals.length === 0 ? (
+          <Text style={styles.empty}>No pending approvals</Text>
+        ) : (
+          pendingApprovals.map((item) => (
+            <View key={item.id} style={styles.approvalRow}>
+              <View style={styles.approvalInfo}>
+                <Text style={styles.approvalName}>{item.employee_name}</Text>
+                <Text style={styles.approvalMeta}>
+                  {item.project_code || 'No project'} · {new Date(item.punch_time).toLocaleTimeString()}
+                </Text>
+              </View>
+              <View style={styles.approvalActions}>
+                <TouchableOpacity
+                  style={[styles.smallButton, styles.approveButton]}
+                  onPress={() => onApprove(item.id)}
+                  disabled={processingId === item.id}
+                >
+                  <Text style={styles.smallButtonText}>Approve</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.smallButton, styles.rejectButton]}
+                  onPress={() => onReject(item.id)}
+                  disabled={processingId === item.id}
+                >
+                  <Text style={styles.smallButtonText}>Reject</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <View style={styles.approvalActions}>
-              <TouchableOpacity
-                style={[styles.smallButton, styles.approveButton]}
-                onPress={() => onApprove(item.id)}
-                disabled={processingId === item.id}
-              >
-                <Text style={styles.smallButtonText}>Approve</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.smallButton, styles.rejectButton]}
-                onPress={() => onReject(item.id)}
-                disabled={processingId === item.id}
-              >
-                <Text style={styles.smallButtonText}>Reject</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ))
-      )}
+          ))
+        )}
+      </View>
+
+      <OvertimeApprovalsCard
+        pendingOtApprovals={pendingOtApprovals}
+        loadingOt={loadingOt}
+        onApprove={onApproveOt}
+        onReject={onRejectOt}
+        processingId={processingOtId}
+      />
     </View>
   );
 }

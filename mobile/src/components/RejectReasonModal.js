@@ -9,7 +9,13 @@ import {
   View,
 } from 'react-native';
 
-export default function RejectReasonModal({ visible, onSubmit, onClose }) {
+export default function RejectReasonModal({
+  visible,
+  onSubmit,
+  onClose,
+  title = 'Reject Punch',
+  placeholder = 'Why is this punch being rejected?',
+}) {
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -42,14 +48,14 @@ export default function RejectReasonModal({ visible, onSubmit, onClose }) {
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
-          <Text style={styles.heading}>Reject Punch</Text>
+          <Text style={styles.heading}>{title}</Text>
 
           <Text style={styles.label}>Reason</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
             value={reason}
             onChangeText={setReason}
-            placeholder="Why is this punch being rejected?"
+            placeholder={placeholder}
             multiline
             autoFocus
           />
