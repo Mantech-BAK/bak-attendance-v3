@@ -79,6 +79,11 @@ export type ExceptionRow = {
   details: string;
   status: string;
   created_at: string;
+  // Only populated when ref_table === 'punches' (currently just
+  // single_punch_only) — the existing incomplete punch's project/time, so
+  // "Add Punch" can pre-fill everything but the missing timestamp.
+  ref_project_code: string | null;
+  ref_punch_time: string | null;
 };
 
 export type AttendanceSession = {
@@ -141,6 +146,26 @@ export function fetchPunches(): Promise<Punch[]> {
   return request('/api/punches');
 }
 
+// Admin-only manual punch correction — auto-approved immediately, no review
+// queue. punchTime is the admin-supplied explicit timestamp (never "now").
+export function addAdminPunchCorrection(input: {
+  empId: string;
+  projectCode: string | null;
+  punchTime: string;
+  enteredBy: string;
+}): Promise<Punch> {
+  return request('/api/punches/admin-correction', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      emp_id: input.empId,
+      project_code: input.projectCode,
+      punch_time: input.punchTime,
+      entered_by: input.enteredBy,
+    }),
+  });
+}
+
 export function fetchExceptions(): Promise<ExceptionRow[]> {
   return request('/api/exceptions');
 }
@@ -153,8 +178,8 @@ export function resolveException(id: number): Promise<ExceptionRow> {
   });
 }
 
-export function fetchAttendance(): Promise<{ sessions: AttendanceSession[]; exceptions_raised: unknown[] }> {
-  return request('/api/attendance');
+export function fetchAttendance(date?: string): Promise<{ sessions: AttendanceSession[]; exceptions_raised: unknown[] }> {
+  return request(`/api/attendance${date ? `?date=${encodeURIComponent(date)}` : ''}`);
 }
 
 export function confirmationSheetUrl(date: string): string {
@@ -194,5 +219,22 @@ export function declareRamzanPeriod(input: { start_date: string; end_date: strin
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+  });
+}
+
+export type RamzanWorkingHours = {
+  minutes: number | null;
+  hours: number | null;
+};
+
+export function fetchRamzanWorkingHours(): Promise<RamzanWorkingHours> {
+  return request('/api/settings/ramzan-working-hours');
+}
+
+export function saveRamzanWorkingHours(hours: number): Promise<RamzanWorkingHours> {
+  return request('/api/settings/ramzan-working-hours', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hours }),
   });
 }

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Clock, Calendar, Filter, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Clock, Calendar, Filter, X, Plus } from 'lucide-react';
 import { fetchPunches, fetchProjects, fetchEmployees } from '@/lib/api';
 import type { Punch, Project, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, Badge, Spinner, EmptyState, Select } from '@/components/ui';
+import { Card, Badge, Spinner, EmptyState, Select, Button } from '@/components/ui';
+import { AddPunchModal } from '@/components/AddPunchModal';
 import { formatDateTime, initials } from '@/lib/utils';
 
 export function PunchesPage() {
@@ -11,6 +12,7 @@ export function PunchesPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAddPunch, setShowAddPunch] = useState(false);
 
   const [dateFilter, setDateFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('all');
@@ -18,16 +20,17 @@ export function PunchesPage() {
   const [employeeFilter, setEmployeeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  useEffect(() => {
-    async function load() {
-      const [pch, prj, emp] = await Promise.all([fetchPunches(), fetchProjects(), fetchEmployees()]);
-      setPunches(pch);
-      setProjects(prj);
-      setEmployees(emp);
-      setLoading(false);
-    }
-    load();
+  const load = useCallback(async () => {
+    const [pch, prj, emp] = await Promise.all([fetchPunches(), fetchProjects(), fetchEmployees()]);
+    setPunches(pch);
+    setProjects(prj);
+    setEmployees(emp);
+    setLoading(false);
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const employeeDeptMap = useMemo(() => new Map(employees.map((e) => [e.emp_id, e.department])), [employees]);
   const departments = useMemo(
@@ -76,7 +79,23 @@ export function PunchesPage() {
 
   return (
     <>
-      <PageHeader title="Punches" subtitle="Review time and attendance entries" />
+      <PageHeader
+        title="Punches"
+        subtitle="Review time and attendance entries"
+        action={
+          <Button onClick={() => setShowAddPunch(true)}>
+            <Plus className="h-4 w-4" /> Add Punch
+          </Button>
+        }
+      />
+
+      <AddPunchModal
+        open={showAddPunch}
+        onClose={() => setShowAddPunch(false)}
+        employees={employees}
+        projects={projects}
+        onSuccess={() => load()}
+      />
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="p-5">
@@ -172,8 +191,12 @@ export function PunchesPage() {
                     <td className="px-6 py-4"><span className="text-sm text-slate-700">{p.project_name ?? '—'}</span></td>
                     <td className="px-6 py-4"><p className="text-sm text-slate-700">{formatDateTime(p.punch_time)}</p></td>
                     <td className="px-6 py-4">
-                      <Badge variant={p.entry_method === 'supervisor' ? 'accent' : 'neutral'}>
-                        {p.entry_method === 'supervisor' ? `Supervisor (${p.entered_by})` : 'Self'}
+                      <Badge variant={p.entry_method === 'admin_correction' ? 'warning' : p.entry_method === 'supervisor' ? 'accent' : 'neutral'}>
+                        {p.entry_method === 'admin_correction'
+                          ? `Admin Correction (${p.entered_by})`
+                          : p.entry_method === 'supervisor'
+                            ? `Supervisor (${p.entered_by})`
+                            : 'Self'}
                       </Badge>
                     </td>
                     <td className="px-6 py-4">

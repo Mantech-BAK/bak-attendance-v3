@@ -16,7 +16,7 @@ const { getAllSettings, parseRamzanPeriods } = require('./settings');
  */
 
 const GLOBAL_DEFAULT_MINUTES = 510; // used only if overtime_threshold_minutes is somehow missing entirely
-const RAMZAN_THRESHOLD_MINUTES = 360; // fixed 6 hours
+const RAMZAN_DEFAULT_MINUTES = 360; // used only if ramzan_working_hours_minutes is somehow missing entirely
 
 function dateKey(punchTime) {
   return punchTime.toISOString().slice(0, 10);
@@ -52,7 +52,10 @@ function isWithinRamzan(dateStr, ramzanPeriods) {
  */
 function getEffectiveThreshold({ religion, date, settingsMap, ramzanPeriods }) {
   if (religion === 'Muslim' && isWithinRamzan(date, ramzanPeriods)) {
-    return { minutes: RAMZAN_THRESHOLD_MINUTES, source: 'ramzan' };
+    const ramzanMinutes = settingsMap.ramzan_working_hours_minutes !== undefined
+      ? Number(settingsMap.ramzan_working_hours_minutes)
+      : RAMZAN_DEFAULT_MINUTES;
+    return { minutes: ramzanMinutes, source: 'ramzan' };
   }
 
   const dailyOverride = settingsMap[`daily_working_hours:${date}`];
@@ -162,13 +165,21 @@ function applyNestedSubtraction(sessionsForDay) {
 }
 
 // empId === null computes attendance across all employees at once (used by
-// the backoffice Reports page) instead of one employee at a time.
-async function calculateAttendance(empId) {
+// the backoffice Reports page) instead of one employee at a time. date, when
+// given, scopes to just that UTC calendar day (via getUtcDayBounds, same
+// convention as everywhere else) instead of the full punch history — used by
+// the Reports page's "attendance for a specific date" view.
+async function calculateAttendance(empId, date) {
   const params = [];
   let whereClause = "approval_status <> 'rejected'";
   if (empId) {
-    whereClause += ' AND emp_id = $1';
     params.push(empId);
+    whereClause += ` AND emp_id = $${params.length}`;
+  }
+  if (date) {
+    const { start, end } = getUtcDayBounds(date);
+    params.push(start, end);
+    whereClause += ` AND punch_time >= $${params.length - 1} AND punch_time < $${params.length}`;
   }
 
   const { rows } = await pool.query(
@@ -259,12 +270,12 @@ async function calculateAttendance(empId) {
   return { sessions, exceptionsRaised };
 }
 
-function calculateAttendanceForEmployee(empId) {
-  return calculateAttendance(empId);
+function calculateAttendanceForEmployee(empId, date) {
+  return calculateAttendance(empId, date);
 }
 
-function calculateAttendanceForAllEmployees() {
-  return calculateAttendance(null);
+function calculateAttendanceForAllEmployees(date) {
+  return calculateAttendance(null, date);
 }
 
 /**

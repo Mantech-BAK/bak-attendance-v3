@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Clock, ClipboardList, Users, Building2, TrendingUp } from 'lucide-react';
+import { Clock, ClipboardList, Users, Building2, TrendingUp, CalendarSearch } from 'lucide-react';
 import { fetchEmployees, fetchTasks, fetchProjects, fetchAttendance } from '@/lib/api';
 import type { Employee, Task, Project, AttendanceSession } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, Badge, Spinner } from '@/components/ui';
-import { cn, initials } from '@/lib/utils';
+import { Card, Badge, Spinner, Input, EmptyState } from '@/components/ui';
+import { cn, initials, formatDateTime } from '@/lib/utils';
+
+function yesterday(): string {
+  return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
 
 type ReportData = {
   employees: Employee[];
@@ -23,6 +27,11 @@ export function ReportsPage() {
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [dateQuery, setDateQuery] = useState(yesterday());
+  const [dateSessions, setDateSessions] = useState<AttendanceSession[] | null>(null);
+  const [dateLoading, setDateLoading] = useState(false);
+  const [dateError, setDateError] = useState<string | null>(null);
+
   useEffect(() => {
     async function load() {
       const [employees, tasks, projects, attendance] = await Promise.all([
@@ -36,6 +45,24 @@ export function ReportsPage() {
     }
     load();
   }, []);
+
+  useEffect(() => {
+    async function loadForDate() {
+      if (!dateQuery) return;
+      setDateLoading(true);
+      setDateError(null);
+      try {
+        const result = await fetchAttendance(dateQuery);
+        setDateSessions(result.sessions);
+      } catch (err) {
+        setDateError(err instanceof Error ? err.message : 'Could not load attendance for this date.');
+        setDateSessions(null);
+      } finally {
+        setDateLoading(false);
+      }
+    }
+    loadForDate();
+  }, [dateQuery]);
 
   const employeeMap = useMemo(() => new Map((data?.employees ?? []).map((e) => [e.emp_id, e])), [data]);
   const projectMap = useMemo(() => new Map((data?.projects ?? []).map((p) => [p.project_code, p])), [data]);
@@ -112,6 +139,66 @@ export function ReportsPage() {
   return (
     <>
       <PageHeader title="Reports" subtitle="Insights across attendance and operations" />
+
+      <Card className="mb-6 p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <CalendarSearch className="h-5 w-5 text-slate-400" />
+          <h2 className="text-base font-semibold text-slate-900">Attendance for a Specific Date</h2>
+        </div>
+
+        <div className="mb-5 max-w-xs">
+          <Input value={dateQuery} onChange={setDateQuery} label="Date" id="attendance-date-query" type="date" />
+        </div>
+
+        {dateLoading ? (
+          <Spinner />
+        ) : dateError ? (
+          <div className="rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+            {dateError}
+          </div>
+        ) : !dateSessions || dateSessions.length === 0 ? (
+          <EmptyState icon={<CalendarSearch className="h-6 w-6" />} title="No sessions on this date" message="No punches were recorded for any employee on the selected date." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-left">
+                  <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Employee</th>
+                  <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Project</th>
+                  <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Punch In</th>
+                  <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Punch Out</th>
+                  <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Worked</th>
+                  <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Threshold</th>
+                  <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Overtime</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {dateSessions.map((s, i) => {
+                  const emp = employeeMap.get(s.emp_id);
+                  const proj = s.project_code ? projectMap.get(s.project_code) : null;
+                  return (
+                    <tr key={`${s.emp_id}-${s.project_code}-${i}`} className="transition hover:bg-slate-50">
+                      <td className="px-4 py-3 text-sm font-medium text-slate-900">{emp?.name ?? s.emp_id}</td>
+                      <td className="px-4 py-3 text-sm text-slate-700">{proj?.project_name ?? s.project_code ?? '—'}</td>
+                      <td className="px-4 py-3 text-sm text-slate-700">{formatDateTime(s.punch_in.punch_time)}</td>
+                      <td className="px-4 py-3 text-sm text-slate-700">{s.punch_out ? formatDateTime(s.punch_out.punch_time) : <span className="text-slate-400">Incomplete</span>}</td>
+                      <td className="px-4 py-3 text-sm text-slate-700">{s.worked_minutes !== null ? `${(s.worked_minutes / 60).toFixed(1)}h` : '—'}</td>
+                      <td className="px-4 py-3 text-sm text-slate-500">{(s.threshold_minutes / 60).toFixed(1)}h <span className="text-xs text-slate-400">({s.threshold_source.replace(/_/g, ' ')})</span></td>
+                      <td className="px-4 py-3">
+                        {s.is_overtime ? (
+                          <Badge variant="warning">+{((s.overtime_minutes ?? 0) / 60).toFixed(1)}h OT</Badge>
+                        ) : (
+                          <span className="text-sm text-slate-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[

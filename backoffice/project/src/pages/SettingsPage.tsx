@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Clock, Moon, CheckCircle2, XCircle, Loader2, CalendarRange } from 'lucide-react';
+import { Clock, Moon, Sunrise, CheckCircle2, XCircle, Loader2, CalendarRange } from 'lucide-react';
 import {
   fetchDailyWorkingHours,
   saveDailyWorkingHours,
   fetchRamzanPeriods,
   declareRamzanPeriod,
+  fetchRamzanWorkingHours,
+  saveRamzanWorkingHours,
   fetchEmployees,
 } from '@/lib/api';
 import type { RamzanPeriod, Employee } from '@/lib/api';
@@ -32,18 +34,55 @@ export function SettingsPage() {
   const [periodError, setPeriodError] = useState<string | null>(null);
   const [periodSuccess, setPeriodSuccess] = useState(false);
 
+  const [ramzanHours, setRamzanHours] = useState('');
+  const [currentRamzanHours, setCurrentRamzanHours] = useState<number | null>(null);
+  const [ramzanHoursSubmitting, setRamzanHoursSubmitting] = useState(false);
+  const [ramzanHoursError, setRamzanHoursError] = useState<string | null>(null);
+  const [ramzanHoursSuccess, setRamzanHoursSuccess] = useState(false);
+
   useEffect(() => {
     load();
   }, []);
 
   async function load() {
     setLoading(true);
-    const [dwh, rp, emp] = await Promise.all([fetchDailyWorkingHours(), fetchRamzanPeriods(), fetchEmployees()]);
+    const [dwh, rp, rwh, emp] = await Promise.all([
+      fetchDailyWorkingHours(),
+      fetchRamzanPeriods(),
+      fetchRamzanWorkingHours(),
+      fetchEmployees(),
+    ]);
     setCurrentHours(dwh.hours);
     setHours(dwh.hours !== null ? String(dwh.hours) : '');
     setPeriods(rp.periods);
+    setCurrentRamzanHours(rwh.hours);
+    setRamzanHours(rwh.hours !== null ? String(rwh.hours) : '');
     setEmployees(emp);
     setLoading(false);
+  }
+
+  async function handleRamzanHoursSubmit(e: FormEvent) {
+    e.preventDefault();
+    setRamzanHoursError(null);
+    setRamzanHoursSuccess(false);
+
+    const parsed = Number(ramzanHours);
+    if (!ramzanHours || Number.isNaN(parsed)) {
+      setRamzanHoursError('Enter a valid number of hours.');
+      return;
+    }
+
+    setRamzanHoursSubmitting(true);
+    try {
+      const result = await saveRamzanWorkingHours(parsed);
+      setCurrentRamzanHours(result.hours);
+      setRamzanHoursSuccess(true);
+      setTimeout(() => setRamzanHoursSuccess(false), 3000);
+    } catch (err) {
+      setRamzanHoursError(err instanceof Error ? err.message : 'Could not save. Please try again.');
+    } finally {
+      setRamzanHoursSubmitting(false);
+    }
   }
 
   async function handleHoursSubmit(e: FormEvent) {
@@ -165,8 +204,9 @@ export function SettingsPage() {
             <h2 className="text-base font-semibold text-slate-900">Declare Ramzan Period</h2>
           </div>
           <p className="mb-4 text-sm text-slate-500">
-            Muslim employees get a fixed 6-hour overtime threshold on any day within a declared period. Start date
-            cannot be earlier than today; no restriction on how far in the future.
+            Muslim employees get the Ramzan Working Hours threshold (set in the card below) on any day within a
+            declared period, overriding everything else. Start date cannot be earlier than today; no restriction on
+            how far in the future.
           </p>
 
           <form onSubmit={handlePeriodSubmit} className="space-y-4">
@@ -190,6 +230,46 @@ export function SettingsPage() {
 
             <Button type="submit" disabled={periodSubmitting} className="w-full">
               {periodSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Declaring…</>) : 'Declare Period'}
+            </Button>
+          </form>
+        </Card>
+
+        <Card className="p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Sunrise className="h-5 w-5 text-slate-400" />
+            <h2 className="text-base font-semibold text-slate-900">Ramzan Working Hours</h2>
+          </div>
+          <p className="mb-4 text-sm text-slate-500">
+            Daily working hours for Muslim employees during a declared Ramzan period — replaces Daily Working Hours
+            and the global default whenever both apply. Defaults to 6h if never set.
+          </p>
+
+          <form onSubmit={handleRamzanHoursSubmit} className="space-y-4">
+            <Input
+              value={ramzanHours}
+              onChange={setRamzanHours}
+              label="Hours (1–8)"
+              id="ramzan-hours"
+              type="number"
+              placeholder="e.g. 6"
+            />
+            <p className="text-xs text-slate-400">
+              {currentRamzanHours !== null ? `Currently set to ${currentRamzanHours}h.` : 'Not customized yet — defaults to 6h.'}
+            </p>
+
+            {ramzanHoursError && (
+              <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+                <XCircle className="h-4 w-4 shrink-0" />{ramzanHoursError}
+              </div>
+            )}
+            {ramzanHoursSuccess && (
+              <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />Saved.
+              </div>
+            )}
+
+            <Button type="submit" disabled={ramzanHoursSubmitting} className="w-full">
+              {ramzanHoursSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>) : 'Save'}
             </Button>
           </form>
         </Card>

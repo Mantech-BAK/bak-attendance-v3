@@ -277,4 +277,66 @@ router.post('/', async (req, res, next) => {
   }
 });
 
+/**
+ * Admin-only manual punch correction — for backfilling a punch an employee
+ * never actually recorded (most commonly to resolve a single_punch_only
+ * exception), or any other missing entry. Deliberately a separate endpoint
+ * from POST / rather than a variant of it: this accepts an explicit
+ * admin-supplied punch_time instead of trusting the server clock, skips the
+ * "already has an open project today" 409 (the whole point is often to
+ * close out a stale open session from a past day, which that check isn't
+ * scoped to catch anyway), and is unconditionally auto-approved — an admin
+ * directly correcting attendance data is a trusted, deliberate action, not
+ * something that then needs someone else's review.
+ */
+router.post('/admin-correction', async (req, res, next) => {
+  try {
+    const { emp_id, project_code, punch_time, entered_by } = req.body;
+
+    if (!emp_id) {
+      return res.status(400).json({ error: 'emp_id is required' });
+    }
+    if (!entered_by) {
+      return res.status(400).json({ error: 'entered_by is required' });
+    }
+    if (!punch_time) {
+      return res.status(400).json({ error: 'punch_time is required' });
+    }
+    const parsedPunchTime = new Date(punch_time);
+    if (Number.isNaN(parsedPunchTime.getTime())) {
+      return res.status(400).json({ error: 'punch_time is not a valid timestamp' });
+    }
+
+    const employeeResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
+    if (employeeResult.rows.length === 0) {
+      return res.status(404).json({ error: `employee ${emp_id} not found` });
+    }
+
+    const adminResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [entered_by]);
+    if (adminResult.rows.length === 0) {
+      return res.status(400).json({ error: `entered_by ${entered_by} not found` });
+    }
+
+    if (project_code) {
+      const projectResult = await pool.query('SELECT project_code FROM projects WHERE project_code = $1', [project_code]);
+      if (projectResult.rows.length === 0) {
+        return res.status(400).json({ error: `project ${project_code} not found` });
+      }
+    }
+
+    const result = await pool.query(
+      `INSERT INTO punches
+         (emp_id, project_code, punch_time, lat, lng, entered_by, entry_method, approval_status, approved_by, approved_at)
+       VALUES ($1, $2, $3, NULL, NULL, $4, 'admin_correction', 'approved', $4, now())
+       RETURNING id, emp_id, project_code, punch_time, lat, lng, device_ref,
+                 entered_by, entry_method, approval_status, approved_by, approved_at, resolved_address, created_at`,
+      [emp_id, project_code || null, parsedPunchTime, entered_by]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

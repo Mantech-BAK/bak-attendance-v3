@@ -6,6 +6,8 @@ const router = express.Router();
 
 const MIN_HOURS = 0.5;
 const MAX_HOURS = 24;
+const MIN_RAMZAN_HOURS = 1;
+const MAX_RAMZAN_HOURS = 8;
 const MAX_RAMZAN_SPAN_DAYS = 30;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -42,6 +44,39 @@ router.post('/daily-working-hours', async (req, res, next) => {
     await setSetting(`daily_working_hours:${today}`, String(hours));
 
     res.json({ date: today, hours });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Replaces the previously-hardcoded 360-minute (6h) constant in
+// getEffectiveThreshold. Returns null (not a defaulted 6) when unset, so the
+// backoffice can show "not customized" — the calculation engine applies its
+// own built-in 360-minute fallback separately when this key is absent.
+router.get('/ramzan-working-hours', async (req, res, next) => {
+  try {
+    const value = await getSetting('ramzan_working_hours_minutes');
+    res.json({ minutes: value === null ? null : Number(value), hours: value === null ? null : Number(value) / 60 });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/ramzan-working-hours', async (req, res, next) => {
+  try {
+    const { hours } = req.body;
+
+    if (typeof hours !== 'number' || Number.isNaN(hours)) {
+      return res.status(400).json({ error: 'hours is required and must be a number' });
+    }
+    if (hours < MIN_RAMZAN_HOURS || hours > MAX_RAMZAN_HOURS) {
+      return res.status(400).json({ error: `hours must be between ${MIN_RAMZAN_HOURS} and ${MAX_RAMZAN_HOURS}` });
+    }
+
+    const minutes = Math.round(hours * 60);
+    await setSetting('ramzan_working_hours_minutes', String(minutes));
+
+    res.json({ minutes, hours });
   } catch (err) {
     next(err);
   }

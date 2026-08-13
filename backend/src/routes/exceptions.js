@@ -5,14 +5,21 @@ const router = express.Router();
 
 const VALID_STATUSES = ['open', 'resolved'];
 
+// rp (referenced punch) is only populated for exceptions whose ref_table is
+// 'punches' — currently just single_punch_only. Lets the backoffice's
+// "Add Punch" action on an exception pre-fill the project and date from the
+// existing incomplete punch, so the admin only has to supply the missing
+// time.
 router.get('/', async (req, res, next) => {
   try {
     const result = await pool.query(
       `SELECT ex.id, ex.type, ex.emp_id, e."EmpName" AS employee_name, g.designation_name AS employee_designation,
-              ex.ref_table, ex.ref_id, ex.details, ex.status, ex.created_at
+              ex.ref_table, ex.ref_id, ex.details, ex.status, ex.created_at,
+              rp.project_code AS ref_project_code, rp.punch_time AS ref_punch_time
        FROM exceptions ex
        LEFT JOIN employees e ON e."EmpId" = ex.emp_id
        LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
+       LEFT JOIN punches rp ON ex.ref_table = 'punches' AND ex.ref_id = rp.id
        ORDER BY ex.created_at DESC`
     );
     res.json(result.rows);

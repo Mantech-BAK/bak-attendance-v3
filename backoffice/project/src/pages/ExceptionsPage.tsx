@@ -8,11 +8,13 @@ import {
   X,
   User,
   Calendar,
+  Plus,
 } from 'lucide-react';
-import { fetchExceptions, resolveException } from '@/lib/api';
-import type { ExceptionRow } from '@/lib/api';
+import { fetchExceptions, resolveException, fetchEmployees, fetchProjects } from '@/lib/api';
+import type { ExceptionRow, Employee, Project } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Select, Spinner, EmptyState } from '@/components/ui';
+import { AddPunchModal } from '@/components/AddPunchModal';
 import { cn, formatDateTime, initials } from '@/lib/utils';
 
 const TYPE_VARIANTS: Record<string, 'error' | 'warning' | 'info' | 'accent' | 'neutral'> = {
@@ -35,18 +37,23 @@ function typeLabel(type: string): string {
 
 export function ExceptionsPage() {
   const [exceptions, setExceptions] = useState<ExceptionRow[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [resolvingId, setResolvingId] = useState<number | null>(null);
+  const [addPunchFor, setAddPunchFor] = useState<ExceptionRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchExceptions();
+      const [data, emp, prj] = await Promise.all([fetchExceptions(), fetchEmployees(), fetchProjects()]);
       setExceptions(data);
+      setEmployees(emp);
+      setProjects(prj);
     } catch {
       setError('Could not load exceptions. Please try again.');
     } finally {
@@ -57,6 +64,21 @@ export function ExceptionsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Adding the punch and resolving the exception it was raised for are one
+  // action from the admin's point of view — chained here client-side rather
+  // than coupling the two on the backend.
+  async function handlePunchAdded() {
+    const exception = addPunchFor;
+    setAddPunchFor(null);
+    if (!exception) return;
+    try {
+      const updated = await resolveException(exception.id);
+      setExceptions((prev) => prev.map((e) => (e.id === exception.id ? updated : e)));
+    } catch {
+      setError('Punch was added, but the exception could not be auto-resolved. Resolve it manually below.');
+    }
+  }
 
   async function handleResolve(id: number) {
     setResolvingId(id);
@@ -218,18 +240,24 @@ export function ExceptionsPage() {
                     </div>
                   </div>
                   {isOpen && (
-                    <Button
-                      size="sm"
-                      onClick={() => handleResolve(e.id)}
-                      disabled={resolvingId === e.id}
-                      className="shrink-0"
-                    >
-                      {resolvingId === e.id ? (
-                        <><Loader2 className="h-4 w-4 animate-spin" /> Resolving…</>
-                      ) : (
-                        <><CheckCircle2 className="h-4 w-4" /> Resolve</>
+                    <div className="flex shrink-0 gap-2">
+                      {e.type === 'single_punch_only' && e.emp_id && (
+                        <Button size="sm" variant="secondary" onClick={() => setAddPunchFor(e)}>
+                          <Plus className="h-4 w-4" /> Add Punch
+                        </Button>
                       )}
-                    </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handleResolve(e.id)}
+                        disabled={resolvingId === e.id}
+                      >
+                        {resolvingId === e.id ? (
+                          <><Loader2 className="h-4 w-4 animate-spin" /> Resolving…</>
+                        ) : (
+                          <><CheckCircle2 className="h-4 w-4" /> Resolve</>
+                        )}
+                      </Button>
+                    </div>
                   )}
                 </div>
               </Card>
@@ -237,6 +265,18 @@ export function ExceptionsPage() {
           })}
         </div>
       )}
+
+      <AddPunchModal
+        open={addPunchFor !== null}
+        onClose={() => setAddPunchFor(null)}
+        employees={employees}
+        projects={projects}
+        defaultEmpId={addPunchFor?.emp_id ?? undefined}
+        defaultProjectCode={addPunchFor?.ref_project_code ?? undefined}
+        defaultDate={addPunchFor?.ref_punch_time ? addPunchFor.ref_punch_time.slice(0, 10) : undefined}
+        lockEmployee
+        onSuccess={handlePunchAdded}
+      />
     </>
   );
 }

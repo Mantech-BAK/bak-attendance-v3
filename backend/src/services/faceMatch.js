@@ -24,9 +24,6 @@ function hashDataUri(dataUri) {
   return hashBuffer(Buffer.from(base64, 'base64'));
 }
 
-/**
- * Returns the matching employee's emp_id, or null if no template matches.
- */
 async function matchFace(imageBuffer) {
   const uploadedHash = hashBuffer(imageBuffer);
 
