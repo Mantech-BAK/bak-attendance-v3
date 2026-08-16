@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "seed:supervisor-test-data": "node scripts/seedSupervisorTestData.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
