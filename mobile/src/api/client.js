@@ -7,7 +7,7 @@ import { API_BASE_URL } from '../config';
  *   POST /api/punch/identify   — TEMPORARY TESTING MEASURE: identification is a typed
  *                                 { emp_id, login_code } pair, not real face capture/recognition
  *                                 (see backend/src/routes/punch.js for full rationale — open item,
- *                                 tracked the same way as the ARTIFY/Teams pending items).
+ *                                 tracked the same way as the Teams pending items).
  *                                 response: { emp_id, name, designation, tasks: [{ id, project_code, name, priority, status }] }
  *                                 401 with a generic "Invalid employee ID or code." on any mismatch.
  *   POST /api/punches          — records a punch. Body keys the backend actually reads:

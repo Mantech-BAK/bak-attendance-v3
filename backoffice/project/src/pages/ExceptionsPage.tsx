@@ -19,12 +19,10 @@ import { cn, formatDateTime, initials } from '@/lib/utils';
 
 const TYPE_VARIANTS: Record<string, 'error' | 'warning' | 'info' | 'accent' | 'neutral'> = {
   single_punch_only: 'error',
-  artify_sync_failure: 'warning',
 };
 
 const TYPE_LABELS: Record<string, string> = {
   single_punch_only: 'Single Punch Only',
-  artify_sync_failure: 'ARTIFY Sync Failure',
 };
 
 function typeBadgeVariant(type: string): 'error' | 'warning' | 'info' | 'accent' | 'neutral' {

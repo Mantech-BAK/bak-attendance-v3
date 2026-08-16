@@ -7,18 +7,17 @@ const router = express.Router();
 /**
  * TEMPORARY TESTING MEASURE — identification is currently a typed
  * { emp_id, login_code } pair instead of real face capture/recognition.
- * employees.login_code is a random 5-letter code (see ../services/loginCode
- * and artifySync.js's upsertEmployees, which assigns one to every new
- * employee), viewable/regeneratable by an admin from the backoffice
- * Employees page. This replaces both the old camera-capture flow and the
- * DEV identify-bypass route (routes/devBypass.js, now removed) — it's the
- * practical way to exercise the full punch/approval/OT flow without
- * biometric hardware.
+ * employees.login_code is a random 5-letter code (see ../services/loginCode,
+ * assigned to every new employee on creation), viewable/regeneratable by an
+ * admin from the backoffice Employees page. This replaces both the old
+ * camera-capture flow and the DEV identify-bypass route
+ * (routes/devBypass.js, now removed) — it's the practical way to exercise
+ * the full punch/approval/OT flow without biometric hardware.
  *
  * face_template/fingerprint_template and services/faceMatch.js are left
  * completely untouched and unused. Swap this back to real face capture once
  * biometric hardware/data is available — open item, tracked the same way as
- * the ARTIFY/Teams pending items.
+ * the Teams pending items.
  */
 router.post('/identify', async (req, res, next) => {
   try {

@@ -1,8 +1,7 @@
 const cron = require('node-cron');
 const { runTeamsSync } = require('../services/teamsSync');
 
-// Every 5 minutes — task assignments are more time-sensitive than the
-// daily ARTIFY org sync.
+// Every 5 minutes — task assignments are time-sensitive.
 const SCHEDULE = '*/5 * * * *';
 
 function startTeamsCron() {

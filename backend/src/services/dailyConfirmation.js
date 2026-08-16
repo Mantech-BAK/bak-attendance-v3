@@ -217,7 +217,7 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
 
 /**
  * Persists one finalized confirmation-sheet row into confirmation_sheet_records
- * — the real ARTIFY-format output table, distinct from the on-demand Excel
+ * — BAK's own real-format output table, distinct from the on-demand Excel
  * export. Upserted on (EmpId, AttendanceDate, ProjectId, StartTime) so
  * re-generating the report for an already-persisted date updates existing
  * records instead of duplicating them. Postgres treats NULL as never equal

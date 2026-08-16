@@ -4,8 +4,8 @@ const { parseMessageRows, validateRow } = require('./teamsParser');
 const { createTask, TaskValidationError } = require('./tasks');
 const { getSetting, setSetting } = require('./settings');
 
-// Reuses artify_sync_log rather than a dedicated table — its sync_type
-// column already exists precisely to distinguish different sync jobs.
+// Shares the generic sync_log table rather than a dedicated one — its
+// sync_type column exists precisely to distinguish different sync jobs.
 const SYNC_TYPE = 'teams_pull';
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [5000, 15000];
@@ -21,7 +21,7 @@ function buildFailureMessage(empId, reason) {
 
 async function logSyncRun({ status, detail, attemptCount }) {
   await pool.query(
-    `INSERT INTO artify_sync_log (sync_type, status, detail, attempt_count)
+    `INSERT INTO sync_log (sync_type, status, detail, attempt_count)
      VALUES ($1, $2, $3, $4)`,
     [SYNC_TYPE, status, detail, attemptCount]
   );
@@ -31,13 +31,13 @@ async function logSyncFailureException({ details }) {
   await pool.query(
     `INSERT INTO exceptions (type, ref_table, details)
      VALUES ($1, $2, $3)`,
-    ['teams_sync_failure', 'artify_sync_log', details]
+    ['teams_sync_failure', 'sync_log', details]
   );
 }
 
 // ref_id stays null — Teams message IDs are strings, not the integer this
-// column expects. ref_table is a loose descriptive tag, same convention
-// artify_sync_failure already uses for ref_table='artify_sync_log'.
+// column expects. ref_table is a loose descriptive tag naming the table the
+// failure detail was logged to.
 async function logTaskFailureException(empId, detailMessage) {
   await pool.query(
     `INSERT INTO exceptions (type, emp_id, ref_table, details, status)
@@ -142,10 +142,10 @@ async function runTeamsSyncAttempt() {
 }
 
 /**
- * Runs the Teams task-intake sync with the same retry discipline as the
- * ARTIFY sync (3 attempts, increasing delay) — this retries the fetch/
- * processing cycle itself (e.g. a transient Graph API failure), never
- * individual row validation failures, which are terminal and logged once.
+ * Runs the Teams task-intake sync with retry (3 attempts, increasing delay)
+ * — this retries the fetch/processing cycle itself (e.g. a transient Graph
+ * API failure), never individual row validation failures, which are
+ * terminal and logged once.
  */
 async function runTeamsSync() {
   let lastError;

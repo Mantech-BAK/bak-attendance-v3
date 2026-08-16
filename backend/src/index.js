@@ -15,7 +15,6 @@ const exceptionsRoutes = require('./routes/exceptions');
 const settingsRoutes = require('./routes/settings');
 const reportsRoutes = require('./routes/reports');
 const otApprovalsRoutes = require('./routes/otApprovals');
-const { startArtifyCron } = require('./jobs/artifyCron');
 const { startTeamsCron } = require('./jobs/teamsCron');
 const { startOtApprovalCron } = require('./jobs/otApprovalCron');
 
@@ -59,7 +58,6 @@ const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
-  startArtifyCron();
   startTeamsCron();
   startOtApprovalCron();
 });
