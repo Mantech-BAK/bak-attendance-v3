@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 
-export type RouteName = 'dashboard' | 'employees' | 'tasks' | 'punches' | 'exceptions' | 'reports' | 'settings' | 'confirmation-sheet';
+export type RouteName = 'dashboard' | 'employees' | 'tasks' | 'punches' | 'exceptions' | 'reports' | 'settings';
 
 export type Route = { name: RouteName };
 
@@ -13,7 +13,7 @@ const RouterContext = createContext<RouterState | undefined>(undefined);
 
 function parseHash(): Route {
   const hash = window.location.hash.replace('#/', '').replace('#', '');
-  const valid: RouteName[] = ['dashboard', 'employees', 'tasks', 'punches', 'exceptions', 'reports', 'settings', 'confirmation-sheet'];
+  const valid: RouteName[] = ['dashboard', 'employees', 'tasks', 'punches', 'exceptions', 'reports', 'settings'];
   if (valid.includes(hash as RouteName)) {
     return { name: hash as RouteName };
   }

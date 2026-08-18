@@ -77,6 +77,41 @@ router.get('/pending', async (req, res, next) => {
   }
 });
 
+// Read-only punch history for a supervisor's own team — every punch
+// (any approval status) for their direct reports, most recent first. No
+// approve/reject action lives here; that's still /pending above. Capped at
+// 200 rows so a long-tenured team's history doesn't return unbounded data.
+router.get('/team-history', async (req, res, next) => {
+  try {
+    const { supervisor_emp_id } = req.query;
+
+    if (!supervisor_emp_id) {
+      return res.status(400).json({ error: 'supervisor_emp_id is required' });
+    }
+
+    const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
+    if (supervisorResult.rows.length === 0) {
+      return res.status(404).json({ error: `employee ${supervisor_emp_id} not found` });
+    }
+
+    const historyResult = await pool.query(
+      `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, p.project_code, pr.project_name,
+              p.punch_time, p.entry_method, p.entered_by, p.approval_status, p.rejection_reason
+       FROM punches p
+       JOIN employees e ON e."EmpId" = p.emp_id
+       LEFT JOIN projects pr ON pr.project_code = p.project_code
+       WHERE e."EmpReportMgrId" = $1
+       ORDER BY p.punch_time DESC
+       LIMIT 200`,
+      [supervisor_emp_id]
+    );
+
+    res.json(historyResult.rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
 async function loadPunchForApproval(punchId, supervisorEmpId) {
   const punchResult = await pool.query(
     `SELECT p.id, p.approval_status, e."EmpReportMgrId" AS reporting_manager_emp_id
@@ -181,8 +216,18 @@ router.post('/', async (req, res, next) => {
     if (!emp_id) {
       return res.status(400).json({ error: 'emp_id is required' });
     }
-    if (typeof lat !== 'number' || typeof lng !== 'number') {
-      return res.status(400).json({ error: 'lat and lng are required numbers' });
+    // Location is best-effort, not required — a device with GPS/location
+    // disabled or a failed lookup must still be able to punch. lat/lng are
+    // only rejected if the client sent something that isn't actually a
+    // valid coordinate; omitting them entirely (null/undefined) is fine and
+    // stores as NULL, same as admin-correction already does.
+    const hasLat = lat !== null && lat !== undefined;
+    const hasLng = lng !== null && lng !== undefined;
+    if (hasLat !== hasLng) {
+      return res.status(400).json({ error: 'lat and lng must both be provided or both be omitted' });
+    }
+    if (hasLat && (typeof lat !== 'number' || typeof lng !== 'number')) {
+      return res.status(400).json({ error: 'lat and lng must be numbers when provided' });
     }
 
     const enteredBy = entered_by || emp_id;
@@ -268,7 +313,7 @@ router.post('/', async (req, res, next) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id, emp_id, project_code, punch_time, lat, lng, device_ref,
                  entered_by, entry_method, approval_status, approved_by, approved_at, resolved_address, created_at`,
-      [emp_id, project_code || null, punchTime, lat, lng, device_ref || null, enteredBy, entryMethod, approvalStatus, resolvedAddress]
+      [emp_id, project_code || null, punchTime, lat ?? null, lng ?? null, device_ref || null, enteredBy, entryMethod, approvalStatus, resolvedAddress]
     );
 
     res.status(201).json(result.rows[0]);

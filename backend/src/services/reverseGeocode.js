@@ -11,6 +11,12 @@ const USER_AGENT = 'bak-attendance-v3 (contact: mcs.sw01@bakgroup.net)';
  * (logged server-side only) rather than throwing.
  */
 async function reverseGeocode(lat, lng) {
+  // No coordinates (location disabled/unavailable on the device) — nothing
+  // to look up. Must not attempt a "null,null" request to Nominatim.
+  if (lat === null || lat === undefined || lng === null || lng === undefined) {
+    return null;
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 

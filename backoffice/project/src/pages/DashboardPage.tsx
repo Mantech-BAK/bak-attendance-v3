@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Users,
   ClipboardList,
@@ -7,11 +7,14 @@ import {
   TrendingUp,
   AlertTriangle,
   CheckCircle2,
+  CalendarDays,
+  Timer,
 } from 'lucide-react';
-import { fetchEmployees, fetchTasks, fetchPunches, fetchProjects, fetchExceptions } from '@/lib/api';
-import type { Employee, Task, Punch, Project, ExceptionRow } from '@/lib/api';
+import { fetchEmployees, fetchTasks, fetchPunches, fetchProjects, fetchExceptions, fetchAllPendingOtApprovals } from '@/lib/api';
+import type { Employee, Task, Punch, Project, ExceptionRow, OtApproval } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Spinner, EmptyState } from '@/components/ui';
+import { MonthCalendar } from '@/components/MonthCalendar';
 import { cn, formatDateTime, initials } from '@/lib/utils';
 
 type Stats = {
@@ -20,6 +23,7 @@ type Stats = {
   punches: Punch[];
   projects: Project[];
   exceptions: ExceptionRow[];
+  otApprovals: OtApproval[];
 };
 
 export function DashboardPage() {
@@ -28,18 +32,28 @@ export function DashboardPage() {
 
   useEffect(() => {
     async function load() {
-      const [employees, tasks, punches, projects, exceptions] = await Promise.all([
+      const [employees, tasks, punches, projects, exceptions, otApprovals] = await Promise.all([
         fetchEmployees(),
         fetchTasks(),
         fetchPunches(),
         fetchProjects(),
         fetchExceptions(),
+        fetchAllPendingOtApprovals(),
       ]);
-      setData({ employees, tasks, punches, projects, exceptions });
+      setData({ employees, tasks, punches, projects, exceptions, otApprovals });
       setLoading(false);
     }
     load();
   }, []);
+
+  const activityByDate = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const p of data?.punches ?? []) {
+      const key = new Date(p.punch_time).toISOString().slice(0, 10);
+      map[key] = (map[key] ?? 0) + 1;
+    }
+    return map;
+  }, [data]);
 
   if (loading || !data) {
     return (
@@ -98,6 +112,42 @@ export function DashboardPage() {
             </Card>
           );
         })}
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card className="p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <CalendarDays className="h-5 w-5 text-slate-400" />
+            <h2 className="text-base font-semibold text-slate-900">Calendar</h2>
+          </div>
+          <MonthCalendar activityByDate={activityByDate} />
+        </Card>
+
+        <Card className="p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Timer className="h-5 w-5 text-amber-500" />
+            <h2 className="text-base font-semibold text-slate-900">Overtime Alerts</h2>
+            {data.otApprovals.length > 0 && <Badge variant="warning">{data.otApprovals.length}</Badge>}
+          </div>
+          {data.otApprovals.length === 0 ? (
+            <div className="flex items-center gap-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              <span>No one has exceeded their working hours today.</span>
+            </div>
+          ) : (
+            <ul className="max-h-72 space-y-2 overflow-y-auto">
+              {data.otApprovals.map((o) => (
+                <li key={o.id} className="flex items-center justify-between gap-3 rounded-lg bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{o.employee_name}</p>
+                    <p className="text-xs text-amber-700">{o.work_date} · {(o.worked_minutes / 60).toFixed(1)}h worked of {(o.threshold_minutes / 60).toFixed(1)}h</p>
+                  </div>
+                  <Badge variant="warning">+{(o.ot_minutes / 60).toFixed(1)}h</Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">

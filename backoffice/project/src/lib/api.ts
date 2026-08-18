@@ -119,6 +119,10 @@ export function fetchTasks(): Promise<Task[]> {
   return request('/api/tasks');
 }
 
+export function tasksExportUrl(date: string): string {
+  return `${API_BASE_URL}/api/tasks/export?date=${encodeURIComponent(date)}`;
+}
+
 export function createTask(input: {
   empId: string;
   projectCode: string;
@@ -182,6 +186,27 @@ export function fetchAttendance(date?: string): Promise<{ sessions: AttendanceSe
   return request(`/api/attendance${date ? `?date=${encodeURIComponent(date)}` : ''}`);
 }
 
+export type OtApproval = {
+  id: number;
+  emp_id: string;
+  employee_name: string;
+  employee_designation: string | null;
+  work_date: string;
+  worked_minutes: number;
+  threshold_minutes: number;
+  ot_minutes: number;
+  status: string;
+};
+
+// Unscoped (no supervisor_emp_id) — every pending OT approval org-wide, for
+// the Dashboard's Overtime Alerts card. Reuses the existing end-of-day OT
+// evaluation as its detection mechanism (see backend otApprovals service);
+// this is just surfacing that already-computed result, not a new
+// calculation or a real-time mid-shift check.
+export function fetchAllPendingOtApprovals(): Promise<OtApproval[]> {
+  return request('/api/ot-approvals/pending');
+}
+
 export function confirmationSheetUrl(date: string): string {
   return `${API_BASE_URL}/api/reports/confirmation-sheet?date=${encodeURIComponent(date)}`;
 }
@@ -236,5 +261,17 @@ export function saveRamzanWorkingHours(hours: number): Promise<RamzanWorkingHour
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ hours }),
+  });
+}
+
+// Destructive — wipes punches/tasks/exceptions/ot_approvals/confirmation_sheet_records.
+// Never touches employees/projects or any other master data. The literal
+// 'RESET' confirm value is a second safety net behind the UI's own confirm
+// dialog, matched server-side.
+export function resetTestData(): Promise<{ cleared: string[] }> {
+  return request('/api/settings/reset-test-data', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm: 'RESET' }),
   });
 }

@@ -40,17 +40,24 @@ export default function PunchProjectList({ tasks, openProjectCode, onPunch }) {
 
     setSubmittingCode(projectCode);
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Location required', 'Location access is required to punch.');
-        return;
+      // Location is best-effort only — permission denial, a disabled
+      // location service, or a failed/timed-out fix must never block the
+      // punch itself. Any of those simply mean lat/lng go through as null;
+      // the backend accepts that and leaves resolved_address null too.
+      let lat = null;
+      let lng = null;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const location = await Location.getCurrentPositionAsync({});
+          lat = location.coords.latitude;
+          lng = location.coords.longitude;
+        }
+      } catch {
+        // Swallow — lat/lng stay null, punch proceeds regardless.
       }
 
-      const location = await Location.getCurrentPositionAsync({});
-      await onPunch(projectCode, projectName, {
-        lat: location.coords.latitude,
-        lng: location.coords.longitude,
-      });
+      await onPunch(projectCode, projectName, { lat, lng });
     } catch (err) {
       Alert.alert('Punch failed', err.message);
     } finally {
@@ -82,7 +89,14 @@ export default function PunchProjectList({ tasks, openProjectCode, onPunch }) {
             disabled={!!submittingCode}
           >
             <View style={styles.textWrap}>
-              <Text style={[styles.projectName, isOpen && styles.openText]}>{project.name}</Text>
+              <View style={styles.nameRow}>
+                <Text style={[styles.projectName, isOpen && styles.openText]}>{project.name}</Text>
+                {project.priority && (
+                  <View style={[styles.priorityBadge, styles[`priority_${project.priority}`]]}>
+                    <Text style={styles.priorityText}>{project.priority}</Text>
+                  </View>
+                )}
+              </View>
               {isOpen && <Text style={styles.openHint}>Open — tap to close</Text>}
               {blocked && <Text style={styles.blockedHint}>Close your open project first</Text>}
             </View>
@@ -113,8 +127,14 @@ const styles = StyleSheet.create({
   openButton: { backgroundColor: '#2563eb', borderColor: '#2563eb' },
   blockedButton: { opacity: 0.5 },
   textWrap: { flex: 1 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   projectName: { fontSize: 16, fontWeight: '600', color: '#111827' },
   openText: { color: '#fff' },
   openHint: { fontSize: 12, color: '#dbeafe', marginTop: 2 },
   blockedHint: { fontSize: 12, color: '#dc2626', marginTop: 2 },
+  priorityBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
+  priority_high: { backgroundColor: '#fee2e2' },
+  priority_medium: { backgroundColor: '#fef3c7' },
+  priority_low: { backgroundColor: '#f3f4f6' },
+  priorityText: { fontSize: 11, fontWeight: '700', color: '#374151', textTransform: 'uppercase' },
 });

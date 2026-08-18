@@ -70,6 +70,37 @@ router.get('/direct-reports', async (req, res, next) => {
   }
 });
 
+// Single-employee lookup — used by the mobile app's Profile tab (item 12)
+// to show fuller detail (department, status, login_code) than the minimal
+// identify() response returns. Declared after /direct-reports so that
+// literal path isn't shadowed by this :emp_id param route.
+router.get('/:emp_id', async (req, res, next) => {
+  try {
+    const { emp_id } = req.params;
+
+    const result = await pool.query(
+      `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, d.division_name AS company,
+              e."EmpDeptId" AS department, g.designation_name AS designation,
+              e."EmpReportMgrId" AS reporting_manager_emp_id, e."EmpStatus" AS status,
+              CASE WHEN e."EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
+              e.login_code, e."EmpCreatedOn" AS created_at
+       FROM employees e
+       LEFT JOIN divisions d ON e."EmpDivision" = d.division_code
+       LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
+       WHERE e."EmpId" = $1`,
+      [emp_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: `employee ${emp_id} not found` });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * Admin-only, onboarding-time face registration — not self-enrollment.
  * The caller (admin portal) must identify who is performing the

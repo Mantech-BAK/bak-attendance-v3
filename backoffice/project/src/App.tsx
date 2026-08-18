@@ -9,7 +9,6 @@ import { PunchesPage } from '@/pages/PunchesPage';
 import { ReportsPage } from '@/pages/ReportsPage';
 import { ExceptionsPage } from '@/pages/ExceptionsPage';
 import { SettingsPage } from '@/pages/SettingsPage';
-import { ConfirmationSheetPage } from '@/pages/ConfirmationSheetPage';
 
 function CurrentPage() {
   const { route } = useRouter();
@@ -28,8 +27,6 @@ function CurrentPage() {
       return <ReportsPage />;
     case 'settings':
       return <SettingsPage />;
-    case 'confirmation-sheet':
-      return <ConfirmationSheetPage />;
     default:
       return <DashboardPage />;
   }

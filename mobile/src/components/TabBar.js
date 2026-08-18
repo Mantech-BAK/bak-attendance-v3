@@ -26,6 +26,7 @@ export default function TabBar({ tabs, activeTab, onSelectTab }) {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     backgroundColor: '#fff',
     borderRadius: 10,
     padding: 4,
@@ -34,7 +35,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   tab: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: '31%',
     paddingVertical: 10,
     paddingHorizontal: 4,
     borderRadius: 8,

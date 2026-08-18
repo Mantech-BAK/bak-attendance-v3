@@ -18,6 +18,8 @@ import TabBar from '../components/TabBar';
 import PunchProjectList from '../components/PunchProjectList';
 import TaskAssignmentForm from '../components/TaskAssignmentForm';
 import ReviewAttendanceTab from '../components/ReviewAttendanceTab';
+import TeamPunchHistoryTab from '../components/TeamPunchHistoryTab';
+import ProfileTab from '../components/ProfileTab';
 import RejectReasonModal from '../components/RejectReasonModal';
 import {
   identifyPunch,
@@ -30,6 +32,8 @@ import {
   approveOt,
   rejectOt,
   fetchDirectReports,
+  fetchTeamPunchHistory,
+  fetchEmployee,
   fetchProjects,
   createTask,
 } from '../api/client';
@@ -38,6 +42,7 @@ import { SUPERVISOR_DESIGNATION } from '../config';
 const EMPLOYEE_TABS = [
   { key: 'punch', label: 'Punch' },
   { key: 'scan-another', label: 'Scan Another Employee' },
+  { key: 'profile', label: 'Profile' },
 ];
 
 const SUPERVISOR_TABS = [
@@ -45,6 +50,8 @@ const SUPERVISOR_TABS = [
   { key: 'task-assignment', label: 'Task Assignment' },
   { key: 'scan-team-member', label: 'Scan Team Member' },
   { key: 'review-attendance', label: 'Review Attendance' },
+  { key: 'punch-history', label: 'Punch History' },
+  { key: 'profile', label: 'Profile' },
 ];
 
 export default function PunchScreen() {
@@ -67,6 +74,10 @@ export default function PunchScreen() {
   const [processingOtId, setProcessingOtId] = useState(null);
   const [directReports, setDirectReports] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [teamHistory, setTeamHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
   // { type: 'punch' | 'ot', id } — one modal shared by both approval flows.
   const [rejectingItem, setRejectingItem] = useState(null);
 
@@ -83,27 +94,45 @@ export default function PunchScreen() {
     setPendingOtApprovals([]);
     setDirectReports([]);
     setProjects([]);
+    setTeamHistory([]);
+    setProfile(null);
   }
 
   const loadSupervisorData = useCallback(async (supervisorEmpId) => {
     setLoadingApprovals(true);
     setLoadingOt(true);
+    setLoadingHistory(true);
     try {
-      const [approvals, otApprovals, reports, projectList] = await Promise.all([
+      const [approvals, otApprovals, reports, projectList, history] = await Promise.all([
         fetchPendingApprovals(supervisorEmpId),
         fetchPendingOtApprovals(supervisorEmpId),
         fetchDirectReports(supervisorEmpId),
         fetchProjects(),
+        fetchTeamPunchHistory(supervisorEmpId),
       ]);
       setPendingApprovals(approvals || []);
       setPendingOtApprovals(otApprovals || []);
       setDirectReports(reports || []);
       setProjects(projectList || []);
+      setTeamHistory(history || []);
     } catch (err) {
       Alert.alert('Could not load team data', err.message);
     } finally {
       setLoadingApprovals(false);
       setLoadingOt(false);
+      setLoadingHistory(false);
+    }
+  }, []);
+
+  const loadProfile = useCallback(async (empId) => {
+    setLoadingProfile(true);
+    try {
+      const result = await fetchEmployee(empId);
+      setProfile(result);
+    } catch (err) {
+      Alert.alert('Could not load profile', err.message);
+    } finally {
+      setLoadingProfile(false);
     }
   }, []);
 
@@ -129,6 +158,22 @@ export default function PunchScreen() {
     return () => subscription.remove();
   }, []);
 
+  // Summary popup, shown every time the supervisor switches to this tab —
+  // not just once per login session — using whatever counts are currently
+  // loaded (item 10). Deliberately keyed only on activeTab: re-approving/
+  // rejecting items while already on the tab must not re-trigger it, only
+  // actually (re-)opening the tab should.
+  useEffect(() => {
+    if (activeTab === 'review-attendance') {
+      Alert.alert(
+        'Team Attendance Summary',
+        `${pendingApprovals.length} pending punch approval${pendingApprovals.length === 1 ? '' : 's'}, ` +
+          `${pendingOtApprovals.length} pending OT approval${pendingOtApprovals.length === 1 ? '' : 's'}.`
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
   async function applySelfIdentifyResult(result) {
     setEmployee(result);
     setActiveTab('punch');
@@ -138,6 +183,7 @@ export default function PunchScreen() {
     const status = await fetchTodayPunchStatus(result.emp_id);
     setSelfOpenProjectCode(status.open_project_code);
 
+    loadProfile(result.emp_id);
     if (result.designation === SUPERVISOR_DESIGNATION) {
       loadSupervisorData(result.emp_id);
     }
@@ -364,6 +410,14 @@ export default function PunchScreen() {
       );
     }
 
+    if (activeTab === 'punch-history') {
+      return <TeamPunchHistoryTab history={teamHistory} loading={loadingHistory} />;
+    }
+
+    if (activeTab === 'profile') {
+      return <ProfileTab profile={profile} loading={loadingProfile} />;
+    }
+
     return null;
   }
 
@@ -371,7 +425,14 @@ export default function PunchScreen() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.title}>BAK Attendance</Text>
+        <View style={[styles.headerRow, { justifyContent: employee ? 'space-between' : 'center' }]}>
+          <Text style={[styles.title, employee && styles.titleWithLogout]}>BAK Attendance</Text>
+          {employee && (
+            <TouchableOpacity style={styles.topLogoutButton} onPress={resetToIdle}>
+              <Text style={styles.topLogoutText}>Log out</Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
         {!employee && !identifying && (
           <View style={styles.idleContainer}>
@@ -394,10 +455,6 @@ export default function PunchScreen() {
             <EmployeeCard employee={employee} />
             <TabBar tabs={tabs} activeTab={activeTab} onSelectTab={setActiveTab} />
             {renderTabContent()}
-
-            <TouchableOpacity style={styles.resetButton} onPress={resetToIdle}>
-              <Text style={styles.resetButtonText}>Log out</Text>
-            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -427,7 +484,18 @@ export default function PunchScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#f3f4f6' },
   scrollContent: { flexGrow: 1, alignItems: 'center', padding: 20 },
-  title: { fontSize: 24, fontWeight: '800', color: '#111827', marginTop: 16, marginBottom: 24 },
+  headerRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  title: { fontSize: 24, fontWeight: '800', color: '#111827' },
+  titleWithLogout: { fontSize: 20 },
+  topLogoutButton: { paddingVertical: 6, paddingHorizontal: 10 },
+  topLogoutText: { color: '#2563eb', fontSize: 14, fontWeight: '600' },
   idleContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 60 },
   subtitle: { fontSize: 15, color: '#6b7280', marginBottom: 24, marginTop: 12 },
   punchButton: {

@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { ClipboardList, Plus, CheckCircle2, XCircle, Loader2, MapPin, Calendar } from 'lucide-react';
-import { fetchTasks, fetchEmployees, fetchProjects, createTask } from '@/lib/api';
+import { ClipboardList, Plus, CheckCircle2, XCircle, Loader2, MapPin, Calendar, Download } from 'lucide-react';
+import { fetchTasks, fetchEmployees, fetchProjects, createTask, tasksExportUrl } from '@/lib/api';
 import type { Task, Employee, Project } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Select, Textarea, Input, Spinner, EmptyState } from '@/components/ui';
 import { formatDate, initials } from '@/lib/utils';
+
+function todayDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 type FormState = {
   empId: string;
@@ -34,6 +38,9 @@ export function TasksPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [exportDate, setExportDate] = useState(todayDate());
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     load();
@@ -76,6 +83,31 @@ export function TasksPage() {
       setSubmitError(err instanceof Error ? err.message : 'Could not create the task. Please try again.');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleExport() {
+    setExportError(null);
+    setExporting(true);
+    try {
+      const response = await fetch(tasksExportUrl(exportDate));
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || `Request failed (${response.status})`);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `tasks-${exportDate}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Could not export tasks for this date.');
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -169,6 +201,22 @@ export function TasksPage() {
               </Select>
             </div>
           </div>
+
+          <Card className="mb-4 p-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="w-44">
+                <Input value={exportDate} onChange={setExportDate} label="Export by Date" id="task-export-date" type="date" />
+              </div>
+              <Button variant="secondary" onClick={handleExport} disabled={exporting || !exportDate}>
+                {exporting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Exporting…</>) : (<><Download className="h-4 w-4" /> Export to Excel</>)}
+              </Button>
+            </div>
+            {exportError && (
+              <div className="mt-3 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+                <XCircle className="h-4 w-4 shrink-0" />{exportError}
+              </div>
+            )}
+          </Card>
 
           {filtered.length === 0 ? (
             <Card className="p-6">

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Clock, ClipboardList, Users, Building2, TrendingUp, CalendarSearch } from 'lucide-react';
-import { fetchEmployees, fetchTasks, fetchProjects, fetchAttendance } from '@/lib/api';
+import { Clock, ClipboardList, Users, Building2, TrendingUp, CalendarSearch, FileSpreadsheet, Download, Loader2, XCircle } from 'lucide-react';
+import { fetchEmployees, fetchTasks, fetchProjects, fetchAttendance, confirmationSheetUrl } from '@/lib/api';
 import type { Employee, Task, Project, AttendanceSession } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, Badge, Spinner, Input, EmptyState } from '@/components/ui';
+import { Card, Badge, Button, Spinner, Input, EmptyState } from '@/components/ui';
 import { cn, initials, formatDateTime } from '@/lib/utils';
 
 function yesterday(): string {
@@ -31,6 +31,35 @@ export function ReportsPage() {
   const [dateSessions, setDateSessions] = useState<AttendanceSession[] | null>(null);
   const [dateLoading, setDateLoading] = useState(false);
   const [dateError, setDateError] = useState<string | null>(null);
+
+  const [confirmationDate, setConfirmationDate] = useState(yesterday());
+  const [downloadingConfirmation, setDownloadingConfirmation] = useState(false);
+  const [confirmationError, setConfirmationError] = useState<string | null>(null);
+
+  async function handleDownloadConfirmationSheet() {
+    setConfirmationError(null);
+    setDownloadingConfirmation(true);
+    try {
+      const response = await fetch(confirmationSheetUrl(confirmationDate));
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || `Request failed (${response.status})`);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `confirmation-sheet-${confirmationDate}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setConfirmationError(err instanceof Error ? err.message : 'Could not generate the report.');
+    } finally {
+      setDownloadingConfirmation(false);
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -198,6 +227,32 @@ export function ReportsPage() {
             </table>
           </div>
         )}
+      </Card>
+
+      <Card className="mb-6 max-w-xl p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <FileSpreadsheet className="h-5 w-5 text-slate-400" />
+          <h2 className="text-base font-semibold text-slate-900">Confirmation Sheet</h2>
+        </div>
+        <p className="mb-4 text-sm text-slate-500">
+          Daily attendance confirmation sheet, generated on-demand — never pushed automatically anywhere.
+        </p>
+
+        <Input value={confirmationDate} onChange={setConfirmationDate} label="Attendance Date" id="confirmation-date" type="date" />
+
+        {confirmationError && (
+          <div className="mt-4 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+            <XCircle className="h-4 w-4 shrink-0" />{confirmationError}
+          </div>
+        )}
+
+        <Button onClick={handleDownloadConfirmationSheet} disabled={downloadingConfirmation || !confirmationDate} className="mt-5 w-full">
+          {downloadingConfirmation ? (
+            <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</>
+          ) : (
+            <><Download className="h-4 w-4" /> Download Confirmation Sheet</>
+          )}
+        </Button>
       </Card>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

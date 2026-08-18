@@ -144,4 +144,30 @@ router.post('/ramzan-periods', async (req, res, next) => {
   }
 });
 
+// Destructive — wipes generated attendance activity (punches, tasks,
+// exceptions, OT approvals, confirmation-sheet records) so a test/demo
+// environment can be replayed from a clean slate. Deliberately does NOT
+// touch employees/projects/departments/divisions/designations/religions or
+// any system_settings — master data is manually managed now (ARTIFY
+// removal), not something a reset button should be able to wipe.
+// confirm: 'RESET' is a second, server-side safety net behind whatever
+// confirmation dialog the caller already showed — a stray/scripted POST
+// without it is rejected rather than silently wiping data.
+const RESET_TABLES = ['confirmation_sheet_records', 'ot_approvals', 'exceptions', 'tasks', 'punches'];
+
+router.post('/reset-test-data', async (req, res, next) => {
+  try {
+    const { confirm } = req.body || {};
+    if (confirm !== 'RESET') {
+      return res.status(400).json({ error: 'confirm must be the literal string "RESET"' });
+    }
+
+    await pool.query(`TRUNCATE TABLE ${RESET_TABLES.join(', ')} RESTART IDENTITY`);
+
+    res.json({ cleared: RESET_TABLES });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

@@ -46,6 +46,14 @@ import { API_BASE_URL } from '../config';
  *   POST  /api/tasks            body: { emp_id, project_code, priority?, description, location_site?, source, created_by }
  *                                 source must be one of: supervisor_app | backoffice | teams
  *   GET   /api/projects         response: [{ project_code, project_name, company, status }] (OPEN only)
+ *   GET   /api/punches/team-history?supervisor_emp_id=   — read-only punch history (any approval
+ *                                 status, most recent first, capped at 200) for direct reports —
+ *                                 no approve/reject action lives on this endpoint, view-only.
+ *                                 response: [{ id, emp_id, employee_name, project_code, project_name,
+ *                                 punch_time, entry_method, entered_by, approval_status, rejection_reason }]
+ *   GET   /api/employees/:emp_id   — single employee's full record, for the Profile tab
+ *                                 response: { emp_id, name, company, department, designation,
+ *                                 reporting_manager_emp_id, status, ot_eligible, login_code, created_at }
  *   GET   /api/ot-approvals/pending?supervisor_emp_id=   — pending OT approvals for direct reports
  *                                 response: [{ id, emp_id, employee_name, work_date, worked_minutes,
  *                                 threshold_minutes, ot_minutes, status }] — a distinct concept from
@@ -140,6 +148,16 @@ export function rejectPunch(punchId, supervisorEmpId, reason) {
 // CONFIRMED
 export function fetchDirectReports(supervisorEmpId) {
   return request(`/api/employees/direct-reports?supervisor_emp_id=${encodeURIComponent(supervisorEmpId)}`);
+}
+
+// CONFIRMED
+export function fetchTeamPunchHistory(supervisorEmpId) {
+  return request(`/api/punches/team-history?supervisor_emp_id=${encodeURIComponent(supervisorEmpId)}`);
+}
+
+// CONFIRMED
+export function fetchEmployee(empId) {
+  return request(`/api/employees/${encodeURIComponent(empId)}`);
 }
 
 // CONFIRMED

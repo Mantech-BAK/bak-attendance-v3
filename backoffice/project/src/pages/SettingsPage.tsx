@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Clock, Moon, Sunrise, CheckCircle2, XCircle, Loader2, CalendarRange } from 'lucide-react';
+import { Clock, Moon, CheckCircle2, XCircle, Loader2, CalendarRange, Trash2, AlertTriangle } from 'lucide-react';
 import {
   fetchDailyWorkingHours,
   saveDailyWorkingHours,
@@ -8,11 +8,14 @@ import {
   fetchRamzanWorkingHours,
   saveRamzanWorkingHours,
   fetchEmployees,
+  resetTestData,
 } from '@/lib/api';
 import type { RamzanPeriod, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, Button, Input, Select, Spinner, EmptyState, Badge } from '@/components/ui';
+import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from '@/components/ui';
 import { formatDate } from '@/lib/utils';
+
+const RESET_TABLES_LABEL = 'punches, tasks, exceptions, overtime approvals, and confirmation-sheet records';
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
@@ -30,15 +33,17 @@ export function SettingsPage() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [declaredBy, setDeclaredBy] = useState('');
+  const [ramzanHours, setRamzanHours] = useState('');
+  const [currentRamzanHours, setCurrentRamzanHours] = useState<number | null>(null);
   const [periodSubmitting, setPeriodSubmitting] = useState(false);
   const [periodError, setPeriodError] = useState<string | null>(null);
   const [periodSuccess, setPeriodSuccess] = useState(false);
 
-  const [ramzanHours, setRamzanHours] = useState('');
-  const [currentRamzanHours, setCurrentRamzanHours] = useState<number | null>(null);
-  const [ramzanHoursSubmitting, setRamzanHoursSubmitting] = useState(false);
-  const [ramzanHoursError, setRamzanHoursError] = useState<string | null>(null);
-  const [ramzanHoursSuccess, setRamzanHoursSuccess] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSuccess, setResetSuccess] = useState(false);
 
   useEffect(() => {
     load();
@@ -59,30 +64,6 @@ export function SettingsPage() {
     setRamzanHours(rwh.hours !== null ? String(rwh.hours) : '');
     setEmployees(emp);
     setLoading(false);
-  }
-
-  async function handleRamzanHoursSubmit(e: FormEvent) {
-    e.preventDefault();
-    setRamzanHoursError(null);
-    setRamzanHoursSuccess(false);
-
-    const parsed = Number(ramzanHours);
-    if (!ramzanHours || Number.isNaN(parsed)) {
-      setRamzanHoursError('Enter a valid number of hours.');
-      return;
-    }
-
-    setRamzanHoursSubmitting(true);
-    try {
-      const result = await saveRamzanWorkingHours(parsed);
-      setCurrentRamzanHours(result.hours);
-      setRamzanHoursSuccess(true);
-      setTimeout(() => setRamzanHoursSuccess(false), 3000);
-    } catch (err) {
-      setRamzanHoursError(err instanceof Error ? err.message : 'Could not save. Please try again.');
-    } finally {
-      setRamzanHoursSubmitting(false);
-    }
   }
 
   async function handleHoursSubmit(e: FormEvent) {
@@ -109,6 +90,9 @@ export function SettingsPage() {
     }
   }
 
+  // One combined submit — declaring a period and setting the working-hours
+  // override that applies during it are a single admin action now, not two
+  // separate settings a supervisor has to remember to configure together.
   async function handlePeriodSubmit(e: FormEvent) {
     e.preventDefault();
     setPeriodError(null);
@@ -119,10 +103,20 @@ export function SettingsPage() {
       return;
     }
 
+    const parsedHours = Number(ramzanHours);
+    if (!ramzanHours || Number.isNaN(parsedHours)) {
+      setPeriodError('Enter a valid number of working hours for this period.');
+      return;
+    }
+
     setPeriodSubmitting(true);
     try {
-      const result = await declareRamzanPeriod({ start_date: startDate, end_date: endDate, declared_by: declaredBy });
-      setPeriods(result.periods);
+      const [periodResult, hoursResult] = await Promise.all([
+        declareRamzanPeriod({ start_date: startDate, end_date: endDate, declared_by: declaredBy }),
+        saveRamzanWorkingHours(parsedHours),
+      ]);
+      setPeriods(periodResult.periods);
+      setCurrentRamzanHours(hoursResult.hours);
       setStartDate('');
       setEndDate('');
       setDeclaredBy('');
@@ -132,6 +126,28 @@ export function SettingsPage() {
       setPeriodError(err instanceof Error ? err.message : 'Could not declare the period. Please try again.');
     } finally {
       setPeriodSubmitting(false);
+    }
+  }
+
+  function openResetConfirm() {
+    setResetConfirmText('');
+    setResetError(null);
+    setShowResetConfirm(true);
+  }
+
+  async function handleConfirmReset() {
+    if (resetConfirmText !== 'RESET') return;
+    setResetError(null);
+    setResetting(true);
+    try {
+      await resetTestData();
+      setShowResetConfirm(false);
+      setResetSuccess(true);
+      setTimeout(() => setResetSuccess(false), 4000);
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : 'Could not reset test data. Please try again.');
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -204,9 +220,9 @@ export function SettingsPage() {
             <h2 className="text-base font-semibold text-slate-900">Declare Ramzan Period</h2>
           </div>
           <p className="mb-4 text-sm text-slate-500">
-            Muslim employees get the Ramzan Working Hours threshold (set in the card below) on any day within a
-            declared period, overriding everything else. Start date cannot be earlier than today; no restriction on
-            how far in the future.
+            Declares the period and sets the working-hours threshold Muslim employees get on any day within it —
+            one combined action. Overrides Daily Working Hours and the global default whenever both apply. Start
+            date cannot be earlier than today; no restriction on how far in the future.
           </p>
 
           <form onSubmit={handlePeriodSubmit} className="space-y-4">
@@ -216,39 +232,10 @@ export function SettingsPage() {
               <option value="">Select admin…</option>
               {employees.map((e) => (<option key={e.emp_id} value={e.emp_id}>{e.name}</option>))}
             </Select>
-
-            {periodError && (
-              <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
-                <XCircle className="h-4 w-4 shrink-0" />{periodError}
-              </div>
-            )}
-            {periodSuccess && (
-              <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />Period declared.
-              </div>
-            )}
-
-            <Button type="submit" disabled={periodSubmitting} className="w-full">
-              {periodSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Declaring…</>) : 'Declare Period'}
-            </Button>
-          </form>
-        </Card>
-
-        <Card className="p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Sunrise className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Ramzan Working Hours</h2>
-          </div>
-          <p className="mb-4 text-sm text-slate-500">
-            Daily working hours for Muslim employees during a declared Ramzan period — replaces Daily Working Hours
-            and the global default whenever both apply. Defaults to 6h if never set.
-          </p>
-
-          <form onSubmit={handleRamzanHoursSubmit} className="space-y-4">
             <Input
               value={ramzanHours}
               onChange={setRamzanHours}
-              label="Hours (1–8)"
+              label="Working Hours (1–8)"
               id="ramzan-hours"
               type="number"
               placeholder="e.g. 6"
@@ -257,19 +244,19 @@ export function SettingsPage() {
               {currentRamzanHours !== null ? `Currently set to ${currentRamzanHours}h.` : 'Not customized yet — defaults to 6h.'}
             </p>
 
-            {ramzanHoursError && (
+            {periodError && (
               <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
-                <XCircle className="h-4 w-4 shrink-0" />{ramzanHoursError}
+                <XCircle className="h-4 w-4 shrink-0" />{periodError}
               </div>
             )}
-            {ramzanHoursSuccess && (
+            {periodSuccess && (
               <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />Saved.
+                <CheckCircle2 className="h-4 w-4 shrink-0" />Period declared and working hours saved.
               </div>
             )}
 
-            <Button type="submit" disabled={ramzanHoursSubmitting} className="w-full">
-              {ramzanHoursSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>) : 'Save'}
+            <Button type="submit" disabled={periodSubmitting} className="w-full">
+              {periodSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Declaring…</>) : 'Declare Period'}
             </Button>
           </form>
         </Card>
@@ -311,6 +298,59 @@ export function SettingsPage() {
           </Card>
         )}
       </div>
+
+      <div className="mt-6">
+        <Card className="border-rose-200 p-6">
+          <div className="mb-2 flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-rose-500" />
+            <h2 className="text-base font-semibold text-slate-900">Danger Zone</h2>
+          </div>
+          <p className="mb-4 text-sm text-slate-500">
+            Permanently deletes all {RESET_TABLES_LABEL} — every generated attendance activity, back to a clean
+            slate. Employees, projects, and all other configuration are never touched. This cannot be undone.
+          </p>
+
+          {resetSuccess && (
+            <div className="mb-4 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />Test data reset.
+            </div>
+          )}
+
+          <Button variant="secondary" onClick={openResetConfirm} className="border border-rose-300 text-rose-700 hover:bg-rose-50">
+            <Trash2 className="h-4 w-4" /> Reset Test Data
+          </Button>
+        </Card>
+      </div>
+
+      <Modal open={showResetConfirm} onClose={() => setShowResetConfirm(false)} title="Reset test data?">
+        <p className="mb-4 text-sm text-slate-600">
+          This permanently deletes all {RESET_TABLES_LABEL}. Employees, projects, and settings are not affected.
+          This cannot be undone.
+        </p>
+        <p className="mb-2 text-sm font-medium text-slate-700">
+          Type <span className="font-mono font-bold text-rose-700">RESET</span> to confirm.
+        </p>
+        <Input value={resetConfirmText} onChange={setResetConfirmText} id="reset-confirm-text" placeholder="RESET" />
+
+        {resetError && (
+          <div className="mt-4 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+            <XCircle className="h-4 w-4 shrink-0" />{resetError}
+          </div>
+        )}
+
+        <div className="mt-5 flex gap-3">
+          <Button variant="secondary" onClick={() => setShowResetConfirm(false)} disabled={resetting} className="flex-1">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmReset}
+            disabled={resetConfirmText !== 'RESET' || resetting}
+            className="flex-1 bg-rose-600 hover:bg-rose-700 focus-visible:outline-rose-600"
+          >
+            {resetting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Resetting…</>) : (<><Trash2 className="h-4 w-4" /> Delete Everything</>)}
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
