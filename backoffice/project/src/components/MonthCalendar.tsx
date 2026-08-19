@@ -10,8 +10,18 @@ function dateKey(y: number, m: number, d: number): string {
 
 // Client-side month grid over already-fetched data — no dedicated calendar
 // endpoint. activityByDate keys are 'YYYY-MM-DD', values are punch counts
-// for that day; a day cell with activity shows a count pill.
-export function MonthCalendar({ activityByDate }: { activityByDate: Record<string, number> }) {
+// for that day; a day cell with activity shows a count pill. Clicking a day
+// calls onDayPress with that date's key so the caller can scope a detail
+// view to strictly that date, rather than the whole loaded range.
+export function MonthCalendar({
+  activityByDate,
+  selectedDate,
+  onDayPress,
+}: {
+  activityByDate: Record<string, number>;
+  selectedDate?: string | null;
+  onDayPress?: (dateKey: string) => void;
+}) {
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getUTCFullYear());
   const [viewMonth, setViewMonth] = useState(today.getUTCMonth());
@@ -77,13 +87,19 @@ export function MonthCalendar({ activityByDate }: { activityByDate: Record<strin
           if (!cell) return <div key={`blank-${i}`} />;
           const count = activityByDate[cell.key] ?? 0;
           const isToday = cell.key === todayKey;
+          const isSelected = cell.key === selectedDate;
           return (
-            <div
+            <button
+              type="button"
               key={cell.key}
+              onClick={() => onDayPress?.(cell.key)}
               className={cn(
-                'flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-sm',
+                'flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-sm transition',
                 isToday ? 'bg-teal-600 font-semibold text-white' : 'text-slate-700',
                 !isToday && count > 0 && 'bg-teal-50',
+                !isToday && 'hover:bg-slate-100',
+                isSelected && !isToday && 'ring-2 ring-teal-600 ring-inset',
+                isSelected && isToday && 'ring-2 ring-slate-900 ring-inset',
               )}
             >
               <span>{cell.day}</span>
@@ -92,7 +108,7 @@ export function MonthCalendar({ activityByDate }: { activityByDate: Record<strin
                   {count}
                 </span>
               )}
-            </div>
+            </button>
           );
         })}
       </div>

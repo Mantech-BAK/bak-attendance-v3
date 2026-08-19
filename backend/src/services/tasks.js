@@ -56,7 +56,7 @@ async function createTask({ emp_id, project_code, priority, description, locatio
   const result = await pool.query(
     `INSERT INTO tasks (emp_id, task_date, project_code, priority, description, location_site, source, created_by)
      VALUES ($1, COALESCE($2, CURRENT_DATE), $3, $4, $5, $6, $7, $8)
-     RETURNING id, emp_id, task_date, project_code, priority, description, location_site, status, source, created_by, created_at`,
+     RETURNING id, emp_id, task_date::text AS task_date, project_code, priority, description, location_site, status, source, created_by, created_at`,
     [emp_id, taskDate || null, project_code, priority || null, description, location_site || null, source, created_by]
   );
 

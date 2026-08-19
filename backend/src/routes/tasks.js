@@ -22,9 +22,14 @@ router.post('/', async (req, res, next) => {
 
 router.get('/', async (req, res, next) => {
   try {
+    // task_date::text — a bare 'date' column serialized via node-pg's
+    // default Date-object handling gets rendered through the local process
+    // timezone (same issue already fixed for ot_approvals.work_date),
+    // shifting the displayed value by a day. Casting to text sends the
+    // plain 'YYYY-MM-DD' string a JSON API consumer expects.
     const result = await pool.query(
       `SELECT t.id, t.emp_id, e."EmpName" AS employee_name, t.project_code, p.project_name,
-              t.task_date, t.priority, t.description, t.location_site, t.status, t.source, t.created_by, t.created_at
+              t.task_date::text AS task_date, t.priority, t.description, t.location_site, t.status, t.source, t.created_by, t.created_at
        FROM tasks t
        LEFT JOIN employees e ON e."EmpId" = t.emp_id
        LEFT JOIN projects p ON p.project_code = t.project_code

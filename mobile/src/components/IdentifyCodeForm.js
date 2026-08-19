@@ -8,13 +8,23 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 
 // TEMPORARY TESTING MEASURE — typed { empId, loginCode } identification
 // standing in for real face capture. See backend/src/routes/punch.js for
 // the full rationale; this is the mobile-side counterpart, replacing the
 // old CameraCapture-based flow everywhere identification happens (self
 // punch, "Scan Another Employee", supervisor "Scan Team Member").
-export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 'Enter Employee Code' }) {
+//
+// directReports (optional): when passed non-empty, "Scan Team Member"
+// replaces the free-typed Employee ID field with a dropdown of the
+// supervisor's own team — the code still has to be entered/verified either
+// way, this just removes typing an ID the supervisor already knows by
+// picking from a list instead. Self-identify and "Scan Another Employee"
+// don't pass this (there's no "team" to scope a picker to), so they keep
+// the free-text field unchanged.
+export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 'Enter Employee Code', directReports }) {
+  const hasDirectReportsPicker = Array.isArray(directReports) && directReports.length > 0;
   const [empId, setEmpId] = useState('');
   const [loginCode, setLoginCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -22,10 +32,11 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
 
   useEffect(() => {
     if (visible) {
-      setEmpId('');
+      setEmpId(hasDirectReportsPicker ? directReports[0].emp_id : '');
       setLoginCode('');
       setError(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   async function handleSubmit() {
@@ -53,16 +64,26 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
         <View style={styles.sheet}>
           <Text style={styles.heading}>{title}</Text>
 
-          <Text style={styles.label}>Employee ID</Text>
-          <TextInput
-            style={styles.input}
-            value={empId}
-            onChangeText={setEmpId}
-            placeholder="e.g. E1001"
-            autoCapitalize="characters"
-            autoCorrect={false}
-            autoFocus
-          />
+          <Text style={styles.label}>Employee</Text>
+          {hasDirectReportsPicker ? (
+            <View style={styles.pickerWrapper}>
+              <Picker selectedValue={empId} onValueChange={setEmpId}>
+                {directReports.map((report) => (
+                  <Picker.Item key={report.emp_id} label={report.name} value={report.emp_id} />
+                ))}
+              </Picker>
+            </View>
+          ) : (
+            <TextInput
+              style={styles.input}
+              value={empId}
+              onChangeText={setEmpId}
+              placeholder="e.g. E1001"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              autoFocus
+            />
+          )}
 
           <Text style={styles.label}>5-Letter Code</Text>
           <TextInput
@@ -108,6 +129,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 15,
   },
+  pickerWrapper: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8 },
   error: { color: '#dc2626', marginTop: 10, fontSize: 13 },
   actions: { flexDirection: 'row', gap: 12, marginTop: 20 },
   cancelButton: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', backgroundColor: '#f3f4f6' },

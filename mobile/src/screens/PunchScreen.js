@@ -19,7 +19,7 @@ import PunchProjectList from '../components/PunchProjectList';
 import TaskAssignmentForm from '../components/TaskAssignmentForm';
 import ReviewAttendanceTab from '../components/ReviewAttendanceTab';
 import TeamPunchHistoryTab from '../components/TeamPunchHistoryTab';
-import ProfileTab from '../components/ProfileTab';
+import ProfileOverlay from '../components/ProfileOverlay';
 import RejectReasonModal from '../components/RejectReasonModal';
 import {
   identifyPunch,
@@ -42,7 +42,6 @@ import { SUPERVISOR_DESIGNATION } from '../config';
 const EMPLOYEE_TABS = [
   { key: 'punch', label: 'Punch' },
   { key: 'scan-another', label: 'Scan Another Employee' },
-  { key: 'profile', label: 'Profile' },
 ];
 
 const SUPERVISOR_TABS = [
@@ -51,7 +50,6 @@ const SUPERVISOR_TABS = [
   { key: 'scan-team-member', label: 'Scan Team Member' },
   { key: 'review-attendance', label: 'Review Attendance' },
   { key: 'punch-history', label: 'Punch History' },
-  { key: 'profile', label: 'Profile' },
 ];
 
 export default function PunchScreen() {
@@ -78,6 +76,7 @@ export default function PunchScreen() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [profile, setProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [showProfileOverlay, setShowProfileOverlay] = useState(false);
   // { type: 'punch' | 'ot', id } — one modal shared by both approval flows.
   const [rejectingItem, setRejectingItem] = useState(null);
 
@@ -96,6 +95,7 @@ export default function PunchScreen() {
     setProjects([]);
     setTeamHistory([]);
     setProfile(null);
+    setShowProfileOverlay(false);
   }
 
   const loadSupervisorData = useCallback(async (supervisorEmpId) => {
@@ -414,10 +414,6 @@ export default function PunchScreen() {
       return <TeamPunchHistoryTab history={teamHistory} loading={loadingHistory} />;
     }
 
-    if (activeTab === 'profile') {
-      return <ProfileTab profile={profile} loading={loadingProfile} />;
-    }
-
     return null;
   }
 
@@ -426,7 +422,18 @@ export default function PunchScreen() {
       <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={[styles.headerRow, { justifyContent: employee ? 'space-between' : 'center' }]}>
-          <Text style={[styles.title, employee && styles.titleWithLogout]}>BAK Attendance</Text>
+          <View style={styles.headerLeft}>
+            {employee && (
+              <TouchableOpacity
+                style={styles.profileIconButton}
+                onPress={() => setShowProfileOverlay(true)}
+                accessibilityLabel="My Profile"
+              >
+                <Text style={styles.profileIconText}>👤</Text>
+              </TouchableOpacity>
+            )}
+            <Text style={[styles.title, employee && styles.titleWithLogout]}>BAK Attendance</Text>
+          </View>
           {employee && (
             <TouchableOpacity style={styles.topLogoutButton} onPress={resetToIdle}>
               <Text style={styles.topLogoutText}>Log out</Text>
@@ -464,6 +471,14 @@ export default function PunchScreen() {
         onSubmit={handleIdentifySubmit}
         onCancel={() => setShowIdentifyForm(false)}
         title={identifyMode === 'team' ? "Enter Team Member's Code" : 'Enter Your Code'}
+        directReports={identifyMode === 'team' ? directReports : undefined}
+      />
+
+      <ProfileOverlay
+        visible={showProfileOverlay}
+        profile={profile}
+        loading={loadingProfile}
+        onClose={() => setShowProfileOverlay(false)}
       />
 
       <RejectReasonModal
@@ -492,8 +507,18 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 24,
   },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   title: { fontSize: 24, fontWeight: '800', color: '#111827' },
   titleWithLogout: { fontSize: 20 },
+  profileIconButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileIconText: { fontSize: 16 },
   topLogoutButton: { paddingVertical: 6, paddingHorizontal: 10 },
   topLogoutText: { color: '#2563eb', fontSize: 14, fontWeight: '600' },
   idleContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 60 },
