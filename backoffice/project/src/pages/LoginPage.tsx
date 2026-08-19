@@ -1,24 +1,25 @@
 import { useState, type FormEvent } from 'react';
-import { Lock, ArrowRight } from 'lucide-react';
+import { User, KeyRound, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 
 export function LoginPage() {
   const { login } = useAuth();
-  const [token, setToken] = useState('');
+  const [empId, setEmpId] = useState('');
+  const [loginCode, setLoginCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    setTimeout(() => {
-      const ok = login(token);
-      if (!ok) {
-        setError('Invalid token. Use the placeholder token shown below.');
-      }
+    try {
+      await login(empId.trim(), loginCode.trim());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'You do not have access to this system.');
+    } finally {
       setLoading(false);
-    }, 400);
+    }
   }
 
   return (
@@ -38,18 +39,40 @@ export function LoginPage() {
         <div className="rounded-2xl border border-slate-700/50 bg-slate-800/60 p-8 shadow-2xl backdrop-blur">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label htmlFor="token" className="mb-2 block text-sm font-medium text-slate-200">
-                Access Token
+              <label htmlFor="empId" className="mb-2 block text-sm font-medium text-slate-200">
+                Employee ID
               </label>
               <div className="relative">
-                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
                 <input
-                  id="token"
-                  type="password"
-                  value={token}
+                  id="empId"
+                  type="text"
+                  value={empId}
                   autoFocus
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder="Enter your admin token"
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  onChange={(e) => setEmpId(e.target.value)}
+                  placeholder="e.g. E1005"
+                  className="w-full rounded-lg border border-slate-600 bg-slate-900/50 py-2.5 pl-10 pr-3 text-sm text-white placeholder:text-slate-500 transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="loginCode" className="mb-2 block text-sm font-medium text-slate-200">
+                5-Letter Code
+              </label>
+              <div className="relative">
+                <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <input
+                  id="loginCode"
+                  type="password"
+                  value={loginCode}
+                  maxLength={5}
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  onChange={(e) => setLoginCode(e.target.value)}
+                  placeholder="Your code"
                   className="w-full rounded-lg border border-slate-600 bg-slate-900/50 py-2.5 pl-10 pr-3 text-sm text-white placeholder:text-slate-500 transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
                 />
               </div>
@@ -63,22 +86,13 @@ export function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading || !token.trim()}
+              disabled={loading || !empId.trim() || !loginCode.trim()}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? 'Signing in…' : 'Sign In'}
               {!loading && <ArrowRight className="h-4 w-4" />}
             </button>
           </form>
-
-          <div className="mt-6 rounded-lg bg-slate-900/50 px-4 py-3 text-center">
-            <p className="text-xs text-slate-400">
-              Placeholder token:{' '}
-              <code className="rounded bg-slate-700 px-1.5 py-0.5 font-mono text-teal-300">
-                bak-admin-dev-token
-              </code>
-            </p>
-          </div>
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-500">

@@ -2,6 +2,7 @@ const express = require('express');
 const ExcelJS = require('exceljs');
 const pool = require('../db');
 const { getTodaysTasks, createTask, TaskValidationError } = require('../services/tasks');
+const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
 
@@ -20,7 +21,9 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-router.get('/', async (req, res, next) => {
+// Backoffice-only (full task list) — mobile only ever creates tasks
+// (POST / above) or reads its own via /me/:emp_id, never lists everyone's.
+router.get('/', requireBackofficeAuth, async (req, res, next) => {
   try {
     // task_date::text — a bare 'date' column serialized via node-pg's
     // default Date-object handling gets rendered through the local process
@@ -43,8 +46,8 @@ router.get('/', async (req, res, next) => {
 
 // Date-wise export — every task whose task_date matches, as a downloadable
 // .xlsx. Generated on-demand, same convention as the confirmation-sheet
-// report (never pushed anywhere automatically).
-router.get('/export', async (req, res, next) => {
+// report (never pushed anywhere automatically). Backoffice-only.
+router.get('/export', requireBackofficeAuth, async (req, res, next) => {
   try {
     const { date } = req.query;
     if (!date || !DATE_PATTERN.test(date)) {

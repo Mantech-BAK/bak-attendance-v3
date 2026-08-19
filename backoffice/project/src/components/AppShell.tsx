@@ -24,7 +24,7 @@ const NAV: { name: RouteName; label: string; icon: typeof LayoutDashboard }[] = 
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { logout } = useAuth();
+  const { session, logout } = useAuth();
   const { route, navigate } = useRouter();
 
   return (
@@ -58,6 +58,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="border-t border-slate-200 p-3">
+          {session && (
+            <div className="px-3 pb-2">
+              <p className="truncate text-sm font-medium text-slate-700">{session.name}</p>
+              <p className="text-xs text-slate-400">{session.empId}</p>
+            </div>
+          )}
           <button
             onClick={logout}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-rose-50 hover:text-rose-700"

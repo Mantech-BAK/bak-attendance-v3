@@ -1,8 +1,12 @@
 const express = require('express');
 const pool = require('../db');
 const { getSetting, getRamzanPeriods, setSetting } = require('../services/settings');
+const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
+
+// Every route in this file is backoffice-only — mobile never touches settings.
+router.use(requireBackofficeAuth);
 
 const MIN_HOURS = 0.5;
 const MAX_HOURS = 24;

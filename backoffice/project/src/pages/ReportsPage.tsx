@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Clock, ClipboardList, Users, Building2, TrendingUp, CalendarSearch, FileSpreadsheet, Download, Loader2, XCircle } from 'lucide-react';
-import { fetchEmployees, fetchTasks, fetchProjects, fetchAttendance, confirmationSheetUrl } from '@/lib/api';
+import { fetchEmployees, fetchTasks, fetchProjects, fetchAttendance, confirmationSheetUrl, authHeaders } from '@/lib/api';
 import type { Employee, Task, Project, AttendanceSession } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Spinner, Input, EmptyState } from '@/components/ui';
@@ -40,7 +40,7 @@ export function ReportsPage() {
     setConfirmationError(null);
     setDownloadingConfirmation(true);
     try {
-      const response = await fetch(confirmationSheetUrl(confirmationDate));
+      const response = await fetch(confirmationSheetUrl(confirmationDate), { headers: authHeaders() });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error || `Request failed (${response.status})`);

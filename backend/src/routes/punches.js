@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db');
 const { reverseGeocode } = require('../services/reverseGeocode');
 const { getOpenProjectForToday } = require('../services/attendance');
+const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
 
@@ -29,7 +30,9 @@ router.get('/today-status', async (req, res, next) => {
   }
 });
 
-router.get('/', async (req, res, next) => {
+// Backoffice-only (full punch list, any employee) — mobile only ever reads
+// its own scoped views (today-status, pending, team-history below).
+router.get('/', requireBackofficeAuth, async (req, res, next) => {
   try {
     const result = await pool.query(
       `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, g.designation_name AS employee_designation,
@@ -334,7 +337,7 @@ router.post('/', async (req, res, next) => {
  * directly correcting attendance data is a trusted, deliberate action, not
  * something that then needs someone else's review.
  */
-router.post('/admin-correction', async (req, res, next) => {
+router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) => {
   try {
     const { emp_id, project_code, punch_time, entered_by } = req.body;
 

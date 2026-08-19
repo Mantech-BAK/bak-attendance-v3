@@ -1,7 +1,11 @@
 const express = require('express');
 const pool = require('../db');
+const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
+
+// Every route in this file is backoffice-only — mobile never touches exceptions.
+router.use(requireBackofficeAuth);
 
 const VALID_STATUSES = ['open', 'resolved'];
 

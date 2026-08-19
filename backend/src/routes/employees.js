@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const pool = require('../db');
 const { generateUniqueLoginCode } = require('../services/loginCode');
+const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
 
@@ -22,7 +23,9 @@ const upload = multer({
 // company/designation are now FK-constrained into divisions/designations
 // (schema-rename revision) — joined and aliased back to their original
 // external names so this response shape is unchanged for every consumer.
-router.get('/', async (req, res, next) => {
+// Backoffice-only (full roster) — mobile never lists every employee, only
+// /direct-reports and /:emp_id below, which stay unauthenticated.
+router.get('/', requireBackofficeAuth, async (req, res, next) => {
   try {
     const result = await pool.query(
       `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, d.division_name AS company,
@@ -143,8 +146,8 @@ router.post('/:emp_id/register-face', upload.single('face'), async (req, res, ne
 
 // Admin-only: regenerate an employee's login_code (the temporary typed-code
 // identification measure — see routes/punch.js). Testers need a way to
-// recover/rotate a code, e.g. after it leaks or is forgotten.
-router.post('/:emp_id/login-code/regenerate', async (req, res, next) => {
+// recover/rotate a code, e.g. after it leaks or is forgotten. Backoffice-only.
+router.post('/:emp_id/login-code/regenerate', requireBackofficeAuth, async (req, res, next) => {
   try {
     const { emp_id } = req.params;
 

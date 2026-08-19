@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const pool = require('./db');
+const authRoutes = require('./routes/auth');
 const syncRoutes = require('./routes/sync');
 const employeeRoutes = require('./routes/employees');
 const punchIdentifyRoutes = require('./routes/punch');
@@ -37,6 +38,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
+app.use('/api/auth', authRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/punch', punchIdentifyRoutes);

@@ -1,12 +1,15 @@
 const express = require('express');
 const pool = require('../db');
 const { calculateAttendanceForEmployee, calculateAttendanceForAllEmployees } = require('../services/attendance');
+const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-router.get('/', async (req, res, next) => {
+// Backoffice-only (all employees) — mobile only reads its own via
+// /:emp_id below, which stays unauthenticated.
+router.get('/', requireBackofficeAuth, async (req, res, next) => {
   try {
     const { date } = req.query;
     if (date && !DATE_PATTERN.test(date)) {

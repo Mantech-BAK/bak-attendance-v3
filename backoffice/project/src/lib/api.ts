@@ -1,12 +1,37 @@
+import { getToken, clearSession, AUTH_EXPIRED_EVENT } from './session';
+
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:3000';
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, options);
+  const token = getToken();
+  const headers = {
+    ...options.headers,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+
+  const res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
   const body = await res.json().catch(() => null);
+
   if (!res.ok) {
+    // 401 = missing/invalid/expired token; 403 = a previously-valid session
+    // that no longer passes the backend's authorization re-check (e.g. the
+    // org chart changed). Either way, drop the stale session and let
+    // AuthProvider bounce back to the login screen.
+    if (res.status === 401 || res.status === 403) {
+      clearSession();
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+    }
     throw new Error((body && body.error) || `Request to ${path} failed (${res.status})`);
   }
   return body as T;
+}
+
+export function backofficeLogin(empId: string, loginCode: string): Promise<{ token: string; emp_id: string; name: string }> {
+  return request('/api/auth/backoffice-login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ emp_id: empId, login_code: loginCode }),
+  });
 }
 
 export type Employee = {
@@ -121,6 +146,15 @@ export function fetchTasks(): Promise<Task[]> {
 
 export function tasksExportUrl(date: string): string {
   return `${API_BASE_URL}/api/tasks/export?date=${encodeURIComponent(date)}`;
+}
+
+// Both export/report downloads are backoffice-only routes behind
+// requireBackofficeAuth, but they're fetched directly (for blob handling)
+// rather than through request() above, so callers must attach this
+// themselves.
+export function authHeaders(): HeadersInit {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export function createTask(input: {

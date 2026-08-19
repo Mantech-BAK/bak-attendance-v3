@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { ClipboardList, Plus, CheckCircle2, XCircle, Loader2, MapPin, Calendar, Download } from 'lucide-react';
-import { fetchTasks, fetchEmployees, fetchProjects, createTask, tasksExportUrl } from '@/lib/api';
+import { fetchTasks, fetchEmployees, fetchProjects, createTask, tasksExportUrl, authHeaders } from '@/lib/api';
 import type { Task, Employee, Project } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Select, Textarea, Input, Spinner, EmptyState } from '@/components/ui';
@@ -90,7 +90,7 @@ export function TasksPage() {
     setExportError(null);
     setExporting(true);
     try {
-      const response = await fetch(tasksExportUrl(exportDate));
+      const response = await fetch(tasksExportUrl(exportDate), { headers: authHeaders() });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error || `Request failed (${response.status})`);

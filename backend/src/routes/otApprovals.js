@@ -1,13 +1,15 @@
 const express = require('express');
 const pool = require('../db');
 const { runDailyOtJob } = require('../services/otApprovals');
+const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
 
 // Manual trigger for testing the OT job outside its 00:30 daily schedule.
 // Accepts an optional { date } body to evaluate a specific past date instead
-// of "yesterday".
-router.post('/run-daily-job', async (req, res, next) => {
+// of "yesterday". Backoffice-only — mobile never triggers this job, only
+// reads its results via /pending below (shared, stays unauthenticated).
+router.post('/run-daily-job', requireBackofficeAuth, async (req, res, next) => {
   try {
     const { date } = req.body || {};
     const result = date ? await runDailyOtJob(date) : await runDailyOtJob();

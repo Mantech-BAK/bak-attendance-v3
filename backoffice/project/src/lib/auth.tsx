@@ -1,43 +1,51 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-
-const TOKEN_KEY = 'bak_admin_token';
-const PLACEHOLDER_TOKEN = 'bak-admin-dev-token';
+import { backofficeLogin } from './api';
+import { loadSession, saveSession, clearSession, AUTH_EXPIRED_EVENT, type Session } from './session';
 
 type AuthState = {
-  token: string | null;
+  session: Session | null;
   isAuthenticated: boolean;
-  login: (token: string) => boolean;
+  // Throws (with the server's message, e.g. "You do not have access to
+  // this system.") on bad credentials or a valid-but-unauthorized employee —
+  // the two are indistinguishable by design, see backend routes/auth.js.
+  login: (empId: string, loginCode: string) => Promise<void>;
   logout: () => void;
 };
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
-    const stored = localStorage.getItem(TOKEN_KEY);
-    if (stored) setToken(stored);
+    setSession(loadSession());
   }, []);
 
-  const login = useCallback((submittedToken: string) => {
-    if (submittedToken.trim() === PLACEHOLDER_TOKEN) {
-      localStorage.setItem(TOKEN_KEY, submittedToken.trim());
-      setToken(submittedToken.trim());
-      return true;
+  // Fired by api.ts whenever any request comes back 401/403 — covers both
+  // an expired/invalid token and a previously-authorized employee who no
+  // longer passes the backend's per-request authorization re-check.
+  useEffect(() => {
+    function handleExpired() {
+      setSession(null);
     }
-    return false;
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleExpired);
+  }, []);
+
+  const login = useCallback(async (empId: string, loginCode: string) => {
+    const result = await backofficeLogin(empId, loginCode);
+    const next: Session = { token: result.token, empId: result.emp_id, name: result.name };
+    saveSession(next);
+    setSession(next);
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
-    setToken(null);
+    clearSession();
+    setSession(null);
   }, []);
 
   return (
-    <AuthContext.Provider
-      value={{ token, isAuthenticated: !!token, login, logout }}
-    >
+    <AuthContext.Provider value={{ session, isAuthenticated: !!session, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

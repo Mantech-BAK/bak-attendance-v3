@@ -1,8 +1,12 @@
 const express = require('express');
 const { generateConfirmationSheetRows } = require('../services/dailyConfirmation');
 const { buildConfirmationSheetWorkbook } = require('../services/confirmationSheetExcel');
+const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
+
+// Every route in this file is backoffice-only — mobile never touches reports.
+router.use(requireBackofficeAuth);
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
