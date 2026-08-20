@@ -1,5 +1,4 @@
 const ExcelJS = require('exceljs');
-const { getSetting } = require('./settings');
 
 const COLUMNS = [
   { header: '#', key: 'rowNumber', width: 6 },
@@ -39,14 +38,12 @@ function formatTime(value) {
   return new Date(value).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: REPORT_TIME_ZONE });
 }
 
+// 2026-08-20 scope change: the header used to also show ISO Ref No., ISO
+// Version, ISO Date, and Max OT — all of which sat permanently as
+// unconfigured "PENDING" placeholders (see system_settings) since nothing in
+// this app ever set them. Report Date is the only header value that's ever
+// actually real, so it's the only one left.
 async function buildConfirmationSheetWorkbook(date, rows) {
-  const [isoRefNo, isoVersion, isoDate, maxOtMinutes] = await Promise.all([
-    getSetting('iso_ref_no'),
-    getSetting('iso_version'),
-    getSetting('iso_date'),
-    getSetting('max_ot_minutes'),
-  ]);
-
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Confirmation Sheet');
 
@@ -54,21 +51,11 @@ async function buildConfirmationSheetWorkbook(date, rows) {
   sheet.getCell('A1').value = 'BAK Attendance Confirmation Sheet';
   sheet.getCell('A1').font = { bold: true, size: 14 };
 
-  sheet.getCell('A2').value = 'ISO Ref No.:';
-  sheet.getCell('B2').value = isoRefNo;
-  sheet.getCell('C2').value = 'ISO Version:';
-  sheet.getCell('D2').value = isoVersion;
-  sheet.getCell('A3').value = 'ISO Date:';
-  sheet.getCell('B3').value = isoDate;
-  sheet.getCell('C3').value = 'Max OT (hrs):';
-  sheet.getCell('D3').value = maxOtMinutes ? Number(maxOtMinutes) / 60 : '';
-  sheet.getCell('A4').value = 'Report Date:';
-  sheet.getCell('B4').value = date;
-  ['A2', 'C2', 'A3', 'C3', 'A4'].forEach((ref) => {
-    sheet.getCell(ref).font = { bold: true };
-  });
+  sheet.getCell('A2').value = 'Report Date:';
+  sheet.getCell('B2').value = date;
+  sheet.getCell('A2').font = { bold: true };
 
-  const headerRowIndex = 6;
+  const headerRowIndex = 4;
   const headerRow = sheet.getRow(headerRowIndex);
   headerRow.values = COLUMNS.map((c) => c.header);
   headerRow.font = { bold: true };

@@ -54,7 +54,7 @@ async function runDailyOtJob(date = yesterday()) {
     if (punchRows.length === 0) continue;
 
     const { totalWorkedMinutes, thresholdMinutes, otMinutes } = computeEmployeeDay({
-      employee, date, punchRows, settingsMap, ramzanPeriods, defaultProject: null,
+      employee, date, punchRows, settingsMap, ramzanPeriods,
     });
 
     if (otMinutes > 0) {

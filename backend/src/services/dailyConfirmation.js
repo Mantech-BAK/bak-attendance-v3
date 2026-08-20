@@ -3,11 +3,13 @@ const { getAllSettings, parseRamzanPeriods } = require('./settings');
 const { getEffectiveThreshold, applyNestedSubtraction, getUtcDayBounds } = require('./attendance');
 
 // Gaps under this many minutes between two sequential top-level projects fold
-// into the preceding project's counted time; gaps at or above it become their
-// own row attributed to the department's default project.
+// into the preceding project's counted time (as part of that real row); gaps
+// at or above it still count toward the day's worked total (same as ever —
+// this feeds threshold/OT math shared with the nightly OT cron, see
+// otApprovals.js), they just no longer get their own report row — see
+// computeEmployeeDay's docstring for why.
 const SMALL_GAP_THRESHOLD_MINUTES = 60;
 const DEFAULT_MAX_OT_MINUTES = 600; // 10 hours, used only if max_ot_minutes is somehow missing
-const UNASSIGNED_LABEL = 'UNASSIGNED — no default project configured';
 
 function formatHours(minutes) {
   return Math.round((minutes / 60) * 100) / 100;
@@ -57,31 +59,28 @@ function buildSessionsForDay(punchRows, empId, date) {
   return sessions;
 }
 
-function buildSyntheticRow({ defaultProject, workingMinutes, startTime, endTime, remarks }) {
-  return {
-    project_code: defaultProject ? defaultProject.project_code : null,
-    project_name: defaultProject ? defaultProject.project_name : UNASSIGNED_LABEL,
-    cost_center: defaultProject ? defaultProject.cost_center : null,
-    start_time: startTime ?? null,
-    end_time: endTime ?? null,
-    working_minutes: workingMinutes,
-    remarks,
-    is_ot_row: false,
-  };
-}
-
 /**
- * Computes one employee's one-day confirmation-sheet rows: per-project rows
- * (nested-subtraction already applied), small gaps folded into the
- * preceding project with a REMARKS note, large gaps and shortfalls
- * attributed to the department's default project (or an UNASSIGNED
- * placeholder if none is configured), and — for OT-eligible employees whose
- * true worked time exceeds the day's threshold — an OT row capped at
- * max_ot_minutes, with the true uncapped excess noted in REMARKS for
- * transparency even though only the capped amount is ever presented as
- * approvable OT.
+ * Computes one employee's one-day confirmation-sheet rows: real per-project
+ * rows only (nested-subtraction already applied), small gaps folded into the
+ * preceding project with a REMARKS note, and — for OT-eligible employees
+ * whose true worked time exceeds the day's threshold — an OT row (on their
+ * last real project) capped at max_ot_minutes, with the true uncapped excess
+ * noted in REMARKS for transparency even though only the capped amount is
+ * ever presented as approvable OT.
+ *
+ * Deliberately does NOT synthesize an absentee row, a shortfall row, or a
+ * large-gap "attributed to default project" row — those were removed from
+ * the report by design (2026-08-20): the sheet should only ever show real
+ * punch-backed activity, never fabricated padding. Callers must pre-filter
+ * out employees with zero punches (see generateConfirmationSheetRows and
+ * otApprovals.js) rather than rely on this function to represent absence.
+ *
+ * The large-gap minutes still count toward totalWorkedMinutes exactly as
+ * before, though — that arithmetic feeds threshold/OT detection shared with
+ * the nightly OT cron (otApprovals.js), which this report-display change
+ * must not affect.
  */
-function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeriods, defaultProject }) {
+function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeriods }) {
   const threshold = getEffectiveThreshold({
     religion: employee.religion,
     date,
@@ -91,20 +90,6 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
   const maxOtMinutes = settingsMap.max_ot_minutes !== undefined
     ? Number(settingsMap.max_ot_minutes)
     : DEFAULT_MAX_OT_MINUTES;
-
-  if (punchRows.length === 0) {
-    return {
-      rows: [buildSyntheticRow({
-        defaultProject,
-        workingMinutes: threshold.minutes,
-        remarks: `Absent — no punches recorded; full-day shortfall of ${formatDurationShort(threshold.minutes)}`,
-      })],
-      totalWorkedMinutes: 0,
-      thresholdMinutes: threshold.minutes,
-      otMinutes: 0,
-      trueExcessMinutes: 0,
-    };
-  }
 
   const sessions = buildSessionsForDay(punchRows, employee.emp_id, date);
   const complete = sessions.filter((s) => !s.incomplete);
@@ -130,13 +115,10 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
         extraMinutes = gapMinutes;
         remarks = `Includes ${formatDurationShort(gapMinutes)} transition gap before the next project`;
       } else if (gapMinutes >= SMALL_GAP_THRESHOLD_MINUTES) {
-        rows.push(buildSyntheticRow({
-          defaultProject,
-          workingMinutes: gapMinutes,
-          startTime: session.punch_out.punch_time,
-          endTime: next.punch_in.punch_time,
-          remarks: `Gap of ${formatDurationShort(gapMinutes)} between projects — attributed to default project`,
-        }));
+        // No longer emits its own "attributed to default project" row (see
+        // computeEmployeeDay's docstring) — but the gap still counts toward
+        // totalWorkedMinutes, unchanged, since OT/threshold detection here
+        // is shared with the nightly OT cron.
         totalWorkedMinutes += gapMinutes;
       }
     }
@@ -184,16 +166,13 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
   }
 
   const trueExcessMinutes = Math.max(0, totalWorkedMinutes - threshold.minutes);
-  const shortfallMinutes = Math.max(0, threshold.minutes - totalWorkedMinutes);
   let otMinutes = 0;
 
-  if (shortfallMinutes > 0) {
-    rows.push(buildSyntheticRow({
-      defaultProject,
-      workingMinutes: shortfallMinutes,
-      remarks: `Shortfall — ${formatDurationShort(shortfallMinutes)} below the required ${formatDurationShort(threshold.minutes)}`,
-    }));
-  } else if (trueExcessMinutes > 0 && employee.ot_eligible === 'Y') {
+  // A shortfall (totalWorkedMinutes < threshold) no longer gets its own
+  // padding row — the report now shows only real punch-backed rows,
+  // whatever they add up to. Nothing else to do here in that case: no row,
+  // no OT (trueExcessMinutes is 0 whenever there's a shortfall).
+  if (trueExcessMinutes > 0 && employee.ot_eligible === 'Y') {
     otMinutes = Math.min(trueExcessMinutes, maxOtMinutes);
     const cappedNote = trueExcessMinutes > maxOtMinutes
       ? ` (true excess ${formatDurationShort(trueExcessMinutes)}, capped at ${formatDurationShort(maxOtMinutes)} for approval)`
@@ -221,10 +200,11 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
  * export. Upserted on (EmpId, AttendanceDate, ProjectId, StartTime) so
  * re-generating the report for an already-persisted date updates existing
  * records instead of duplicating them. Postgres treats NULL as never equal
- * to NULL in a unique constraint, so untimed rows (shortfall/absentee/OT)
- * would never actually conflict on a true NULL StartTime — a fixed
- * midnight-of-the-report-date placeholder is used for those instead of NULL,
- * so idempotency holds uniformly across every row shape.
+ * to NULL in a unique constraint, so an untimed row (the OT row is the only
+ * one left with no start_time) would never actually conflict on a true NULL
+ * StartTime — a fixed midnight-of-the-report-date placeholder is used for
+ * those instead of NULL, so idempotency holds uniformly across every row
+ * shape.
  */
 async function persistConfirmationSheetRecord(row) {
   const startTimeForKey = row.start_time || new Date(`${row.attendance_date}T00:00:00.000Z`);
@@ -265,39 +245,34 @@ async function ensureOtApproval({ empId, date, workedMinutes, thresholdMinutes, 
 }
 
 /**
- * Generates every confirmation-sheet row for every active employee for one
- * date. Rows lacking a real punch time (absentee/shortfall/large-gap) sort
- * after the timed rows within each employee's block. Detecting OT here also
- * ensures a pending ot_approvals row exists for that employee/day — so
- * generating the report for a date guarantees the reporting manager sees it
- * in Review Attendance, without waiting on the nightly cron.
+ * Generates every confirmation-sheet row for every active employee who has
+ * at least one real punch on this date — an employee with zero punches
+ * doesn't appear in the report at all (2026-08-20 scope change: this report
+ * shows real recorded activity only, never a fabricated absentee row).
+ * Detecting OT here also ensures a pending ot_approvals row exists for that
+ * employee/day — so generating the report for a date guarantees the
+ * reporting manager sees it in Review Attendance, without waiting on the
+ * nightly cron.
  */
 async function generateConfirmationSheetRows(date) {
-  const [settingsMap, employeesResult, projectsResult, departmentsResult, otApprovalsResult] = await Promise.all([
+  const [settingsMap, employeesResult, projectsResult, otApprovalsResult] = await Promise.all([
     getAllSettings(),
     pool.query(
       `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, g.designation_name AS designation,
-              d.division_name AS company, e."EmpDeptId" AS department, r.religion_name AS religion,
+              r.religion_name AS religion,
               CASE WHEN e."EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
               e."EmpReportMgrId" AS reporting_manager_emp_id, e."EmpCpr" AS cpr
        FROM employees e
        LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
-       LEFT JOIN divisions d ON e."EmpDivision" = d.division_code
        LEFT JOIN religions r ON e."EmpReligionId" = r.religion_code
        WHERE e."EmpStatus" = 'active' ORDER BY e."EmpId"`
     ),
     pool.query('SELECT project_code, project_name, cost_center FROM projects'),
-    pool.query('SELECT company_dept_id AS company, department_name, default_project_code FROM departments'),
     pool.query('SELECT emp_id, status, approved_by FROM ot_approvals WHERE work_date = $1', [date]),
   ]);
 
   const ramzanPeriods = parseRamzanPeriods(settingsMap);
   const projectsByCode = new Map(projectsResult.rows.map((p) => [p.project_code, p]));
-  const departmentDefaults = new Map();
-  for (const d of departmentsResult.rows) {
-    const project = d.default_project_code ? projectsByCode.get(d.default_project_code) : null;
-    departmentDefaults.set(`${d.company}|${d.department_name}`, project || null);
-  }
   const otStatusByEmp = new Map(otApprovalsResult.rows.map((o) => [o.emp_id, { status: o.status, approvedBy: o.approved_by }]));
 
   const { start, end } = getUtcDayBounds(date);
@@ -320,10 +295,10 @@ async function generateConfirmationSheetRows(date) {
 
   for (const employee of employeesResult.rows) {
     const punchRows = punchesByEmp.get(employee.emp_id) || [];
-    const defaultProject = departmentDefaults.get(`${employee.company}|${employee.department}`) || null;
+    if (punchRows.length === 0) continue;
 
     const { rows, totalWorkedMinutes, thresholdMinutes, otMinutes } = computeEmployeeDay({
-      employee, date, punchRows, settingsMap, ramzanPeriods, defaultProject,
+      employee, date, punchRows, settingsMap, ramzanPeriods,
     });
 
     for (const row of rows) {
@@ -386,4 +361,4 @@ async function generateConfirmationSheetRows(date) {
   return reportRows;
 }
 
-module.exports = { generateConfirmationSheetRows, computeEmployeeDay, buildSessionsForDay, ensureOtApproval, UNASSIGNED_LABEL };
+module.exports = { generateConfirmationSheetRows, computeEmployeeDay, buildSessionsForDay, ensureOtApproval };
