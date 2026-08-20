@@ -21,14 +21,22 @@ const COLUMNS = [
   { header: 'APPROVAL REQUIRED', key: 'approval_required', width: 18 },
 ];
 
-// Every timestamp in this app is treated as UTC-equivalent wall-clock
-// throughout (dateKey() etc. all use toISOString()) — timeZone: 'UTC' must
-// be explicit here, otherwise toLocaleTimeString silently uses the host
-// process's local timezone (confirmed UTC+3 in this environment) and
-// displays the wrong clock time.
+// dateKey()/getUtcDayBounds() use UTC internally purely as an arithmetic
+// convention for day-bucketing punches consistently through node-pg's
+// timestamp-without-tz round-trip — it says nothing about what clock time a
+// human should see. A human reading this report needs the actual local
+// wall-clock time the punch happened at (BAK's operating timezone), not the
+// UTC-instant reading — displaying raw UTC here made every punch appear
+// ~3 hours earlier than it really was, so real varied punch times (e.g.
+// shift starts clustered around 9am local) all showed up clustered near
+// 6am, looking like uniform placeholder data. timeZone must stay explicit
+// (never left to toLocaleTimeString's host-timezone default), just pinned
+// to the business's real zone instead of UTC.
+const REPORT_TIME_ZONE = 'Asia/Riyadh';
+
 function formatTime(value) {
   if (!value) return '';
-  return new Date(value).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+  return new Date(value).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: REPORT_TIME_ZONE });
 }
 
 async function buildConfirmationSheetWorkbook(date, rows) {

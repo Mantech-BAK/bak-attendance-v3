@@ -325,6 +325,13 @@ router.post('/', async (req, res, next) => {
   }
 });
 
+// A second punch for the same employee/project within this many minutes of
+// an existing one is flagged as a likely duplicate — close enough in time
+// that it's far more likely a double-submit than two genuinely distinct
+// corrections, but not blocked outright since an admin occasionally does
+// need two close entries (e.g. a quick in/out correction).
+const DUPLICATE_WINDOW_MINUTES = 5;
+
 /**
  * Admin-only manual punch correction — for backfilling a punch an employee
  * never actually recorded (most commonly to resolve a single_punch_only
@@ -336,16 +343,19 @@ router.post('/', async (req, res, next) => {
  * scoped to catch anyway), and is unconditionally auto-approved — an admin
  * directly correcting attendance data is a trusted, deliberate action, not
  * something that then needs someone else's review.
+ *
+ * entered_by is never taken from the request body — it's always the
+ * authenticated admin from the session token (req.backofficeEmpId), same
+ * as every other backoffice-authed write. Passing it explicitly would let
+ * one logged-in admin attribute a correction to someone else.
  */
 router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) => {
   try {
-    const { emp_id, project_code, punch_time, entered_by } = req.body;
+    const { emp_id, project_code, punch_time, force } = req.body;
+    const enteredBy = req.backofficeEmpId;
 
     if (!emp_id) {
       return res.status(400).json({ error: 'emp_id is required' });
-    }
-    if (!entered_by) {
-      return res.status(400).json({ error: 'entered_by is required' });
     }
     if (!punch_time) {
       return res.status(400).json({ error: 'punch_time is required' });
@@ -360,15 +370,29 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
       return res.status(404).json({ error: `employee ${emp_id} not found` });
     }
 
-    const adminResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [entered_by]);
-    if (adminResult.rows.length === 0) {
-      return res.status(400).json({ error: `entered_by ${entered_by} not found` });
-    }
-
     if (project_code) {
       const projectResult = await pool.query('SELECT project_code FROM projects WHERE project_code = $1', [project_code]);
       if (projectResult.rows.length === 0) {
         return res.status(400).json({ error: `project ${project_code} not found` });
+      }
+    }
+
+    if (!force) {
+      const duplicateResult = await pool.query(
+        `SELECT id, punch_time, entry_method, approval_status
+         FROM punches
+         WHERE emp_id = $1
+           AND project_code IS NOT DISTINCT FROM $2
+           AND punch_time BETWEEN $3::timestamp - (INTERVAL '1 minute' * $4) AND $3::timestamp + (INTERVAL '1 minute' * $4)
+         ORDER BY punch_time
+         LIMIT 1`,
+        [emp_id, project_code || null, parsedPunchTime, DUPLICATE_WINDOW_MINUTES]
+      );
+      if (duplicateResult.rows.length > 0) {
+        return res.status(409).json({
+          error: `${emp_id} already has a punch for this project within ${DUPLICATE_WINDOW_MINUTES} minutes of this time.`,
+          duplicate: duplicateResult.rows[0],
+        });
       }
     }
 
@@ -378,7 +402,7 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
        VALUES ($1, $2, $3, NULL, NULL, $4, 'admin_correction', 'approved', $4, now())
        RETURNING id, emp_id, project_code, punch_time, lat, lng, device_ref,
                  entered_by, entry_method, approval_status, approved_by, approved_at, resolved_address, created_at`,
-      [emp_id, project_code || null, parsedPunchTime, entered_by]
+      [emp_id, project_code || null, parsedPunchTime, enteredBy]
     );
 
     res.status(201).json(result.rows[0]);

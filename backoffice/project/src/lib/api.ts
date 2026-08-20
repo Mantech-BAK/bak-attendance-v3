@@ -2,6 +2,20 @@ import { getToken, clearSession, AUTH_EXPIRED_EVENT } from './session';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:3000';
 
+// Carries the HTTP status and parsed body of a failed request so callers
+// that need to react to a specific status (e.g. 409 duplicate warnings)
+// don't have to re-parse err.message — mirrors mobile/src/api/client.js's
+// same pattern.
+export class ApiError extends Error {
+  status: number;
+  body: unknown;
+  constructor(message: string, status: number, body: unknown) {
+    super(message);
+    this.status = status;
+    this.body = body;
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers = {
@@ -21,7 +35,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       clearSession();
       window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
     }
-    throw new Error((body && body.error) || `Request to ${path} failed (${res.status})`);
+    throw new ApiError((body && body.error) || `Request to ${path} failed (${res.status})`, res.status, body);
   }
   return body as T;
 }
@@ -186,11 +200,14 @@ export function fetchPunches(): Promise<Punch[]> {
 
 // Admin-only manual punch correction — auto-approved immediately, no review
 // queue. punchTime is the admin-supplied explicit timestamp (never "now").
+// entered_by is never sent — the backend derives it from the session token.
+// force skips the backend's near-duplicate check (used on the confirmed
+// resubmit after the admin has seen and accepted the warning).
 export function addAdminPunchCorrection(input: {
   empId: string;
   projectCode: string | null;
   punchTime: string;
-  enteredBy: string;
+  force?: boolean;
 }): Promise<Punch> {
   return request('/api/punches/admin-correction', {
     method: 'POST',
@@ -199,7 +216,7 @@ export function addAdminPunchCorrection(input: {
       emp_id: input.empId,
       project_code: input.projectCode,
       punch_time: input.punchTime,
-      entered_by: input.enteredBy,
+      force: input.force ?? false,
     }),
   });
 }
@@ -273,7 +290,7 @@ export function fetchRamzanPeriods(): Promise<{ periods: RamzanPeriod[] }> {
   return request('/api/settings/ramzan-periods');
 }
 
-export function declareRamzanPeriod(input: { start_date: string; end_date: string; declared_by: string }): Promise<{ periods: RamzanPeriod[] }> {
+export function declareRamzanPeriod(input: { start_date: string; end_date: string }): Promise<{ periods: RamzanPeriod[] }> {
   return request('/api/settings/ramzan-periods', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

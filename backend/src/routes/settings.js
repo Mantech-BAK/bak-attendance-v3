@@ -104,13 +104,15 @@ router.get('/ramzan-periods', async (req, res, next) => {
 
 router.post('/ramzan-periods', async (req, res, next) => {
   try {
-    const { start_date, end_date, declared_by } = req.body;
+    const { start_date, end_date } = req.body;
+    // declared_by is always the authenticated admin (req.backofficeEmpId),
+    // never a client-supplied value — same reasoning as admin-correction's
+    // entered_by: a logged-in admin shouldn't be able to attribute a
+    // declaration to someone else.
+    const declaredBy = req.backofficeEmpId;
 
     if (!start_date || !end_date) {
       return res.status(400).json({ error: 'start_date and end_date are required' });
-    }
-    if (!declared_by) {
-      return res.status(400).json({ error: 'declared_by is required' });
     }
 
     const today = await getServerToday();
@@ -126,11 +128,6 @@ router.post('/ramzan-periods', async (req, res, next) => {
       return res.status(400).json({ error: `a Ramzan period cannot span more than ${MAX_RAMZAN_SPAN_DAYS} days` });
     }
 
-    const declarerResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [declared_by]);
-    if (declarerResult.rows.length === 0) {
-      return res.status(400).json({ error: `declared_by ${declared_by} not found` });
-    }
-
     const periods = await getRamzanPeriods();
     const newYear = start_date.slice(0, 4);
     const collidesWithYear = periods.some((period) => period.start_date.slice(0, 4) === newYear);
@@ -138,7 +135,7 @@ router.post('/ramzan-periods', async (req, res, next) => {
       return res.status(400).json({ error: `a Ramzan period has already been declared for ${newYear}` });
     }
 
-    const newPeriod = { start_date, end_date, declared_by, declared_at: new Date().toISOString() };
+    const newPeriod = { start_date, end_date, declared_by: declaredBy, declared_at: new Date().toISOString() };
     periods.push(newPeriod);
     await setSetting('ramzan_periods', JSON.stringify(periods));
 

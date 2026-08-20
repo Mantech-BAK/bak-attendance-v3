@@ -1,8 +1,22 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { XCircle, Loader2 } from 'lucide-react';
-import { addAdminPunchCorrection } from '@/lib/api';
+import { addAdminPunchCorrection, ApiError } from '@/lib/api';
 import type { Employee, Project, Punch } from '@/lib/api';
 import { Modal, Button, Select, Input } from '@/components/ui';
+import { useAuth } from '@/lib/auth';
+import { formatDateTime } from '@/lib/utils';
+
+// Converts the date/time input's local wall-clock values (as the admin's
+// own browser understands "local") into a correct absolute-instant ISO
+// string — building a Date from local components and letting toISOString()
+// do the UTC conversion, rather than gluing the digits straight onto a "Z"
+// suffix (which silently mislabels local time as UTC and shifts every
+// saved punch by the browser's UTC offset).
+function localDateTimeToIso(date: string, time: string): string {
+  const [year, month, day] = date.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  return new Date(year, month - 1, day, hour, minute, 0, 0).toISOString();
+}
 
 // Admin-only manual punch correction — sets an explicit timestamp (never
 // "now") and is auto-approved immediately, no review queue. Shared between
@@ -30,11 +44,11 @@ export function AddPunchModal({
   lockEmployee?: boolean;
   onSuccess: (punch: Punch) => void;
 }) {
+  const { session } = useAuth();
   const [empId, setEmpId] = useState('');
   const [projectCode, setProjectCode] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
-  const [enteredBy, setEnteredBy] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,29 +58,54 @@ export function AddPunchModal({
       setProjectCode(defaultProjectCode ?? '');
       setDate(defaultDate ?? '');
       setTime('');
-      setEnteredBy('');
       setError(null);
     }
   }, [open, defaultEmpId, defaultProjectCode, defaultDate]);
+
+  async function submitPunch(punchTime: string, force: boolean) {
+    return addAdminPunchCorrection({
+      empId,
+      projectCode: projectCode || null,
+      punchTime,
+      force,
+    });
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
 
-    if (!empId || !date || !time || !enteredBy) {
-      setError('Employee, date, time, and admin are all required.');
+    if (!empId || !date || !time) {
+      setError('Employee, date, and time are all required.');
       return;
     }
 
     setSubmitting(true);
     try {
-      const punchTime = `${date}T${time}:00.000Z`;
-      const punch = await addAdminPunchCorrection({
-        empId,
-        projectCode: projectCode || null,
-        punchTime,
-        enteredBy,
-      });
+      const punchTime = localDateTimeToIso(date, time);
+      let punch;
+      try {
+        punch = await submitPunch(punchTime, false);
+      } catch (err) {
+        // 409 = a near-identical punch already exists (see
+        // DUPLICATE_WINDOW_MINUTES on the backend) — warn, and only proceed
+        // if the admin deliberately confirms it's not a mistake. Any other
+        // error falls through to the normal inline error message below.
+        if (err instanceof ApiError && err.status === 409) {
+          const duplicate = (err.body as { duplicate?: { punch_time: string } } | null)?.duplicate;
+          const when = duplicate ? formatDateTime(duplicate.punch_time) : 'around this time';
+          const proceed = window.confirm(
+            `${err.message}\n\nExisting punch: ${when}.\n\nAdd this punch anyway?`
+          );
+          if (!proceed) {
+            setSubmitting(false);
+            return;
+          }
+          punch = await submitPunch(punchTime, true);
+        } else {
+          throw err;
+        }
+      }
       onSuccess(punch);
       onClose();
     } catch (err) {
@@ -107,12 +146,12 @@ export function AddPunchModal({
           <Input value={time} onChange={setTime} label="Time" id="add-punch-time" type="time" />
         </div>
 
-        <Select value={enteredBy} onChange={setEnteredBy} label="Entered By (Admin)" id="add-punch-admin">
-          <option value="">Select admin…</option>
-          {employees.map((e) => (
-            <option key={e.emp_id} value={e.emp_id}>{e.name}</option>
-          ))}
-        </Select>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-slate-700">Entered By</span>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+            {session?.name ?? session?.empId}
+          </div>
+        </div>
 
         <p className="text-xs text-slate-400">
           This punch is added exactly at the date/time set above and is auto-approved immediately — no separate review.

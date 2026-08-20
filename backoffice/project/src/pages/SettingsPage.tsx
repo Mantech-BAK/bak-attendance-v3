@@ -14,12 +14,14 @@ import type { RamzanPeriod, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from '@/components/ui';
 import { formatDate } from '@/lib/utils';
+import { useAuth } from '@/lib/auth';
 
 const RESET_TABLES_LABEL = 'punches, tasks, exceptions, overtime approvals, and confirmation-sheet records';
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
 export function SettingsPage() {
+  const { session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [employees, setEmployees] = useState<Employee[]>([]);
 
@@ -32,7 +34,6 @@ export function SettingsPage() {
   const [periods, setPeriods] = useState<RamzanPeriod[]>([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [declaredBy, setDeclaredBy] = useState('');
   const [ramzanHours, setRamzanHours] = useState('');
   const [currentRamzanHours, setCurrentRamzanHours] = useState<number | null>(null);
   const [periodSubmitting, setPeriodSubmitting] = useState(false);
@@ -98,8 +99,8 @@ export function SettingsPage() {
     setPeriodError(null);
     setPeriodSuccess(false);
 
-    if (!startDate || !endDate || !declaredBy) {
-      setPeriodError('Start date, end date, and declared by are all required.');
+    if (!startDate || !endDate) {
+      setPeriodError('Start date and end date are both required.');
       return;
     }
 
@@ -112,14 +113,13 @@ export function SettingsPage() {
     setPeriodSubmitting(true);
     try {
       const [periodResult, hoursResult] = await Promise.all([
-        declareRamzanPeriod({ start_date: startDate, end_date: endDate, declared_by: declaredBy }),
+        declareRamzanPeriod({ start_date: startDate, end_date: endDate }),
         saveRamzanWorkingHours(parsedHours),
       ]);
       setPeriods(periodResult.periods);
       setCurrentRamzanHours(hoursResult.hours);
       setStartDate('');
       setEndDate('');
-      setDeclaredBy('');
       setPeriodSuccess(true);
       setTimeout(() => setPeriodSuccess(false), 3000);
     } catch (err) {
@@ -228,10 +228,12 @@ export function SettingsPage() {
           <form onSubmit={handlePeriodSubmit} className="space-y-4">
             <Input value={startDate} onChange={setStartDate} label="Start Date" id="ramzan-start" type="date" />
             <Input value={endDate} onChange={setEndDate} label="End Date" id="ramzan-end" type="date" />
-            <Select value={declaredBy} onChange={setDeclaredBy} label="Declared By" id="ramzan-declared-by">
-              <option value="">Select admin…</option>
-              {employees.map((e) => (<option key={e.emp_id} value={e.emp_id}>{e.name}</option>))}
-            </Select>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-slate-700">Declared By</span>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+                {session?.name ?? session?.empId}
+              </div>
+            </div>
             <Input
               value={ramzanHours}
               onChange={setRamzanHours}
