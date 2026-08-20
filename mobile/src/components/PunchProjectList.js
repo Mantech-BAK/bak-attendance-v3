@@ -96,7 +96,15 @@ export default function PunchProjectList({ tasks, openProjectCode, onPunch }) {
                     <Text style={styles.priorityText}>{project.priority}</Text>
                   </View>
                 )}
+                {project.is_default && (
+                  <View style={styles.defaultBadge}>
+                    <Text style={styles.defaultBadgeText}>DEFAULT</Text>
+                  </View>
+                )}
               </View>
+              {project.is_default && (
+                <Text style={[styles.defaultHint, isOpen && styles.openText]}>No task assigned — department default project</Text>
+              )}
               {isOpen && <Text style={styles.openHint}>Open — tap to close</Text>}
               {blocked && <Text style={styles.blockedHint}>Close your open project first</Text>}
             </View>
@@ -137,4 +145,7 @@ const styles = StyleSheet.create({
   priority_medium: { backgroundColor: '#fef3c7' },
   priority_low: { backgroundColor: '#f3f4f6' },
   priorityText: { fontSize: 11, fontWeight: '700', color: '#374151', textTransform: 'uppercase' },
+  defaultBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: '#e0e7ff' },
+  defaultBadgeText: { fontSize: 11, fontWeight: '700', color: '#4338ca', textTransform: 'uppercase' },
+  defaultHint: { fontSize: 12, color: '#6b7280', marginTop: 2 },
 });

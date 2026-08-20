@@ -9,6 +9,38 @@ class TaskValidationError extends Error {
   }
 }
 
+/**
+ * Same department-default-project lookup used by the Confirmation Sheet's
+ * gap-filling (dailyConfirmation.js) — company via EmpDivision→divisions,
+ * department via EmpDeptId matched against departments.department_name.
+ * Returns null if the department has no default_project_code configured,
+ * mirroring that report's UNASSIGNED case.
+ */
+async function getDepartmentDefaultProject(empId) {
+  const result = await pool.query(
+    `SELECT p.project_code, p.project_name
+     FROM employees e
+     LEFT JOIN divisions dv ON e."EmpDivision" = dv.division_code
+     LEFT JOIN departments d ON d.company_dept_id = dv.division_name AND d.department_name = e."EmpDeptId"
+     LEFT JOIN projects p ON p.project_code = d.default_project_code
+     WHERE e."EmpId" = $1`,
+    [empId]
+  );
+
+  const row = result.rows[0];
+  return row && row.project_code ? row : null;
+}
+
+/**
+ * An employee with zero real tasks assigned today still needs something
+ * punchable, so this falls back to their department's default project (the
+ * same one the Confirmation Sheet attributes gaps/shortfalls to) as a single
+ * synthetic task. Employees with any real task never see this — it's a
+ * fallback, not an addition. A department with no default project configured
+ * yields no tasks at all: there's no real project_code to punch against
+ * (punches.project_code is a hard FK into projects), so this is the same
+ * "can't punch" outcome the report already represents as UNASSIGNED.
+ */
 async function getTodaysTasks(empId) {
   const result = await pool.query(
     `SELECT id, project_code, priority, description, location_site, status
@@ -18,13 +50,28 @@ async function getTodaysTasks(empId) {
     [empId]
   );
 
-  return result.rows.map((task) => ({
-    id: task.id,
-    project_code: task.project_code,
-    name: task.description || task.location_site || task.project_code,
-    priority: task.priority,
-    status: task.status,
-  }));
+  if (result.rows.length > 0) {
+    return result.rows.map((task) => ({
+      id: task.id,
+      project_code: task.project_code,
+      name: task.description || task.location_site || task.project_code,
+      priority: task.priority,
+      status: task.status,
+      is_default: false,
+    }));
+  }
+
+  const defaultProject = await getDepartmentDefaultProject(empId);
+  if (!defaultProject) return [];
+
+  return [{
+    id: null,
+    project_code: defaultProject.project_code,
+    name: defaultProject.project_name,
+    priority: null,
+    status: 'default',
+    is_default: true,
+  }];
 }
 
 /**
