@@ -211,10 +211,12 @@ export function fetchPunches(): Promise<Punch[]> {
 // queue. punchTime is the admin-supplied explicit timestamp (never "now").
 // entered_by is never sent — the backend derives it from the session token.
 // force skips the backend's near-duplicate check (used on the confirmed
-// resubmit after the admin has seen and accepted the warning).
+// resubmit after the admin has seen and accepted the warning). projectCode
+// is mandatory — the backend rejects a missing one with a 400, matching the
+// UI which never lets the form reach Submit without one selected.
 export function addAdminPunchCorrection(input: {
   empId: string;
-  projectCode: string | null;
+  projectCode: string;
   punchTime: string;
   force?: boolean;
 }): Promise<Punch> {

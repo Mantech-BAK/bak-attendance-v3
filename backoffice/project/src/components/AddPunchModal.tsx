@@ -113,10 +113,15 @@ export function AddPunchModal({
     ? projects.filter((p) => punchableCodes.has(p.project_code))
     : [];
 
+  // Project, date, and time are all mandatory — a punch with any of them
+  // missing is meaningless, so Submit stays disabled until the form is
+  // genuinely complete rather than only validating after the fact.
+  const isComplete = !!empId && !!projectCode && !!date && !!time;
+
   async function submitPunch(punchTime: string, force: boolean) {
     return addAdminPunchCorrection({
       empId,
-      projectCode: projectCode || null,
+      projectCode,
       punchTime,
       force,
     });
@@ -126,8 +131,11 @@ export function AddPunchModal({
     e.preventDefault();
     setError(null);
 
-    if (!empId || !date || !time) {
-      setError('Employee, date, and time are all required.');
+    // Defense in depth — Submit is already disabled until isComplete, but
+    // this still runs in case the button is somehow triggered anyway (e.g.
+    // pressing Enter in a field before state has settled).
+    if (!empId || !projectCode || !date || !time) {
+      setError('Employee, project, date, and time are all required.');
       return;
     }
 
@@ -194,12 +202,11 @@ export function AddPunchModal({
         >
           {!punchableCodes ? (
             <option value="">{loadingProjects ? 'Loading…' : 'Select employee and date first'}</option>
+          ) : selectableProjects.length === 0 ? (
+            <option value="" disabled>No assigned task or default project for this date</option>
           ) : (
             <>
-              <option value="">No project</option>
-              {selectableProjects.length === 0 && (
-                <option value="__none__" disabled>No assigned task or default project for this date</option>
-              )}
+              <option value="">Select project…</option>
               {selectableProjects.map((p) => (
                 <option key={p.project_code} value={p.project_code}>{p.project_name ?? p.project_code}</option>
               ))}
@@ -207,7 +214,7 @@ export function AddPunchModal({
           )}
         </Select>
         <p className="text-xs text-slate-400">
-          Only projects the employee has a real task for on this date (or their department default, if none) are selectable.
+          Required. Only projects the employee has a real task for on this date (or their department default, if none) are selectable.
         </p>
 
         <div className="grid grid-cols-2 gap-3">
@@ -236,7 +243,7 @@ export function AddPunchModal({
           <Button type="button" variant="secondary" onClick={onClose} disabled={submitting} className="flex-1">
             Cancel
           </Button>
-          <Button type="submit" disabled={submitting} className="flex-1">
+          <Button type="submit" disabled={submitting || !isComplete} className="flex-1">
             {submitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Adding…</>) : 'Add Punch'}
           </Button>
         </div>

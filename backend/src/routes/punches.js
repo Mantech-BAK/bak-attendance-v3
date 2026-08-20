@@ -357,6 +357,9 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
     if (!emp_id) {
       return res.status(400).json({ error: 'emp_id is required' });
     }
+    if (!project_code) {
+      return res.status(400).json({ error: 'project_code is required' });
+    }
     if (!punch_time) {
       return res.status(400).json({ error: 'punch_time is required' });
     }
@@ -370,11 +373,9 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
       return res.status(404).json({ error: `employee ${emp_id} not found` });
     }
 
-    if (project_code) {
-      const projectResult = await pool.query('SELECT project_code FROM projects WHERE project_code = $1', [project_code]);
-      if (projectResult.rows.length === 0) {
-        return res.status(400).json({ error: `project ${project_code} not found` });
-      }
+    const projectResult = await pool.query('SELECT project_code FROM projects WHERE project_code = $1', [project_code]);
+    if (projectResult.rows.length === 0) {
+      return res.status(400).json({ error: `project ${project_code} not found` });
     }
 
     if (!force) {
