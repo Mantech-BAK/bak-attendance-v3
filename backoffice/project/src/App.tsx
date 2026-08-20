@@ -6,6 +6,7 @@ import { DashboardPage } from '@/pages/DashboardPage';
 import { EmployeesPage } from '@/pages/EmployeesPage';
 import { TasksPage } from '@/pages/TasksPage';
 import { PunchesPage } from '@/pages/PunchesPage';
+import { ProjectsPage } from '@/pages/ProjectsPage';
 import { ReportsPage } from '@/pages/ReportsPage';
 import { ExceptionsPage } from '@/pages/ExceptionsPage';
 import { SettingsPage } from '@/pages/SettingsPage';
@@ -21,6 +22,8 @@ function CurrentPage() {
       return <TasksPage />;
     case 'punches':
       return <PunchesPage />;
+    case 'projects':
+      return <ProjectsPage />;
     case 'exceptions':
       return <ExceptionsPage />;
     case 'reports':
