@@ -16,6 +16,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Spinner, EmptyState } from '@/components/ui';
 import { MonthCalendar } from '@/components/MonthCalendar';
 import { cn, formatDate, formatDateTime, initials } from '@/lib/utils';
+import { useRouter, type RouteName } from '@/lib/router';
 
 function dateKeyOf(iso: string): string {
   return new Date(iso).toISOString().slice(0, 10);
@@ -35,6 +36,7 @@ type Stats = {
 };
 
 export function DashboardPage() {
+  const { navigate } = useRouter();
   const [data, setData] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   // Defaults to today — every widget below reads through this single date
@@ -102,11 +104,11 @@ export function DashboardPage() {
   const activeEmployees = data.employees.filter((e) => e.status === 'active').length;
   const activeProjects = data.projects.filter((p) => p.status === 'OPEN').length;
 
-  const statCards = [
-    { label: 'Active Employees', value: activeEmployees, icon: Users, color: 'teal' },
-    { label: 'Total Tasks', value: scoped.dayTasks.length, icon: ClipboardList, color: 'sky' },
-    { label: 'Total Punches', value: scoped.dayPunches.length, icon: Clock, color: 'amber' },
-    { label: 'Open Projects', value: activeProjects, icon: Building2, color: 'slate' },
+  const statCards: { label: string; value: number; icon: typeof Users; color: string; route: RouteName }[] = [
+    { label: 'Active Employees', value: activeEmployees, icon: Users, color: 'teal', route: 'employees' },
+    { label: 'Total Tasks', value: scoped.dayTasks.length, icon: ClipboardList, color: 'sky', route: 'tasks' },
+    { label: 'Total Punches', value: scoped.dayPunches.length, icon: Clock, color: 'amber', route: 'punches' },
+    { label: 'Open Projects', value: activeProjects, icon: Building2, color: 'slate', route: 'projects' },
   ];
 
   return (
@@ -139,7 +141,11 @@ export function DashboardPage() {
             slate: 'bg-slate-100 text-slate-600',
           };
           return (
-            <Card key={s.label} className="p-5">
+            <Card
+              key={s.label}
+              className="p-5 cursor-pointer transition hover:border-teal-200 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
+              onClick={() => navigate(s.route)}
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-slate-500">{s.label}</p>

@@ -69,6 +69,7 @@ export type Project = {
   project_name: string | null;
   company: string | null;
   status: string;
+  cost_center: string | null;
 };
 
 export type Task = {
@@ -160,6 +161,15 @@ export function fetchTasks(): Promise<Task[]> {
 
 export function tasksExportUrl(date: string): string {
   return `${API_BASE_URL}/api/tasks/export?date=${encodeURIComponent(date)}`;
+}
+
+export type PunchableProject = { project_code: string; is_default: boolean };
+
+// Powers the Add Punch modal's project restriction — only a project the
+// employee has a real task for on that date, or their department default if
+// none, never an arbitrary project.
+export function fetchPunchableProjects(empId: string, date: string): Promise<{ projects: PunchableProject[] }> {
+  return request(`/api/tasks/punchable-projects?emp_id=${encodeURIComponent(empId)}&date=${encodeURIComponent(date)}`);
 }
 
 // Both export/report downloads are backoffice-only routes behind

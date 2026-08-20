@@ -32,15 +32,60 @@ async function getDepartmentDefaultProject(empId) {
 }
 
 /**
- * An employee with zero real tasks assigned today still needs something
- * punchable, so this falls back to their department's default project (the
- * same one the Confirmation Sheet attributes gaps/shortfalls to) as a single
- * synthetic task. Employees with any real task never see this — it's a
- * fallback, not an addition. A department with no default project configured
- * yields no tasks at all: there's no real project_code to punch against
- * (punches.project_code is a hard FK into projects), so this is the same
- * "can't punch" outcome the report already represents as UNASSIGNED.
+ * An employee with zero real tasks assigned on this date still needs
+ * something punchable, so this falls back to their department's default
+ * project (the same one the Confirmation Sheet attributes gaps/shortfalls
+ * to) as a single synthetic task. Employees with any real task never see
+ * this — it's a fallback, not an addition. A department with no default
+ * project configured yields no tasks at all: there's no real project_code to
+ * punch against (punches.project_code is a hard FK into projects), so this
+ * is the same "can't punch" outcome the report already represents as
+ * UNASSIGNED.
+ *
+ * date is a required 'YYYY-MM-DD' string bound as a real SQL date parameter
+ * (never string-concatenated), so callers can ask about any day, not just
+ * today — used by both mobile's Punch tab (today) and the backoffice's Add
+ * Punch project restriction (whatever date the admin is correcting).
  */
+async function getTasksForDate(empId, date) {
+  const result = await pool.query(
+    `SELECT id, project_code, priority, description, location_site, status
+     FROM tasks
+     WHERE emp_id = $1 AND task_date = $2::date
+     ORDER BY id`,
+    [empId, date]
+  );
+
+  if (result.rows.length > 0) {
+    return result.rows.map((task) => ({
+      id: task.id,
+      project_code: task.project_code,
+      name: task.description || task.location_site || task.project_code,
+      priority: task.priority,
+      status: task.status,
+      is_default: false,
+    }));
+  }
+
+  const defaultProject = await getDepartmentDefaultProject(empId);
+  if (!defaultProject) return [];
+
+  return [{
+    id: null,
+    project_code: defaultProject.project_code,
+    name: defaultProject.project_name,
+    priority: null,
+    status: 'default',
+    is_default: true,
+  }];
+}
+
+// Deliberately NOT implemented as getTasksForDate(empId, today) — CURRENT_DATE
+// is the Postgres session's own notion of today (matches how every other
+// "today" query in this app resolves it), whereas computing a JS date string
+// client-side can disagree with it for a few hours around local midnight,
+// depending on the process's timezone. Keeping this as its own query avoids
+// that mismatch entirely.
 async function getTodaysTasks(empId) {
   const result = await pool.query(
     `SELECT id, project_code, priority, description, location_site, status
@@ -100,6 +145,18 @@ async function createTask({ emp_id, project_code, priority, description, locatio
   const projectResult = await pool.query('SELECT project_code FROM projects WHERE project_code = $1', [project_code]);
   if (projectResult.rows.length === 0) throw new TaskValidationError(400, `project ${project_code} not found`);
 
+  // Same employee + same day + same project is a duplicate — a different
+  // project for that employee that day is still a distinct, legitimate task
+  // and stays allowed. Status is never checked: tasks never transition off
+  // 'pending' anywhere in this system, so an existing row always counts.
+  const duplicateResult = await pool.query(
+    `SELECT id FROM tasks WHERE emp_id = $1 AND project_code = $2 AND task_date = COALESCE($3::date, CURRENT_DATE)`,
+    [emp_id, project_code, taskDate || null]
+  );
+  if (duplicateResult.rows.length > 0) {
+    throw new TaskValidationError(409, 'This task already exists.');
+  }
+
   const result = await pool.query(
     `INSERT INTO tasks (emp_id, task_date, project_code, priority, description, location_site, source, created_by)
      VALUES ($1, COALESCE($2, CURRENT_DATE), $3, $4, $5, $6, $7, $8)
@@ -110,4 +167,4 @@ async function createTask({ emp_id, project_code, priority, description, locatio
   return result.rows[0];
 }
 
-module.exports = { getTodaysTasks, createTask, TaskValidationError, VALID_SOURCES };
+module.exports = { getTodaysTasks, getTasksForDate, createTask, TaskValidationError, VALID_SOURCES };

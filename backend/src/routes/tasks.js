@@ -1,7 +1,7 @@
 const express = require('express');
 const ExcelJS = require('exceljs');
 const pool = require('../db');
-const { getTodaysTasks, createTask, TaskValidationError } = require('../services/tasks');
+const { getTodaysTasks, getTasksForDate, createTask, TaskValidationError } = require('../services/tasks');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
@@ -85,6 +85,40 @@ router.get('/export', requireBackofficeAuth, async (req, res, next) => {
     res.setHeader('Content-Disposition', `attachment; filename="tasks-${date}.xlsx"`);
     await workbook.xlsx.write(res);
     res.end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Backoffice-only — powers the Add Punch modal's project restriction: an
+// admin correcting attendance may only pick a project the employee actually
+// has a real task for on that date, or (if none) their department default —
+// never an arbitrary project off a free dropdown. Deduped by project_code,
+// same reasoning as mobile's PunchProjectList (a task list can reference the
+// same project more than once).
+router.get('/punchable-projects', requireBackofficeAuth, async (req, res, next) => {
+  try {
+    const { emp_id, date } = req.query;
+    if (!emp_id) {
+      return res.status(400).json({ error: 'emp_id is required' });
+    }
+    if (!date || !DATE_PATTERN.test(date)) {
+      return res.status(400).json({ error: 'date is required in YYYY-MM-DD format' });
+    }
+
+    const employeeResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
+    if (employeeResult.rows.length === 0) {
+      return res.status(404).json({ error: `employee ${emp_id} not found` });
+    }
+
+    const tasks = await getTasksForDate(emp_id, date);
+    const seen = new Map();
+    for (const task of tasks) {
+      if (!seen.has(task.project_code)) {
+        seen.set(task.project_code, { project_code: task.project_code, is_default: task.is_default });
+      }
+    }
+    res.json({ emp_id, date, projects: [...seen.values()] });
   } catch (err) {
     next(err);
   }
