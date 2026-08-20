@@ -44,4 +44,37 @@ async function requireBackofficeAuth(req, res, next) {
   }
 }
 
+/**
+ * Same identity resolution as requireBackofficeAuth, but never rejects the
+ * request — returns the authorized emp_id, or null on any missing, invalid,
+ * expired, or unauthorized token. For routes shared with mobile (which never
+ * sends an Authorization header at all) that want to recognize a logged-in
+ * backoffice admin when present without hard-requiring one, e.g.
+ * POST /api/tasks deriving created_by from the session when the backoffice
+ * calls it, while still accepting mobile's own explicit created_by
+ * (a supervisor assigning a task on a direct report, no JWT concept there).
+ */
+async function resolveBackofficeEmpId(req) {
+  const header = req.headers.authorization || '';
+  const [scheme, token] = header.split(' ');
+
+  if (scheme !== 'Bearer' || !token) {
+    return null;
+  }
+
+  let payload;
+  try {
+    payload = jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    return null;
+  }
+
+  const employeeResult = await pool.query('SELECT "EmpStatus" AS status FROM employees WHERE "EmpId" = $1', [payload.emp_id]);
+  const employee = employeeResult.rows[0];
+  const authorized = employee && employee.status === 'active' && (await managesASupervisor(payload.emp_id));
+
+  return authorized ? payload.emp_id : null;
+}
+
 module.exports = requireBackofficeAuth;
+module.exports.resolveBackofficeEmpId = resolveBackofficeEmpId;

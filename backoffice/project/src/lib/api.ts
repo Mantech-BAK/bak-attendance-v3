@@ -181,13 +181,13 @@ export function authHeaders(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// created_by is never sent — the backend derives it from the session token.
 export function createTask(input: {
   empId: string;
   projectCode: string;
   priority: string;
   description: string;
   locationSite: string | null;
-  createdBy: string;
 }): Promise<Task> {
   return request('/api/tasks', {
     method: 'POST',
@@ -199,7 +199,6 @@ export function createTask(input: {
       description: input.description,
       location_site: input.locationSite,
       source: 'backoffice',
-      created_by: input.createdBy,
     }),
   });
 }

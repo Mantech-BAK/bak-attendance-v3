@@ -5,6 +5,7 @@ import type { Task, Employee, Project } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Select, Textarea, Input, Spinner, EmptyState } from '@/components/ui';
 import { formatDate, initials } from '@/lib/utils';
+import { useAuth } from '@/lib/auth';
 
 function todayDate(): string {
   return new Date().toISOString().slice(0, 10);
@@ -16,7 +17,6 @@ type FormState = {
   priority: string;
   description: string;
   locationSite: string;
-  createdBy: string;
 };
 
 const EMPTY_FORM: FormState = {
@@ -25,10 +25,10 @@ const EMPTY_FORM: FormState = {
   priority: 'medium',
   description: '',
   locationSite: '',
-  createdBy: '',
 };
 
 export function TasksPage() {
+  const { session } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -60,8 +60,8 @@ export function TasksPage() {
     setSubmitError(null);
     setSubmitSuccess(false);
 
-    if (!form.empId || !form.projectCode || !form.description.trim() || !form.createdBy) {
-      setSubmitError('Employee, project, created by, and description are required.');
+    if (!form.empId || !form.projectCode || !form.description.trim()) {
+      setSubmitError('Employee, project, and description are required.');
       return;
     }
 
@@ -73,7 +73,6 @@ export function TasksPage() {
         priority: form.priority,
         description: form.description.trim(),
         locationSite: form.locationSite.trim() || null,
-        createdBy: form.createdBy,
       });
       setSubmitSuccess(true);
       setForm(EMPTY_FORM);
@@ -164,10 +163,12 @@ export function TasksPage() {
 
               <Input value={form.locationSite} onChange={(v) => setForm({ ...form, locationSite: v })} label="Location" id="task-location" placeholder="e.g. Site office, Dock 2…" />
 
-              <Select value={form.createdBy} onChange={(v) => setForm({ ...form, createdBy: v })} label="Created By" id="task-created-by">
-                <option value="">Select admin…</option>
-                {employees.map((e) => (<option key={e.emp_id} value={e.emp_id}>{e.name}</option>))}
-              </Select>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-slate-700">Created By</span>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+                  {session?.name ?? session?.empId}
+                </div>
+              </div>
 
               {submitError && (
                 <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">

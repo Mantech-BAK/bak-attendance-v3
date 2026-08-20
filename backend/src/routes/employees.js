@@ -106,21 +106,21 @@ router.get('/:emp_id', async (req, res, next) => {
 
 /**
  * Admin-only, onboarding-time face registration — not self-enrollment.
- * The caller (admin portal) must identify who is performing the
- * registration via `registered_by`; there is no session/auth layer
- * yet to derive this automatically.
+ * registered_by is always the authenticated admin (req.backofficeEmpId),
+ * never a client-supplied value — same reasoning as admin-correction's
+ * entered_by / ramzan's declared_by / tasks' created_by. Not currently
+ * wired to any frontend (face-based identification was superseded by typed
+ * emp_id+login_code — see routes/punch.js), but kept consistent with the
+ * rest of the codebase's session-derived-identity convention rather than
+ * left as a dormant gap that resurfaces if this ever gets a UI.
  */
-router.post('/:emp_id/register-face', upload.single('face'), async (req, res, next) => {
+router.post('/:emp_id/register-face', requireBackofficeAuth, upload.single('face'), async (req, res, next) => {
   try {
     const { emp_id } = req.params;
-    const { registered_by } = req.body;
+    const registeredBy = req.backofficeEmpId;
 
     if (!req.file) {
       return res.status(400).json({ error: 'face image file is required (field name: "face")' });
-    }
-
-    if (!registered_by || !registered_by.trim()) {
-      return res.status(400).json({ error: 'registered_by is required' });
     }
 
     const employee = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
@@ -135,7 +135,7 @@ router.post('/:emp_id/register-face', upload.single('face'), async (req, res, ne
        SET "EmpFaceId" = $1, "EmpRegistredBy" = $2, "EmpRegisteredAt" = now()
        WHERE "EmpId" = $3
        RETURNING "EmpId" AS emp_id, "EmpRegistredBy" AS registered_by, "EmpRegisteredAt" AS registered_at`,
-      [faceTemplate, registered_by.trim(), emp_id]
+      [faceTemplate, registeredBy, emp_id]
     );
 
     res.status(200).json(result.rows[0]);

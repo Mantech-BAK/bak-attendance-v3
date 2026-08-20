@@ -3,15 +3,28 @@ const ExcelJS = require('exceljs');
 const pool = require('../db');
 const { getTodaysTasks, getTasksForDate, createTask, TaskValidationError } = require('../services/tasks');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
+const { resolveBackofficeEmpId } = requireBackofficeAuth;
 
 const router = express.Router();
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+// Shared with mobile's Task Assignment form (a Supervisor assigning a task
+// to a direct report — no backoffice session, so their own emp_id comes
+// through explicitly as created_by) — this route deliberately isn't behind
+// requireBackofficeAuth. But when a valid backoffice session IS present
+// (the backoffice's own Create Task form always sends its token), created_by
+// is always taken from that session and never from the client, same
+// reasoning as admin-correction's entered_by / ramzan's declared_by: an
+// authenticated admin shouldn't be able to attribute a task to someone else.
 router.post('/', async (req, res, next) => {
   try {
     const { emp_id, project_code, priority, description, location_site, source, created_by } = req.body;
-    const task = await createTask({ emp_id, project_code, priority, description, location_site, source, created_by });
+    const backofficeEmpId = await resolveBackofficeEmpId(req);
+    const task = await createTask({
+      emp_id, project_code, priority, description, location_site, source,
+      created_by: backofficeEmpId || created_by,
+    });
     res.status(201).json(task);
   } catch (err) {
     if (err instanceof TaskValidationError) {
