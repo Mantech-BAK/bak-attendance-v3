@@ -163,6 +163,25 @@ export function tasksExportUrl(date: string): string {
   return `${API_BASE_URL}/api/tasks/export?date=${encodeURIComponent(date)}`;
 }
 
+export function tasksTemplateUrl(): string {
+  return `${API_BASE_URL}/api/tasks/template`;
+}
+
+export type BulkTaskUploadError = { row: number; emp_id: string; reason: string };
+export type BulkTaskUploadResult = { created: Task[]; errors: BulkTaskUploadError[]; totalRows: number };
+
+// Multipart, not JSON — request() only ever sets an Authorization header
+// (never Content-Type) so it's safe to reuse here too: the browser sets its
+// own multipart boundary on the FormData body automatically.
+export function uploadTasksBulk(file: File): Promise<BulkTaskUploadResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return request('/api/tasks/bulk-upload', {
+    method: 'POST',
+    body: formData,
+  });
+}
+
 export type PunchableProject = { project_code: string; is_default: boolean };
 
 // Powers the Add Punch modal's project restriction — only a project the
@@ -323,6 +342,22 @@ export function saveRamzanWorkingHours(hours: number): Promise<RamzanWorkingHour
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ hours }),
+  });
+}
+
+export type DuplicatePunchWindow = {
+  minutes: number;
+};
+
+export function fetchDuplicatePunchWindow(): Promise<DuplicatePunchWindow> {
+  return request('/api/settings/duplicate-punch-window');
+}
+
+export function saveDuplicatePunchWindow(minutes: number): Promise<DuplicatePunchWindow> {
+  return request('/api/settings/duplicate-punch-window', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ minutes }),
   });
 }
 

@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db');
 const { reverseGeocode } = require('../services/reverseGeocode');
 const { getOpenProjectForToday } = require('../services/attendance');
+const { getDuplicatePunchWindowMinutes } = require('../services/settings');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
@@ -325,13 +326,6 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-// A second punch for the same employee/project within this many minutes of
-// an existing one is flagged as a likely duplicate — close enough in time
-// that it's far more likely a double-submit than two genuinely distinct
-// corrections, but not blocked outright since an admin occasionally does
-// need two close entries (e.g. a quick in/out correction).
-const DUPLICATE_WINDOW_MINUTES = 5;
-
 /**
  * Admin-only manual punch correction — for backfilling a punch an employee
  * never actually recorded (most commonly to resolve a single_punch_only
@@ -378,7 +372,33 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
       return res.status(400).json({ error: `project ${project_code} not found` });
     }
 
+    // Two different projects sharing the exact same instant is ambiguous
+    // for the same reason a same-project duplicate is a problem, but worse:
+    // the even/odd open-project and First-In-Last-Out session logic depends
+    // on every punch having a genuine chronological order, and two punches
+    // at the identical timestamp have none. Unlike the near-duplicate check
+    // below, this is a hard block — not skippable via force — since there's
+    // no legitimate correction that needs it, only a broken ordering.
+    const crossProjectClashResult = await pool.query(
+      `SELECT id, project_code, punch_time
+       FROM punches
+       WHERE emp_id = $1
+         AND project_code IS NOT NULL
+         AND project_code != $2
+         AND punch_time = $3::timestamp
+       LIMIT 1`,
+      [emp_id, project_code, parsedPunchTime]
+    );
+    if (crossProjectClashResult.rows.length > 0) {
+      const clash = crossProjectClashResult.rows[0];
+      return res.status(409).json({
+        error: `${emp_id} already has a punch for project ${clash.project_code} at this exact time — punches for different projects cannot share the same timestamp.`,
+        conflicting_punch: clash,
+      });
+    }
+
     if (!force) {
+      const duplicateWindowMinutes = await getDuplicatePunchWindowMinutes();
       const duplicateResult = await pool.query(
         `SELECT id, punch_time, entry_method, approval_status
          FROM punches
@@ -387,11 +407,11 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
            AND punch_time BETWEEN $3::timestamp - (INTERVAL '1 minute' * $4) AND $3::timestamp + (INTERVAL '1 minute' * $4)
          ORDER BY punch_time
          LIMIT 1`,
-        [emp_id, project_code || null, parsedPunchTime, DUPLICATE_WINDOW_MINUTES]
+        [emp_id, project_code || null, parsedPunchTime, duplicateWindowMinutes]
       );
       if (duplicateResult.rows.length > 0) {
         return res.status(409).json({
-          error: `${emp_id} already has a punch for this project within ${DUPLICATE_WINDOW_MINUTES} minutes of this time.`,
+          error: `${emp_id} already has a punch for this project within ${duplicateWindowMinutes} minutes of this time.`,
           duplicate: duplicateResult.rows[0],
         });
       }

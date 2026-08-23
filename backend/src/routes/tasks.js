@@ -1,13 +1,32 @@
 const express = require('express');
+const multer = require('multer');
 const ExcelJS = require('exceljs');
 const pool = require('../db');
 const { getTodaysTasks, getTasksForDate, createTask, TaskValidationError } = require('../services/tasks');
+const { buildTaskTemplateWorkbook, processBulkUpload } = require('../services/taskBulkUpload');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 const { resolveBackofficeEmpId } = requireBackofficeAuth;
 
 const router = express.Router();
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const EXCEL_MIME_TYPES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+];
+
+const uploadExcel = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter(req, file, cb) {
+    if (!EXCEL_MIME_TYPES.includes(file.mimetype)) {
+      cb(new Error('Unsupported file type. Upload an .xlsx file.'));
+      return;
+    }
+    cb(null, true);
+  },
+});
 
 // Shared with mobile's Task Assignment form (a Supervisor assigning a task
 // to a direct report — no backoffice session, so their own emp_id comes
@@ -103,6 +122,45 @@ router.get('/export', requireBackofficeAuth, async (req, res, next) => {
   }
 });
 
+// Blank starter file for bulk task creation — same six columns the Teams
+// intake path already accepts (teamsParser.js's COLUMNS), so an admin
+// familiar with that flow sees a consistent layout here. Backoffice-only.
+router.get('/template', requireBackofficeAuth, async (req, res, next) => {
+  try {
+    const workbook = await buildTaskTemplateWorkbook();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="task-upload-template.xlsx"');
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Partial-success bulk creation from a filled-in copy of the template above
+// — valid rows create tasks immediately, invalid rows (bad employee ID,
+// inactive employee, bad project code, bad priority, duplicate, missing
+// field) are collected and reported per-row rather than failing the whole
+// file. created_by is always the authenticated admin (req.backofficeEmpId),
+// never read from the spreadsheet — same reasoning as every other
+// session-derived identity in this app (admin-correction's entered_by,
+// ramzan's declared_by, Create Task's created_by).
+router.post('/bulk-upload', requireBackofficeAuth, uploadExcel.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'file is required (field name: "file")' });
+    }
+
+    const result = await processBulkUpload(req.file.buffer, req.backofficeEmpId);
+    res.status(200).json(result);
+  } catch (err) {
+    if (err instanceof TaskValidationError) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
 // Backoffice-only — powers the Add Punch modal's project restriction: an
 // admin correcting attendance may only pick a project the employee actually
 // has a real task for on that date, or (if none) their department default —
@@ -154,6 +212,16 @@ router.get('/me/:emp_id', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// Handles Multer errors (bad mime type, file too large) with a clean 400
+// instead of falling through to the default Express error page — same
+// pattern as routes/employees.js's face-upload handler.
+router.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError || err.message.startsWith('Unsupported file type')) {
+    return res.status(400).json({ error: err.message });
+  }
+  next(err);
 });
 
 module.exports = router;

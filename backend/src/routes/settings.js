@@ -1,6 +1,6 @@
 const express = require('express');
 const pool = require('../db');
-const { getSetting, getRamzanPeriods, setSetting } = require('../services/settings');
+const { getSetting, getRamzanPeriods, setSetting, DEFAULT_DUPLICATE_WINDOW_MINUTES } = require('../services/settings');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
@@ -14,6 +14,8 @@ const MIN_RAMZAN_HOURS = 1;
 const MAX_RAMZAN_HOURS = 8;
 const MAX_RAMZAN_SPAN_DAYS = 30;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const MIN_DUPLICATE_WINDOW_MINUTES = 1;
+const MAX_DUPLICATE_WINDOW_MINUTES = 120;
 
 async function getServerToday() {
   const { rows } = await pool.query("SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today");
@@ -81,6 +83,41 @@ router.post('/ramzan-working-hours', async (req, res, next) => {
     await setSetting('ramzan_working_hours_minutes', String(minutes));
 
     res.json({ minutes, hours });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Unlike ramzan-working-hours, this always returns a real number (never
+// null) — the duplicate-punch check has a genuine default (5) rather than
+// an "unset means skip the override" state, so the settings UI should show
+// 5 out of the box, not a blank "not customized" field.
+router.get('/duplicate-punch-window', async (req, res, next) => {
+  try {
+    const value = await getSetting('duplicate_punch_window_minutes');
+    const minutes = value === null ? DEFAULT_DUPLICATE_WINDOW_MINUTES : Number(value);
+    res.json({ minutes });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/duplicate-punch-window', async (req, res, next) => {
+  try {
+    const { minutes } = req.body;
+
+    if (typeof minutes !== 'number' || Number.isNaN(minutes)) {
+      return res.status(400).json({ error: 'minutes is required and must be a number' });
+    }
+    if (minutes < MIN_DUPLICATE_WINDOW_MINUTES || minutes > MAX_DUPLICATE_WINDOW_MINUTES) {
+      return res.status(400).json({
+        error: `minutes must be between ${MIN_DUPLICATE_WINDOW_MINUTES} and ${MAX_DUPLICATE_WINDOW_MINUTES}`,
+      });
+    }
+
+    await setSetting('duplicate_punch_window_minutes', String(minutes));
+
+    res.json({ minutes });
   } catch (err) {
     next(err);
   }

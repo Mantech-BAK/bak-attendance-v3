@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Clock, Moon, CheckCircle2, XCircle, Loader2, CalendarRange, Trash2, AlertTriangle } from 'lucide-react';
+import { Clock, Moon, Copy, CheckCircle2, XCircle, Loader2, CalendarRange, Trash2, AlertTriangle } from 'lucide-react';
 import {
   fetchDailyWorkingHours,
   saveDailyWorkingHours,
@@ -7,6 +7,8 @@ import {
   declareRamzanPeriod,
   fetchRamzanWorkingHours,
   saveRamzanWorkingHours,
+  fetchDuplicatePunchWindow,
+  saveDuplicatePunchWindow,
   fetchEmployees,
   resetTestData,
 } from '@/lib/api';
@@ -40,6 +42,12 @@ export function SettingsPage() {
   const [periodError, setPeriodError] = useState<string | null>(null);
   const [periodSuccess, setPeriodSuccess] = useState(false);
 
+  const [duplicateWindow, setDuplicateWindow] = useState('');
+  const [currentDuplicateWindow, setCurrentDuplicateWindow] = useState<number | null>(null);
+  const [duplicateWindowSubmitting, setDuplicateWindowSubmitting] = useState(false);
+  const [duplicateWindowError, setDuplicateWindowError] = useState<string | null>(null);
+  const [duplicateWindowSuccess, setDuplicateWindowSuccess] = useState(false);
+
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [resetting, setResetting] = useState(false);
@@ -52,10 +60,11 @@ export function SettingsPage() {
 
   async function load() {
     setLoading(true);
-    const [dwh, rp, rwh, emp] = await Promise.all([
+    const [dwh, rp, rwh, dpw, emp] = await Promise.all([
       fetchDailyWorkingHours(),
       fetchRamzanPeriods(),
       fetchRamzanWorkingHours(),
+      fetchDuplicatePunchWindow(),
       fetchEmployees(),
     ]);
     setCurrentHours(dwh.hours);
@@ -63,6 +72,8 @@ export function SettingsPage() {
     setPeriods(rp.periods);
     setCurrentRamzanHours(rwh.hours);
     setRamzanHours(rwh.hours !== null ? String(rwh.hours) : '');
+    setCurrentDuplicateWindow(dpw.minutes);
+    setDuplicateWindow(String(dpw.minutes));
     setEmployees(emp);
     setLoading(false);
   }
@@ -126,6 +137,30 @@ export function SettingsPage() {
       setPeriodError(err instanceof Error ? err.message : 'Could not declare the period. Please try again.');
     } finally {
       setPeriodSubmitting(false);
+    }
+  }
+
+  async function handleDuplicateWindowSubmit(e: FormEvent) {
+    e.preventDefault();
+    setDuplicateWindowError(null);
+    setDuplicateWindowSuccess(false);
+
+    const parsed = Number(duplicateWindow);
+    if (!duplicateWindow || Number.isNaN(parsed)) {
+      setDuplicateWindowError('Enter a valid number of minutes.');
+      return;
+    }
+
+    setDuplicateWindowSubmitting(true);
+    try {
+      const result = await saveDuplicatePunchWindow(parsed);
+      setCurrentDuplicateWindow(result.minutes);
+      setDuplicateWindowSuccess(true);
+      setTimeout(() => setDuplicateWindowSuccess(false), 3000);
+    } catch (err) {
+      setDuplicateWindowError(err instanceof Error ? err.message : 'Could not save. Please try again.');
+    } finally {
+      setDuplicateWindowSubmitting(false);
     }
   }
 
@@ -259,6 +294,46 @@ export function SettingsPage() {
 
             <Button type="submit" disabled={periodSubmitting} className="w-full">
               {periodSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Declaring…</>) : 'Declare Period'}
+            </Button>
+          </form>
+        </Card>
+
+        <Card className="p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Copy className="h-5 w-5 text-slate-400" />
+            <h2 className="text-base font-semibold text-slate-900">Duplicate Punch Window</h2>
+          </div>
+          <p className="mb-4 text-sm text-slate-500">
+            A second punch for the same employee and project within this many minutes of an existing one is
+            flagged as a likely duplicate before it's added. Admins can still confirm and add it anyway.
+          </p>
+
+          <form onSubmit={handleDuplicateWindowSubmit} className="space-y-4">
+            <Input
+              value={duplicateWindow}
+              onChange={setDuplicateWindow}
+              label="Minutes (1–120)"
+              id="duplicate-punch-window"
+              type="number"
+              placeholder="e.g. 5"
+            />
+            {currentDuplicateWindow !== null && (
+              <p className="text-xs text-slate-400">Currently set to {currentDuplicateWindow} minute{currentDuplicateWindow === 1 ? '' : 's'}.</p>
+            )}
+
+            {duplicateWindowError && (
+              <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+                <XCircle className="h-4 w-4 shrink-0" />{duplicateWindowError}
+              </div>
+            )}
+            {duplicateWindowSuccess && (
+              <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />Saved.
+              </div>
+            )}
+
+            <Button type="submit" disabled={duplicateWindowSubmitting} className="w-full">
+              {duplicateWindowSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>) : 'Save'}
             </Button>
           </form>
         </Card>

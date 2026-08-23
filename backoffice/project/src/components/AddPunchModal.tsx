@@ -146,13 +146,20 @@ export function AddPunchModal({
       try {
         punch = await submitPunch(punchTime, false);
       } catch (err) {
-        // 409 = a near-identical punch already exists (see
-        // DUPLICATE_WINDOW_MINUTES on the backend) — warn, and only proceed
-        // if the admin deliberately confirms it's not a mistake. Any other
-        // error falls through to the normal inline error message below.
         if (err instanceof ApiError && err.status === 409) {
-          const duplicate = (err.body as { duplicate?: { punch_time: string } } | null)?.duplicate;
-          const when = duplicate ? formatDateTime(duplicate.punch_time) : 'around this time';
+          const body = err.body as { duplicate?: { punch_time: string }; conflicting_punch?: unknown } | null;
+          // A cross-project clash (identical timestamp, different project)
+          // is a hard block on the backend — force cannot bypass it, since
+          // there's no legitimate correction that needs two projects to
+          // share an instant, only a broken punch-ordering. Surface it as a
+          // plain error, not a confirm-and-retry dialog.
+          if (body?.conflicting_punch) {
+            throw err;
+          }
+          // Otherwise it's the near-duplicate (same-project, within the
+          // configurable window) warning — proceed only if the admin
+          // deliberately confirms it's not a mistake.
+          const when = body?.duplicate ? formatDateTime(body.duplicate.punch_time) : 'around this time';
           const proceed = window.confirm(
             `${err.message}\n\nExisting punch: ${when}.\n\nAdd this punch anyway?`
           );

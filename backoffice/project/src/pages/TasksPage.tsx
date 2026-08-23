@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { ClipboardList, Plus, CheckCircle2, XCircle, Loader2, MapPin, Calendar, Download } from 'lucide-react';
+import { ClipboardList, Plus, CheckCircle2, XCircle, Loader2, MapPin, Calendar, Download, Upload } from 'lucide-react';
 import { fetchTasks, fetchEmployees, fetchProjects, createTask, tasksExportUrl, authHeaders } from '@/lib/api';
 import type { Task, Employee, Project } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Select, Textarea, Input, Spinner, EmptyState } from '@/components/ui';
+import { BulkUploadTasksModal } from '@/components/BulkUploadTasksModal';
 import { formatDate, initials } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 
@@ -41,6 +42,7 @@ export function TasksPage() {
   const [exportDate, setExportDate] = useState(todayDate());
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
 
   useEffect(() => {
     load();
@@ -53,6 +55,15 @@ export function TasksPage() {
     setEmployees(emp);
     setProjects(prj);
     setLoading(false);
+  }
+
+  // Deliberately doesn't go through load() / setLoading(true) — that swaps
+  // the whole page out for a bare Spinner while it's true (see the early
+  // return below), which would unmount BulkUploadTasksModal mid-result and
+  // wipe the just-created/rejected-row summary the admin still needs to
+  // read. Just re-fetches the list in place.
+  async function refreshTasks() {
+    setTasks(await fetchTasks());
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -186,6 +197,22 @@ export function TasksPage() {
               </Button>
             </form>
           </Card>
+
+          <Card className="mt-6 p-6">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-50 text-teal-600">
+                <Upload className="h-5 w-5" />
+              </div>
+              <h2 className="text-base font-semibold text-slate-900">Bulk Upload Tasks</h2>
+            </div>
+            <p className="mb-4 text-sm text-slate-500">
+              Create many tasks at once from a filled-in Excel template — useful for scheduling work across
+              several employees or days in one go.
+            </p>
+            <Button variant="secondary" onClick={() => setShowBulkUpload(true)} className="w-full">
+              <Upload className="h-4 w-4" /> Upload Tasks
+            </Button>
+          </Card>
         </div>
 
         <div className="lg:col-span-2">
@@ -256,6 +283,12 @@ export function TasksPage() {
           )}
         </div>
       </div>
+
+      <BulkUploadTasksModal
+        open={showBulkUpload}
+        onClose={() => setShowBulkUpload(false)}
+        onSuccess={refreshTasks}
+      />
     </>
   );
 }

@@ -48,4 +48,23 @@ async function getRamzanPeriods() {
   }
 }
 
-module.exports = { getSetting, setSetting, getAllSettings, parseRamzanPeriods, getRamzanPeriods };
+const DEFAULT_DUPLICATE_WINDOW_MINUTES = 5;
+
+// Falls back to the default whenever unset or corrupted rather than
+// throwing — the duplicate-punch check must always have a usable window,
+// never a hard failure just because the setting hasn't been touched yet.
+async function getDuplicatePunchWindowMinutes() {
+  const value = await getSetting('duplicate_punch_window_minutes');
+  const minutes = value === null ? DEFAULT_DUPLICATE_WINDOW_MINUTES : Number(value);
+  return Number.isFinite(minutes) && minutes > 0 ? minutes : DEFAULT_DUPLICATE_WINDOW_MINUTES;
+}
+
+module.exports = {
+  getSetting,
+  setSetting,
+  getAllSettings,
+  parseRamzanPeriods,
+  getRamzanPeriods,
+  getDuplicatePunchWindowMinutes,
+  DEFAULT_DUPLICATE_WINDOW_MINUTES,
+};
