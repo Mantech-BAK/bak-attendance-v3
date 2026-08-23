@@ -10,6 +10,18 @@ function yesterday(): string {
   return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Dash-joined (not colon-joined) since colons aren't valid in Windows
+// filenames — this becomes part of the downloaded .xlsx's name.
+function nowTimeStamp(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+}
+
 type ReportData = {
   employees: Employee[];
   tasks: Task[];
@@ -32,7 +44,11 @@ export function ReportsPage() {
   const [dateLoading, setDateLoading] = useState(false);
   const [dateError, setDateError] = useState<string | null>(null);
 
-  const [confirmationDate, setConfirmationDate] = useState(yesterday());
+  // Used to default to yesterday specifically to avoid showing misleading
+  // Absent/Shortfall rows for a day still in progress — now moot, since
+  // those synthetic rows were removed from the report entirely (it only
+  // shows real punches), so today is the more useful default.
+  const [confirmationDate, setConfirmationDate] = useState(today());
   const [downloadingConfirmation, setDownloadingConfirmation] = useState(false);
   const [confirmationError, setConfirmationError] = useState<string | null>(null);
 
@@ -49,7 +65,7 @@ export function ReportsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `confirmation-sheet-${confirmationDate}.xlsx`;
+      a.download = `confirmation-sheet-${confirmationDate}-${nowTimeStamp()}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

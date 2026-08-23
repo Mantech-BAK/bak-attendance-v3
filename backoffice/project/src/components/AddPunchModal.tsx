@@ -200,6 +200,11 @@ export function AddPunchModal({
           </Select>
         )}
 
+        <div className="grid grid-cols-2 gap-3">
+          <Input value={date} onChange={setDate} label="Date" id="add-punch-date" type="date" />
+          <Input value={time} onChange={setTime} label="Time" id="add-punch-time" type="time" />
+        </div>
+
         <Select
           value={projectCode}
           onChange={setProjectCode}
@@ -223,11 +228,6 @@ export function AddPunchModal({
         <p className="text-xs text-slate-400">
           Required. Only projects the employee has a real task for on this date (or their department default, if none) are selectable.
         </p>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Input value={date} onChange={setDate} label="Date" id="add-punch-date" type="date" />
-          <Input value={time} onChange={setTime} label="Time" id="add-punch-time" type="time" />
-        </div>
 
         <div className="flex flex-col gap-1.5">
           <span className="text-sm font-medium text-slate-700">Entered By</span>
