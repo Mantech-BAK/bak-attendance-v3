@@ -3,12 +3,18 @@ const { getAllSettings, parseRamzanPeriods } = require('./settings');
 
 /**
  * Punch type (IN/OUT) is never stored — it's derived here, at calculation
- * time, from punch_time ordering within an (emp_id, project_code, day)
- * group: earliest = IN, latest = OUT (First-In-Last-Out). A group with
- * only one punch is an incomplete session and raises a 'single_punch_only'
- * exception for supervisor review — but only for past days. A single punch
- * for today is normal and expected mid-day (the employee just hasn't
- * pressed Punch again to close that project yet), not an anomaly.
+ * time, from punch_time ordering within an (emp_id, punch key, day) group:
+ * earliest = IN, latest = OUT (First-In-Last-Out). A group with only one
+ * punch is an incomplete session and raises a 'single_punch_only' exception
+ * for supervisor review — but only for past days. A single punch for today
+ * is normal and expected mid-day (the employee just hasn't pressed Punch
+ * again to close that task yet), not an anomaly.
+ *
+ * The "punch key" identifies what's actually being tracked: task_id when the
+ * punch is against a real task, else project_code for the department-default
+ * fallback (no real task assigned that day) — see punchKey() below. Two
+ * different tasks sharing the same project are two independent keys, so they
+ * get independently calculated real time instead of being merged.
  *
  * Rejected punches are excluded — a supervisor rejection explicitly
  * invalidates that punch, so letting it stand in as an official IN/OUT
@@ -20,6 +26,17 @@ const RAMZAN_DEFAULT_MINUTES = 360; // used only if ramzan_working_hours_minutes
 
 function dateKey(punchTime) {
   return punchTime.toISOString().slice(0, 10);
+}
+
+/**
+ * The generalized identity a punch is tracked under: 'task:<id>' for a real
+ * task, 'project:<code>' for the department-default fallback (task_id null).
+ * Used everywhere two punches need to be compared for "is this the same
+ * thing being punched" — grouping into sessions, the even/odd open check,
+ * and the duplicate/cross-conflict checks in routes/punches.js.
+ */
+function punchKey(taskId, projectCode) {
+  return taskId !== null && taskId !== undefined ? `task:${taskId}` : `project:${projectCode}`;
 }
 
 /**
@@ -40,8 +57,15 @@ function getUtcDayBounds(date) {
   return { start, end };
 }
 
+// A deactivated period (active === false) no longer applies to threshold
+// calculations for any report generated after it was deactivated — already
+// generated confirmation_sheet_records / ot_approvals rows are left exactly
+// as they were (this app never retroactively recomputes on a settings
+// change, same as every other setting).
 function isWithinRamzan(dateStr, ramzanPeriods) {
-  return ramzanPeriods.some((period) => dateStr >= period.start_date && dateStr <= period.end_date);
+  return ramzanPeriods.some(
+    (period) => period.active !== false && dateStr >= period.start_date && dateStr <= period.end_date
+  );
 }
 
 /**
@@ -92,13 +116,12 @@ async function raiseSinglePunchException(empId, projectCode, date, punch) {
 }
 
 /**
- * Nested-project time, within one employee's one day: if a project's entire
- * punch span (its own first-to-last) falls chronologically inside another
- * project's wider span, that inner project's counted time is subtracted
- * from the outer one's — otherwise the same stretch of time would be
- * double-counted as "worked" under two different projects at once. Can
- * nest more than two levels deep (a project nested inside a project that's
- * itself nested inside another).
+ * Nested time, within one employee's one day: if one task/project's entire
+ * punch span (its own first-to-last) falls chronologically inside another's
+ * wider span, that inner one's counted time is subtracted from the outer
+ * one's — otherwise the same stretch of time would be double-counted as
+ * "worked" under two different things at once. Can nest more than two
+ * levels deep.
  *
  * Only sessions with a real punch_in/punch_out pair participate — a
  * single-punch (incomplete) session has no span to nest or be nested by.
@@ -150,7 +173,7 @@ function applyNestedSubtraction(sessionsForDay) {
     session.counted_minutes = Math.max(0, rawMinutes - subtract);
 
     const parent = directParent.get(session);
-    session.nested_within = parent ? parent.project_code : null;
+    session.nested_within = parent ? punchKey(parent.task_id, parent.project_code) : null;
     if (parent) {
       subtractionForParent.set(parent, (subtractionForParent.get(parent) || 0) + session.counted_minutes);
     }
@@ -183,10 +206,10 @@ async function calculateAttendance(empId, date) {
   }
 
   const { rows } = await pool.query(
-    `SELECT id, emp_id, project_code, punch_time
+    `SELECT id, emp_id, project_code, task_id, punch_time
      FROM punches
      WHERE ${whereClause}
-     ORDER BY emp_id, project_code, punch_time`,
+     ORDER BY emp_id, project_code, task_id, punch_time`,
     params
   );
 
@@ -205,9 +228,9 @@ async function calculateAttendance(empId, date) {
   const groups = new Map();
   for (const row of rows) {
     const date = dateKey(row.punch_time);
-    const key = `${row.emp_id}|${row.project_code}|${date}`;
+    const key = `${row.emp_id}|${punchKey(row.task_id, row.project_code)}|${date}`;
     if (!groups.has(key)) {
-      groups.set(key, { empId: row.emp_id, projectCode: row.project_code, date, punches: [] });
+      groups.set(key, { empId: row.emp_id, projectCode: row.project_code, taskId: row.task_id, date, punches: [] });
     }
     groups.get(key).punches.push(row);
   }
@@ -215,7 +238,7 @@ async function calculateAttendance(empId, date) {
   const sessions = [];
   const exceptionsRaised = [];
 
-  for (const { empId: groupEmpId, projectCode, date, punches } of groups.values()) {
+  for (const { empId: groupEmpId, projectCode, taskId, date, punches } of groups.values()) {
     const sorted = [...punches].sort((a, b) => a.punch_time - b.punch_time);
     const punchIn = sorted[0];
     const punchOut = sorted.length > 1 ? sorted[sorted.length - 1] : null;
@@ -233,6 +256,7 @@ async function calculateAttendance(empId, date) {
     sessions.push({
       emp_id: groupEmpId,
       project_code: projectCode,
+      task_id: taskId,
       date,
       punch_count: sorted.length,
       punch_in: { id: punchIn.id, punch_time: punchIn.punch_time },
@@ -279,40 +303,51 @@ function calculateAttendanceForAllEmployees(date) {
 }
 
 /**
- * Returns the project_code of the one project (if any) the employee has
- * left "open" on the given date — an odd punch count, meaning it hasn't
- * been closed with a matching punch yet. date is a 'YYYY-MM-DD' string;
- * bounds are computed via getUtcDayBounds (never SQL's CURRENT_DATE or a
- * ::date-cast string) so this can never disagree with dateKey()'s
- * UTC-based day boundary.
+ * Returns the identity — { task_id, project_code } — of the one thing (if
+ * any) the employee has left "open" on the given date: an odd punch count
+ * within its punchKey() group, meaning it hasn't been closed with a
+ * matching punch yet. Punching the SAME task (or, for the department-default
+ * fallback, the same project) again closes it; punching anything else while
+ * this is open is blocked (routes/punches.js). Two different tasks — even
+ * under the same project — are two independent keys and don't block each
+ * other; only two punches sharing the exact same key do.
+ *
+ * date is a 'YYYY-MM-DD' string; bounds are computed via getUtcDayBounds
+ * (never SQL's CURRENT_DATE or a ::date-cast string) so this can never
+ * disagree with dateKey()'s UTC-based day boundary.
  */
-async function getOpenProjectForDate(empId, date) {
+async function getOpenPunchForDate(empId, date, excludePunchId) {
   const { start, end } = getUtcDayBounds(date);
 
-  const { rows } = await pool.query(
-    `SELECT project_code, count(*)::int AS cnt
-     FROM punches
-     WHERE emp_id = $1 AND approval_status <> 'rejected'
-       AND project_code IS NOT NULL
-       AND punch_time >= $2 AND punch_time < $3
-     GROUP BY project_code
-     ORDER BY project_code`,
-    [empId, start, end]
-  );
+  const params = [empId, start, end];
+  let sql = `
+    SELECT task_id, project_code, count(*)::int AS cnt
+    FROM punches
+    WHERE emp_id = $1 AND approval_status <> 'rejected'
+      AND (task_id IS NOT NULL OR project_code IS NOT NULL)
+      AND punch_time >= $2 AND punch_time < $3`;
+  if (excludePunchId) {
+    params.push(excludePunchId);
+    sql += ` AND id != $${params.length}`;
+  }
+  sql += ' GROUP BY task_id, project_code';
+
+  const { rows } = await pool.query(sql, params);
 
   const open = rows.find((row) => row.cnt % 2 !== 0);
-  return open ? open.project_code : null;
+  return open ? { task_id: open.task_id, project_code: open.project_code } : null;
 }
 
-function getOpenProjectForToday(empId) {
-  return getOpenProjectForDate(empId, dateKey(new Date()));
+function getOpenPunchForToday(empId) {
+  return getOpenPunchForDate(empId, dateKey(new Date()));
 }
 
 module.exports = {
   calculateAttendanceForEmployee,
   calculateAttendanceForAllEmployees,
-  getOpenProjectForToday,
-  getOpenProjectForDate,
+  getOpenPunchForToday,
+  getOpenPunchForDate,
+  punchKey,
   dateKey,
   getUtcDayBounds,
   getEffectiveThreshold,

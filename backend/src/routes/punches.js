@@ -1,16 +1,26 @@
 const express = require('express');
 const pool = require('../db');
 const { reverseGeocode } = require('../services/reverseGeocode');
-const { getOpenProjectForToday, getOpenProjectForDate, dateKey } = require('../services/attendance');
-const { getDuplicatePunchWindowMinutes } = require('../services/settings');
+const { getOpenPunchForToday, getOpenPunchForDate, dateKey, punchKey } = require('../services/attendance');
+const {
+  PunchValidationError,
+  resolvePunchTarget,
+  checkOpenConflict,
+  checkCrossKeyTimestampClash,
+  checkNearDuplicate,
+} = require('../services/punchValidation');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
 
-// Client-side hint for the mobile app's project picker — which project (if
-// any) is currently open for this employee today. Not itself the
-// enforcement point; POST / re-checks this same thing server-side
-// regardless of what the client believes.
+const PUNCH_SELECT_RETURNING = `id, emp_id, project_code, task_id, punch_time, lat, lng, device_ref,
+                 entered_by, entry_method, approval_status, approved_by, approved_at, resolved_address, created_at`;
+
+// Client-side hint for the mobile app's task/project picker — which task
+// (or, for the department-default fallback, which project) is currently
+// open for this employee today. Not itself the enforcement point; POST /
+// re-checks this same thing server-side regardless of what the client
+// believes.
 router.get('/today-status', async (req, res, next) => {
   try {
     const { emp_id } = req.query;
@@ -24,8 +34,8 @@ router.get('/today-status', async (req, res, next) => {
       return res.status(404).json({ error: `employee ${emp_id} not found` });
     }
 
-    const openProjectCode = await getOpenProjectForToday(emp_id);
-    res.json({ open_project_code: openProjectCode });
+    const open = await getOpenPunchForToday(emp_id);
+    res.json({ open_task_id: open?.task_id ?? null, open_project_code: open?.project_code ?? null });
   } catch (err) {
     next(err);
   }
@@ -37,13 +47,15 @@ router.get('/', requireBackofficeAuth, async (req, res, next) => {
   try {
     const result = await pool.query(
       `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, g.designation_name AS employee_designation,
-              p.project_code, pr.project_name, p.punch_time, p.lat, p.lng, p.entry_method,
+              p.project_code, pr.project_name, p.task_id, t.display_id AS task_display_id, t.description AS task_description,
+              p.punch_time, p.lat, p.lng, p.entry_method,
               p.entered_by, p.approval_status, p.approved_by, p.approved_at, p.rejection_reason,
               p.resolved_address, p.created_at
        FROM punches p
        LEFT JOIN employees e ON e."EmpId" = p.emp_id
        LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
        LEFT JOIN projects pr ON pr.project_code = p.project_code
+       LEFT JOIN tasks t ON t.id = p.task_id
        ORDER BY p.punch_time DESC`
     );
     res.json(result.rows);
@@ -66,7 +78,7 @@ router.get('/pending', async (req, res, next) => {
     }
 
     const pendingResult = await pool.query(
-      `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, p.project_code,
+      `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, p.project_code, p.task_id,
               p.punch_time, p.lat, p.lng, p.entry_method, p.entered_by
        FROM punches p
        JOIN employees e ON e."EmpId" = p.emp_id
@@ -99,7 +111,7 @@ router.get('/team-history', async (req, res, next) => {
     }
 
     const historyResult = await pool.query(
-      `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, p.project_code, pr.project_name,
+      `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, p.project_code, pr.project_name, p.task_id,
               p.punch_time, p.entry_method, p.entered_by, p.approval_status, p.rejection_reason
        FROM punches p
        JOIN employees e ON e."EmpId" = p.emp_id
@@ -165,8 +177,7 @@ router.patch('/:id/approve', async (req, res, next) => {
       `UPDATE punches
        SET approval_status = 'approved', approved_by = $1, approved_at = now()
        WHERE id = $2
-       RETURNING id, emp_id, project_code, punch_time, lat, lng, device_ref,
-                 entered_by, entry_method, approval_status, approved_by, approved_at, rejection_reason, created_at`,
+       RETURNING ${PUNCH_SELECT_RETURNING}, rejection_reason`,
       [supervisor_emp_id, punch.id]
     );
 
@@ -202,8 +213,7 @@ router.patch('/:id/reject', async (req, res, next) => {
       `UPDATE punches
        SET approval_status = 'rejected', rejection_reason = $1, approved_by = $2, approved_at = now()
        WHERE id = $3
-       RETURNING id, emp_id, project_code, punch_time, lat, lng, device_ref,
-                 entered_by, entry_method, approval_status, approved_by, approved_at, rejection_reason, created_at`,
+       RETURNING ${PUNCH_SELECT_RETURNING}, rejection_reason`,
       [String(reason).trim(), supervisor_emp_id, punch.id]
     );
 
@@ -215,7 +225,7 @@ router.patch('/:id/reject', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
-    const { emp_id, project_code, lat, lng, entered_by, device_ref } = req.body;
+    const { emp_id, task_id, project_code, lat, lng, entered_by, device_ref } = req.body;
 
     if (!emp_id) {
       return res.status(400).json({ error: 'emp_id is required' });
@@ -245,26 +255,24 @@ router.post('/', async (req, res, next) => {
     }
     const targetEmployee = employeeResult.rows[0];
 
-    if (project_code) {
-      const projectResult = await pool.query(
-        'SELECT project_code FROM projects WHERE project_code = $1',
-        [project_code]
-      );
-      if (projectResult.rows.length === 0) {
-        return res.status(400).json({ error: `project ${project_code} not found` });
-      }
+    // Resolves to a specific task (project auto-filled/locked from it) when
+    // task_id is given, else the bare project_code (department-default
+    // fallback, unchanged from before task-tracking existed).
+    const target = await resolvePunchTarget({ emp_id, task_id, project_code });
 
-      // Only one project can be genuinely "in progress" at a time. Punching
-      // a different project than whichever one is currently open (odd punch
-      // count today) is rejected — punching that same open project again
-      // (to close it) is always allowed regardless of this check.
-      const openProjectCode = await getOpenProjectForToday(emp_id);
-      if (openProjectCode && openProjectCode !== project_code) {
-        return res.status(409).json({
-          error: `${emp_id} has an open punch for project ${openProjectCode} today — close it before punching a different project`,
-          open_project_code: openProjectCode,
-        });
-      }
+    if (target.project_code) {
+      // Only one task (or, for the fallback, one project) can be genuinely
+      // "in progress" at a time — punching something DIFFERENT while one is
+      // still open (odd punch count today) is rejected; punching that same
+      // open thing again (to close it) is always allowed. Two different
+      // tasks — even sharing a project — are independent and never block
+      // each other.
+      await checkOpenConflict({
+        emp_id,
+        task_id: target.task_id,
+        project_code: target.project_code,
+        date: dateKey(new Date()),
+      });
     }
 
     let entryMethod = 'self';
@@ -313,15 +321,17 @@ router.post('/', async (req, res, next) => {
 
     const result = await pool.query(
       `INSERT INTO punches
-         (emp_id, project_code, punch_time, lat, lng, device_ref, entered_by, entry_method, approval_status, resolved_address)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id, emp_id, project_code, punch_time, lat, lng, device_ref,
-                 entered_by, entry_method, approval_status, approved_by, approved_at, resolved_address, created_at`,
-      [emp_id, project_code || null, punchTime, lat ?? null, lng ?? null, device_ref || null, enteredBy, entryMethod, approvalStatus, resolvedAddress]
+         (emp_id, project_code, task_id, punch_time, lat, lng, device_ref, entered_by, entry_method, approval_status, resolved_address)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING ${PUNCH_SELECT_RETURNING}`,
+      [emp_id, target.project_code, target.task_id, punchTime, lat ?? null, lng ?? null, device_ref || null, enteredBy, entryMethod, approvalStatus, resolvedAddress]
     );
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
+    if (err instanceof PunchValidationError) {
+      return res.status(err.status).json({ error: err.message, ...err.extra });
+    }
     next(err);
   }
 });
@@ -332,11 +342,11 @@ router.post('/', async (req, res, next) => {
  * exception), or any other missing entry. Deliberately a separate endpoint
  * from POST / rather than a variant of it: this accepts an explicit
  * admin-supplied punch_time instead of trusting the server clock, skips the
- * "already has an open project today" 409 (the whole point is often to
- * close out a stale open session from a past day, which that check isn't
- * scoped to catch anyway), and is unconditionally auto-approved — an admin
- * directly correcting attendance data is a trusted, deliberate action, not
- * something that then needs someone else's review.
+ * "already has an open task today" 409 for TODAY specifically the way
+ * POST / enforces it — this endpoint scopes that check to whatever date is
+ * actually being corrected instead — and is unconditionally auto-approved —
+ * an admin directly correcting attendance data is a trusted, deliberate
+ * action, not something that then needs someone else's review.
  *
  * entered_by is never taken from the request body — it's always the
  * authenticated admin from the session token (req.backofficeEmpId), same
@@ -345,14 +355,14 @@ router.post('/', async (req, res, next) => {
  */
 router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) => {
   try {
-    const { emp_id, project_code, punch_time, force } = req.body;
+    const { emp_id, task_id, project_code, punch_time, force } = req.body;
     const enteredBy = req.backofficeEmpId;
 
     if (!emp_id) {
       return res.status(400).json({ error: 'emp_id is required' });
     }
-    if (!project_code) {
-      return res.status(400).json({ error: 'project_code is required' });
+    if (!task_id && !project_code) {
+      return res.status(400).json({ error: 'task_id or project_code is required' });
     }
     if (!punch_time) {
       return res.status(400).json({ error: 'punch_time is required' });
@@ -367,85 +377,104 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
       return res.status(404).json({ error: `employee ${emp_id} not found` });
     }
 
-    const projectResult = await pool.query('SELECT project_code FROM projects WHERE project_code = $1', [project_code]);
-    if (projectResult.rows.length === 0) {
-      return res.status(400).json({ error: `project ${project_code} not found` });
-    }
+    const target = await resolvePunchTarget({ emp_id, task_id, project_code });
+    const punchDate = dateKey(parsedPunchTime);
 
-    // Same even/odd "one project open at a time" rule POST / already
-    // enforces for self/supervisor punches — this endpoint previously
-    // skipped it entirely (not just for today; it never checked any date),
-    // which let an admin manually create the exact overlapping-project
-    // state mobile already refuses to produce. Scoped to whichever
-    // calendar day the submitted punch_time actually falls on (not always
-    // today, since admin-correction backfills arbitrary dates) rather than
-    // hardcoded to today like the mobile-facing check. Punching the
-    // already-open project itself (closing it) is still always allowed.
-    // Not skippable via force — an open session spanning two projects at
-    // once isn't a "might be intentional" case, it's a broken invariant.
-    const openProjectCode = await getOpenProjectForDate(emp_id, dateKey(parsedPunchTime));
-    if (openProjectCode && openProjectCode !== project_code) {
-      return res.status(409).json({
-        error: `${emp_id} has an open punch for project ${openProjectCode} on ${dateKey(parsedPunchTime)} — close it before punching a different project`,
-        open_project_code: openProjectCode,
-      });
-    }
-
-    // Two different projects sharing the exact same instant is ambiguous
-    // for the same reason a same-project duplicate is a problem, but worse:
-    // the even/odd open-project and First-In-Last-Out session logic depends
-    // on every punch having a genuine chronological order, and two punches
-    // at the identical timestamp have none. Unlike the near-duplicate check
-    // below, this is a hard block — not skippable via force — since there's
-    // no legitimate correction that needs it, only a broken ordering.
-    const crossProjectClashResult = await pool.query(
-      `SELECT id, project_code, punch_time
-       FROM punches
-       WHERE emp_id = $1
-         AND project_code IS NOT NULL
-         AND project_code != $2
-         AND punch_time = $3::timestamp
-       LIMIT 1`,
-      [emp_id, project_code, parsedPunchTime]
-    );
-    if (crossProjectClashResult.rows.length > 0) {
-      const clash = crossProjectClashResult.rows[0];
-      return res.status(409).json({
-        error: `${emp_id} already has a punch for project ${clash.project_code} at this exact time — punches for different projects cannot share the same timestamp.`,
-        conflicting_punch: clash,
-      });
-    }
-
-    if (!force) {
-      const duplicateWindowMinutes = await getDuplicatePunchWindowMinutes();
-      const duplicateResult = await pool.query(
-        `SELECT id, punch_time, entry_method, approval_status
-         FROM punches
-         WHERE emp_id = $1
-           AND project_code IS NOT DISTINCT FROM $2
-           AND punch_time BETWEEN $3::timestamp - (INTERVAL '1 minute' * $4) AND $3::timestamp + (INTERVAL '1 minute' * $4)
-         ORDER BY punch_time
-         LIMIT 1`,
-        [emp_id, project_code || null, parsedPunchTime, duplicateWindowMinutes]
-      );
-      if (duplicateResult.rows.length > 0) {
-        return res.status(409).json({
-          error: `${emp_id} already has a punch for this project within ${duplicateWindowMinutes} minutes of this time.`,
-          duplicate: duplicateResult.rows[0],
-        });
-      }
-    }
+    await checkOpenConflict({ emp_id, task_id: target.task_id, project_code: target.project_code, date: punchDate });
+    await checkCrossKeyTimestampClash({ emp_id, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime });
+    await checkNearDuplicate({ emp_id, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime, force });
 
     const result = await pool.query(
       `INSERT INTO punches
-         (emp_id, project_code, punch_time, lat, lng, entered_by, entry_method, approval_status, approved_by, approved_at)
-       VALUES ($1, $2, $3, NULL, NULL, $4, 'admin_correction', 'approved', $4, now())
-       RETURNING id, emp_id, project_code, punch_time, lat, lng, device_ref,
-                 entered_by, entry_method, approval_status, approved_by, approved_at, resolved_address, created_at`,
-      [emp_id, project_code || null, parsedPunchTime, enteredBy]
+         (emp_id, project_code, task_id, punch_time, lat, lng, entered_by, entry_method, approval_status, approved_by, approved_at)
+       VALUES ($1, $2, $3, $4, NULL, NULL, $5, 'admin_correction', 'approved', $5, now())
+       RETURNING ${PUNCH_SELECT_RETURNING}`,
+      [emp_id, target.project_code, target.task_id, parsedPunchTime, enteredBy]
     );
 
     res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (err instanceof PunchValidationError) {
+      return res.status(err.status).json({ error: err.message, ...err.extra });
+    }
+    next(err);
+  }
+});
+
+/**
+ * Admin-only punch edit — corrects an existing punch's date/time/task/
+ * project after the fact. Goes through the exact same validation as
+ * creating one (resolvePunchTarget, checkOpenConflict,
+ * checkCrossKeyTimestampClash, checkNearDuplicate), with the punch's own id
+ * excluded from every check so editing a punch's time by five minutes
+ * doesn't spuriously conflict with itself. emp_id is never editable here —
+ * moving a punch to a different employee isn't a "correction," it's a
+ * different punch; delete and re-create instead.
+ */
+router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { task_id, project_code, punch_time, force } = req.body;
+    const enteredBy = req.backofficeEmpId;
+
+    const existingResult = await pool.query('SELECT id, emp_id FROM punches WHERE id = $1', [id]);
+    if (existingResult.rows.length === 0) {
+      return res.status(404).json({ error: `punch ${id} not found` });
+    }
+    const empId = existingResult.rows[0].emp_id;
+
+    if (!task_id && !project_code) {
+      return res.status(400).json({ error: 'task_id or project_code is required' });
+    }
+    if (!punch_time) {
+      return res.status(400).json({ error: 'punch_time is required' });
+    }
+    const parsedPunchTime = new Date(punch_time);
+    if (Number.isNaN(parsedPunchTime.getTime())) {
+      return res.status(400).json({ error: 'punch_time is not a valid timestamp' });
+    }
+
+    const target = await resolvePunchTarget({ emp_id: empId, task_id, project_code });
+    const punchDate = dateKey(parsedPunchTime);
+    const punchId = Number(id);
+
+    await checkOpenConflict({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, date: punchDate, excludePunchId: punchId });
+    await checkCrossKeyTimestampClash({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime, excludePunchId: punchId });
+    await checkNearDuplicate({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime, excludePunchId: punchId, force });
+
+    const result = await pool.query(
+      `UPDATE punches
+       SET project_code = $1, task_id = $2, punch_time = $3, entry_method = 'admin_correction',
+           approval_status = 'approved', approved_by = $4, approved_at = now()
+       WHERE id = $5
+       RETURNING ${PUNCH_SELECT_RETURNING}`,
+      [target.project_code, target.task_id, parsedPunchTime, enteredBy, punchId]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    if (err instanceof PunchValidationError) {
+      return res.status(err.status).json({ error: err.message, ...err.extra });
+    }
+    next(err);
+  }
+});
+
+// Admin-only punch delete — a real, permanent removal (not a soft
+// approval_status change), so the frontend gates it behind an explicit
+// confirmation dialog. No confirm-token requirement server-side (unlike
+// Settings' reset-test-data) since this deletes exactly one identified row,
+// not a whole table's worth of data.
+router.delete('/:id', requireBackofficeAuth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query('DELETE FROM punches WHERE id = $1 RETURNING id', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: `punch ${id} not found` });
+    }
+
+    res.status(204).end();
   } catch (err) {
     next(err);
   }

@@ -19,7 +19,7 @@ router.get('/', async (req, res, next) => {
     const result = await pool.query(
       `SELECT ex.id, ex.type, ex.emp_id, e."EmpName" AS employee_name, g.designation_name AS employee_designation,
               ex.ref_table, ex.ref_id, ex.details, ex.status, ex.created_at,
-              rp.project_code AS ref_project_code, rp.punch_time AS ref_punch_time
+              rp.project_code AS ref_project_code, rp.task_id AS ref_task_id, rp.punch_time AS ref_punch_time
        FROM exceptions ex
        LEFT JOIN employees e ON e."EmpId" = ex.emp_id
        LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code

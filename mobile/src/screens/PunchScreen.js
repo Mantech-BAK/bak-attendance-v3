@@ -59,9 +59,11 @@ export default function PunchScreen() {
   const [identifyingTeamMember, setIdentifyingTeamMember] = useState(false);
   const [employee, setEmployee] = useState(null);
   const [activeTab, setActiveTab] = useState('punch');
+  const [selfOpenTaskId, setSelfOpenTaskId] = useState(null);
   const [selfOpenProjectCode, setSelfOpenProjectCode] = useState(null);
 
   const [teamMemberTarget, setTeamMemberTarget] = useState(null);
+  const [teamOpenTaskId, setTeamOpenTaskId] = useState(null);
   const [teamOpenProjectCode, setTeamOpenProjectCode] = useState(null);
 
   const [pendingApprovals, setPendingApprovals] = useState([]);
@@ -86,8 +88,10 @@ export default function PunchScreen() {
   function resetToIdle() {
     setEmployee(null);
     setActiveTab('punch');
+    setSelfOpenTaskId(null);
     setSelfOpenProjectCode(null);
     setTeamMemberTarget(null);
+    setTeamOpenTaskId(null);
     setTeamOpenProjectCode(null);
     setPendingApprovals([]);
     setPendingOtApprovals([]);
@@ -178,9 +182,11 @@ export default function PunchScreen() {
     setEmployee(result);
     setActiveTab('punch');
     setTeamMemberTarget(null);
+    setTeamOpenTaskId(null);
     setTeamOpenProjectCode(null);
 
     const status = await fetchTodayPunchStatus(result.emp_id);
+    setSelfOpenTaskId(status.open_task_id);
     setSelfOpenProjectCode(status.open_project_code);
 
     loadProfile(result.emp_id);
@@ -197,6 +203,7 @@ export default function PunchScreen() {
     }
     setTeamMemberTarget(result);
     const status = await fetchTodayPunchStatus(result.emp_id);
+    setTeamOpenTaskId(status.open_task_id);
     setTeamOpenProjectCode(status.open_project_code);
   }
 
@@ -233,28 +240,37 @@ export default function PunchScreen() {
     setShowIdentifyForm(true);
   }
 
-  async function handlePunchSelf(projectCode, projectName, { lat, lng }) {
-    const wasOpen = selfOpenProjectCode === projectCode;
-    await submitPunch({ empId: employee.emp_id, projectCode, lat, lng });
+  async function handlePunchSelf(task, { lat, lng }) {
+    const wasOpen = task.id ? task.id === selfOpenTaskId : task.project_code === selfOpenProjectCode;
+    await submitPunch({ empId: employee.emp_id, taskId: task.id, projectCode: task.id ? undefined : task.project_code, lat, lng });
 
     const status = await fetchTodayPunchStatus(employee.emp_id);
+    setSelfOpenTaskId(status.open_task_id);
     setSelfOpenProjectCode(status.open_project_code);
 
-    Alert.alert('Punch recorded', wasOpen ? `${projectName} closed.` : `${projectName} is now open.`);
+    Alert.alert('Punch recorded', wasOpen ? `${task.name} closed.` : `${task.name} is now open.`);
   }
 
-  async function handlePunchTeamMember(projectCode, projectName, { lat, lng }) {
-    const wasOpen = teamOpenProjectCode === projectCode;
-    await submitPunch({ empId: teamMemberTarget.emp_id, projectCode, lat, lng, enteredBy: employee.emp_id });
+  async function handlePunchTeamMember(task, { lat, lng }) {
+    const wasOpen = task.id ? task.id === teamOpenTaskId : task.project_code === teamOpenProjectCode;
+    await submitPunch({
+      empId: teamMemberTarget.emp_id,
+      taskId: task.id,
+      projectCode: task.id ? undefined : task.project_code,
+      lat,
+      lng,
+      enteredBy: employee.emp_id,
+    });
 
     const status = await fetchTodayPunchStatus(teamMemberTarget.emp_id);
+    setTeamOpenTaskId(status.open_task_id);
     setTeamOpenProjectCode(status.open_project_code);
 
     Alert.alert(
       'Punch recorded',
       wasOpen
-        ? `${teamMemberTarget.name}'s ${projectName} was closed.`
-        : `${teamMemberTarget.name}'s ${projectName} is now open.`
+        ? `${teamMemberTarget.name}'s ${task.name} was closed.`
+        : `${teamMemberTarget.name}'s ${task.name} is now open.`
     );
   }
 
@@ -334,6 +350,7 @@ export default function PunchScreen() {
       return (
         <PunchProjectList
           tasks={employee.tasks}
+          openTaskId={selfOpenTaskId}
           openProjectCode={selfOpenProjectCode}
           onPunch={handlePunchSelf}
         />
@@ -383,6 +400,7 @@ export default function PunchScreen() {
           <EmployeeCard employee={teamMemberTarget} />
           <PunchProjectList
             tasks={teamMemberTarget.tasks}
+            openTaskId={teamOpenTaskId}
             openProjectCode={teamOpenProjectCode}
             onPunch={handlePunchTeamMember}
           />

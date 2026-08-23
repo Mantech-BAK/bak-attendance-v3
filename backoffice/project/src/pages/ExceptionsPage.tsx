@@ -10,8 +10,8 @@ import {
   Calendar,
   Plus,
 } from 'lucide-react';
-import { fetchExceptions, resolveException, fetchEmployees, fetchProjects } from '@/lib/api';
-import type { ExceptionRow, Employee, Project } from '@/lib/api';
+import { fetchExceptions, resolveException, fetchEmployees } from '@/lib/api';
+import type { ExceptionRow, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Select, Spinner, EmptyState } from '@/components/ui';
 import { AddPunchModal } from '@/components/AddPunchModal';
@@ -36,7 +36,6 @@ function typeLabel(type: string): string {
 export function ExceptionsPage() {
   const [exceptions, setExceptions] = useState<ExceptionRow[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState('all');
@@ -48,10 +47,9 @@ export function ExceptionsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [data, emp, prj] = await Promise.all([fetchExceptions(), fetchEmployees(), fetchProjects()]);
+      const [data, emp] = await Promise.all([fetchExceptions(), fetchEmployees()]);
       setExceptions(data);
       setEmployees(emp);
-      setProjects(prj);
     } catch {
       setError('Could not load exceptions. Please try again.');
     } finally {
@@ -268,9 +266,9 @@ export function ExceptionsPage() {
         open={addPunchFor !== null}
         onClose={() => setAddPunchFor(null)}
         employees={employees}
-        projects={projects}
         defaultEmpId={addPunchFor?.emp_id ?? undefined}
-        defaultProjectCode={addPunchFor?.ref_project_code ?? undefined}
+        defaultTaskId={addPunchFor?.ref_task_id ?? undefined}
+        defaultProjectCode={addPunchFor?.ref_task_id ? undefined : addPunchFor?.ref_project_code ?? undefined}
         defaultDate={addPunchFor?.ref_punch_time ? addPunchFor.ref_punch_time.slice(0, 10) : undefined}
         lockEmployee
         onSuccess={handlePunchAdded}

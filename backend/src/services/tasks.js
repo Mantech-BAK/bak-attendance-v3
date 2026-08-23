@@ -49,7 +49,7 @@ async function getDepartmentDefaultProject(empId) {
  */
 async function getTasksForDate(empId, date) {
   const result = await pool.query(
-    `SELECT id, project_code, priority, description, location_site, status
+    `SELECT id, project_code, priority, description, location_site, status, display_id
      FROM tasks
      WHERE emp_id = $1 AND task_date = $2::date
      ORDER BY id`,
@@ -59,6 +59,7 @@ async function getTasksForDate(empId, date) {
   if (result.rows.length > 0) {
     return result.rows.map((task) => ({
       id: task.id,
+      display_id: task.display_id,
       project_code: task.project_code,
       name: task.description || task.location_site || task.project_code,
       priority: task.priority,
@@ -72,6 +73,7 @@ async function getTasksForDate(empId, date) {
 
   return [{
     id: null,
+    display_id: null,
     project_code: defaultProject.project_code,
     name: defaultProject.project_name,
     priority: null,
@@ -88,7 +90,7 @@ async function getTasksForDate(empId, date) {
 // that mismatch entirely.
 async function getTodaysTasks(empId) {
   const result = await pool.query(
-    `SELECT id, project_code, priority, description, location_site, status
+    `SELECT id, project_code, priority, description, location_site, status, display_id
      FROM tasks
      WHERE emp_id = $1 AND task_date = CURRENT_DATE
      ORDER BY id`,
@@ -98,6 +100,7 @@ async function getTodaysTasks(empId) {
   if (result.rows.length > 0) {
     return result.rows.map((task) => ({
       id: task.id,
+      display_id: task.display_id,
       project_code: task.project_code,
       name: task.description || task.location_site || task.project_code,
       priority: task.priority,
@@ -111,6 +114,7 @@ async function getTodaysTasks(empId) {
 
   return [{
     id: null,
+    display_id: null,
     project_code: defaultProject.project_code,
     name: defaultProject.project_name,
     priority: null,
@@ -119,13 +123,47 @@ async function getTodaysTasks(empId) {
   }];
 }
 
+async function resolveTaskDate(taskDate) {
+  if (taskDate) return taskDate;
+  const { rows } = await pool.query("SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today");
+  return rows[0].today;
+}
+
+function formatDisplayId(taskDate, counter) {
+  const [y, m, d] = taskDate.split('-');
+  return `TASK-${d}${m}${y}-${String(counter).padStart(3, '0')}`;
+}
+
+/**
+ * Assigns the next TASK-DDMMYYYY-XXX reference id for a given task_date —
+ * XXX is a per-day sequential counter (resets to 001 for a date never seen
+ * before), keyed by the task's own scheduled date, not the moment of
+ * creation, so a batch of tasks bulk-uploaded for a future date get
+ * consecutive numbers under THAT date. The counter lives in its own table
+ * (task_id_counters) and is bumped via a single atomic UPSERT, so two tasks
+ * created concurrently for the same date (e.g. two rows in one bulk upload)
+ * can never collide — Postgres serializes concurrent UPDATEs to the same
+ * row. Purely a display/reference id — never used for lookups internally,
+ * that's still tasks.id.
+ */
+async function getNextTaskDisplayId(taskDate) {
+  const { rows } = await pool.query(
+    `INSERT INTO task_id_counters (task_date, counter) VALUES ($1::date, 1)
+     ON CONFLICT (task_date) DO UPDATE SET counter = task_id_counters.counter + 1
+     RETURNING counter`,
+    [taskDate]
+  );
+  return formatDisplayId(taskDate, rows[0].counter);
+}
+
 /**
  * Shared validation + insert used by both POST /api/tasks and the Teams
  * intake job, so the two entry points can never drift on what counts as a
- * valid task. taskDate is optional and defaults to CURRENT_DATE (today) —
- * only the Teams job passes an explicit one, parsed from its "Task Date"
- * column; POST /api/tasks never accepts a client-supplied date, unchanged
- * from its existing behavior.
+ * valid task. taskDate is optional and defaults to today (resolved via the
+ * Postgres session's own CURRENT_DATE, not JS's `new Date()`, to avoid a
+ * local-timezone mismatch around midnight) — only the Teams job and bulk
+ * upload pass an explicit one; POST /api/tasks never accepts a
+ * client-supplied date, unchanged from its existing behavior.
  */
 async function createTask({ emp_id, project_code, priority, description, location_site, source, created_by, taskDate }) {
   if (!emp_id) throw new TaskValidationError(400, 'emp_id is required');
@@ -145,6 +183,8 @@ async function createTask({ emp_id, project_code, priority, description, locatio
   const projectResult = await pool.query('SELECT project_code FROM projects WHERE project_code = $1', [project_code]);
   if (projectResult.rows.length === 0) throw new TaskValidationError(400, `project ${project_code} not found`);
 
+  const resolvedTaskDate = await resolveTaskDate(taskDate);
+
   // Same employee + same day + same project + same description (exact
   // match) is a duplicate — a different description on that same
   // project/day is a distinct, legitimate second task (e.g. two separate
@@ -153,18 +193,20 @@ async function createTask({ emp_id, project_code, priority, description, locatio
   // allowed. Status is never checked: tasks never transition off 'pending'
   // anywhere in this system, so an existing row always counts.
   const duplicateResult = await pool.query(
-    `SELECT id FROM tasks WHERE emp_id = $1 AND project_code = $2 AND task_date = COALESCE($3::date, CURRENT_DATE) AND description = $4`,
-    [emp_id, project_code, taskDate || null, description]
+    `SELECT id FROM tasks WHERE emp_id = $1 AND project_code = $2 AND task_date = $3::date AND description = $4`,
+    [emp_id, project_code, resolvedTaskDate, description]
   );
   if (duplicateResult.rows.length > 0) {
     throw new TaskValidationError(409, 'This task already exists.');
   }
 
+  const displayId = await getNextTaskDisplayId(resolvedTaskDate);
+
   const result = await pool.query(
-    `INSERT INTO tasks (emp_id, task_date, project_code, priority, description, location_site, source, created_by)
-     VALUES ($1, COALESCE($2, CURRENT_DATE), $3, $4, $5, $6, $7, $8)
-     RETURNING id, emp_id, task_date::text AS task_date, project_code, priority, description, location_site, status, source, created_by, created_at`,
-    [emp_id, taskDate || null, project_code, priority || null, description, location_site || null, source, created_by]
+    `INSERT INTO tasks (emp_id, task_date, project_code, priority, description, location_site, source, created_by, display_id)
+     VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING id, emp_id, task_date::text AS task_date, project_code, priority, description, location_site, status, source, created_by, created_at, display_id`,
+    [emp_id, resolvedTaskDate, project_code, priority || null, description, location_site || null, source, created_by, displayId]
   );
 
   return result.rows[0];

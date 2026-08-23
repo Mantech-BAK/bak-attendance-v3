@@ -11,23 +11,29 @@ import { API_BASE_URL } from '../config';
  *                                 response: { emp_id, name, designation, tasks: [{ id, project_code, name, priority, status }] }
  *                                 401 with a generic "Invalid employee ID or code." on any mismatch.
  *   POST /api/punches          — records a punch. Body keys the backend actually reads:
- *                                 { emp_id, project_code, lat, lng, entered_by? }
+ *                                 { emp_id, task_id, project_code, lat, lng, entered_by? }
  *                                 There is no "type" (IN/OUT) at capture time — it's derived later,
  *                                 at attendance-calculation time, from punch_time ordering within a
  *                                 day (earliest = IN, latest = OUT). punch_time is set server-side
  *                                 from the moment the request is received — never accepted from the
- *                                 client. There is no task_id column on punches — only project_code,
- *                                 so the selected task's project_code must be sent, not its id.
+ *                                 client. task_id is the real task's id when the employee has one (its
+ *                                 project is auto-resolved server-side, never trust a client-sent
+ *                                 project_code alongside it); project_code alone is only for the
+ *                                 department-default fallback (no real task assigned that day — see
+ *                                 identify's is_default tasks).
  *                                 When entered_by differs from emp_id (a supervisor punching on
  *                                 behalf of someone), the backend verifies emp_id's
  *                                 reporting_manager_emp_id actually equals entered_by — 403 otherwise.
  *                                 Only auto-approved when entered_by's designation is "Supervisor".
- *                                 409 if emp_id already has a different project open today (odd punch
- *                                 count) — error.body.open_project_code names which one; punching that
- *                                 same open project again (to close it) is always allowed.
- *   GET   /api/punches/today-status?emp_id=   — { open_project_code: string|null } — which project (if
- *                                 any) is currently open for that employee today. A client-side hint
- *                                 only; POST /api/punches re-checks this server-side regardless.
+ *                                 409 if the SAME task (or, for the fallback, the same project) isn't
+ *                                 what's currently open — error.body.open_task_id/open_project_code
+ *                                 names what is. Two different real tasks — even sharing a project —
+ *                                 never block each other; only the fallback project enforces "one open
+ *                                 at a time", same as before per-task tracking existed.
+ *   GET   /api/punches/today-status?emp_id=   — { open_task_id: number|null, open_project_code:
+ *                                 string|null } — which task (or, for the fallback, project) is
+ *                                 currently open for that employee today. A client-side hint only;
+ *                                 POST /api/punches re-checks this server-side regardless.
  *   GET   /api/attendance/:emp_id   — computed IN/OUT sessions grouped by project+day for that employee
  *                                 response: { emp_id, sessions: [{ project_code, date, punch_count,
  *                                 punch_in: {id, punch_time}, punch_out: {id, punch_time}|null, incomplete }],
@@ -97,13 +103,16 @@ export function identifyPunch(empId, loginCode) {
   });
 }
 
-// CONFIRMED
-export function submitPunch({ empId, projectCode, lat, lng, enteredBy }) {
+// CONFIRMED — taskId is the real task's id (its project is resolved
+// server-side); for the department-default fallback (no real task), pass
+// projectCode instead and leave taskId null/undefined.
+export function submitPunch({ empId, taskId, projectCode, lat, lng, enteredBy }) {
   return request('/api/punches', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       emp_id: empId,
+      task_id: taskId ?? null,
       project_code: projectCode ?? null,
       lat,
       lng,

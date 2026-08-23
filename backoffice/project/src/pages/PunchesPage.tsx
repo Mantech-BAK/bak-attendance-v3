@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Clock, Calendar, Filter, X, Plus } from 'lucide-react';
-import { fetchPunches, fetchProjects, fetchEmployees } from '@/lib/api';
+import { Clock, Calendar, Filter, X, Plus, Pencil, Trash2, XCircle, Loader2 } from 'lucide-react';
+import { fetchPunches, fetchProjects, fetchEmployees, deletePunch, ApiError } from '@/lib/api';
 import type { Punch, Project, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, Badge, Spinner, EmptyState, Select, Button } from '@/components/ui';
+import { Card, Badge, Spinner, EmptyState, Select, Button, Modal } from '@/components/ui';
 import { AddPunchModal } from '@/components/AddPunchModal';
 import { formatDateTime, initials } from '@/lib/utils';
 
@@ -13,6 +13,10 @@ export function PunchesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddPunch, setShowAddPunch] = useState(false);
+  const [editingPunch, setEditingPunch] = useState<Punch | null>(null);
+  const [deletingPunch, setDeletingPunch] = useState<Punch | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [dateFilter, setDateFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('all');
@@ -31,6 +35,21 @@ export function PunchesPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function handleConfirmDelete() {
+    if (!deletingPunch) return;
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      await deletePunch(deletingPunch.id);
+      setPunches((prev) => prev.filter((p) => p.id !== deletingPunch.id));
+      setDeletingPunch(null);
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : 'Could not delete the punch. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   const employeeDeptMap = useMemo(() => new Map(employees.map((e) => [e.emp_id, e.department])), [employees]);
   const departments = useMemo(
@@ -93,8 +112,18 @@ export function PunchesPage() {
         open={showAddPunch}
         onClose={() => setShowAddPunch(false)}
         employees={employees}
-        projects={projects}
         onSuccess={() => load()}
+      />
+
+      <AddPunchModal
+        open={editingPunch !== null}
+        onClose={() => setEditingPunch(null)}
+        employees={employees}
+        editingPunch={editingPunch}
+        onSuccess={() => {
+          setEditingPunch(null);
+          load();
+        }}
       />
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -168,10 +197,11 @@ export function PunchesPage() {
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left">
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Employee</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Project</th>
+                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Task / Project</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Punch Time</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Entry Method</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
+                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -188,7 +218,12 @@ export function PunchesPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4"><span className="text-sm text-slate-700">{p.project_name ?? '—'}</span></td>
+                    <td className="px-6 py-4">
+                      <p className="text-sm text-slate-700">{p.project_name ?? '—'}</p>
+                      {p.task_display_id && (
+                        <p className="text-xs text-slate-400">{p.task_display_id}</p>
+                      )}
+                    </td>
                     <td className="px-6 py-4"><p className="text-sm text-slate-700">{formatDateTime(p.punch_time)}</p></td>
                     <td className="px-6 py-4">
                       <Badge variant={p.entry_method === 'admin_correction' ? 'warning' : p.entry_method === 'supervisor' ? 'accent' : 'neutral'}>
@@ -207,6 +242,16 @@ export function PunchesPage() {
                         <p className="mt-1 text-xs text-slate-400">{p.rejection_reason}</p>
                       )}
                     </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => setEditingPunch(p)} className="!px-2 !py-1">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => { setDeleteError(null); setDeletingPunch(p); }} className="!px-2 !py-1 text-rose-600 hover:bg-rose-50">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -214,6 +259,36 @@ export function PunchesPage() {
           </div>
         </Card>
       )}
+
+      <Modal open={deletingPunch !== null} onClose={() => setDeletingPunch(null)} title="Delete this punch?">
+        <p className="mb-4 text-sm text-slate-600">
+          {deletingPunch && (
+            <>This permanently removes {deletingPunch.employee_name ?? deletingPunch.emp_id}'s punch at{' '}
+              <span className="font-medium text-slate-900">{formatDateTime(deletingPunch.punch_time)}</span>
+              {deletingPunch.project_name ? <> for <span className="font-medium text-slate-900">{deletingPunch.project_name}</span></> : null}.
+              This cannot be undone.</>
+          )}
+        </p>
+
+        {deleteError && (
+          <div className="mb-4 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+            <XCircle className="h-4 w-4 shrink-0" />{deleteError}
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <Button variant="secondary" onClick={() => setDeletingPunch(null)} disabled={deleting} className="flex-1">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmDelete}
+            disabled={deleting}
+            className="flex-1 bg-rose-600 hover:bg-rose-700 focus-visible:outline-rose-600"
+          >
+            {deleting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Deleting…</>) : (<><Trash2 className="h-4 w-4" /> Delete Punch</>)}
+          </Button>
+        </div>
+      </Modal>
     </>
   );
 }

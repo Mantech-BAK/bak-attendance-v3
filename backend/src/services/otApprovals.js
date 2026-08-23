@@ -35,11 +35,11 @@ async function runDailyOtJob(date = yesterday()) {
 
   const { start, end } = getUtcDayBounds(date);
   const punchesResult = await pool.query(
-    `SELECT id, emp_id, project_code, punch_time
+    `SELECT id, emp_id, project_code, task_id, punch_time
      FROM punches
      WHERE approval_status <> 'rejected'
        AND punch_time >= $1 AND punch_time < $2
-     ORDER BY emp_id, project_code, punch_time`,
+     ORDER BY emp_id, project_code, task_id, punch_time`,
     [start, end]
   );
   const punchesByEmp = new Map();

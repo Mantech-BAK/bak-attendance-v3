@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const pool = require('../db');
 const { getSetting, getRamzanPeriods, setSetting, DEFAULT_DUPLICATE_WINDOW_MINUTES } = require('../services/settings');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
@@ -123,12 +124,11 @@ router.post('/duplicate-punch-window', async (req, res, next) => {
   }
 });
 
-// There is deliberately no PATCH/DELETE for ramzan_periods — declaring a
-// period is meant to be a one-way, append-only action from this UI. A
-// period declared incorrectly must be corrected directly in the database
-// by the dev team, not fixed from the web UI. Do not add an edit/delete
-// endpoint here without an explicit product decision to allow it — this
-// is intentional, not a missing feature.
+// 2026-08-23 product decision: Edit/Delete/Activate-Deactivate are now
+// supported (reversing the earlier append-only rule). None of these
+// retroactively touch confirmation_sheet_records/ot_approvals already
+// generated for dates inside the affected period — same as every other
+// setting in this app, only future report generation reflects the change.
 router.get('/ramzan-periods', async (req, res, next) => {
   try {
     const periods = await getRamzanPeriods();
@@ -172,11 +172,91 @@ router.post('/ramzan-periods', async (req, res, next) => {
       return res.status(400).json({ error: `a Ramzan period has already been declared for ${newYear}` });
     }
 
-    const newPeriod = { start_date, end_date, declared_by: declaredBy, declared_at: new Date().toISOString() };
+    const newPeriod = {
+      id: crypto.randomUUID(),
+      start_date,
+      end_date,
+      declared_by: declaredBy,
+      declared_at: new Date().toISOString(),
+      active: true,
+    };
     periods.push(newPeriod);
     await setSetting('ramzan_periods', JSON.stringify(periods));
 
     res.status(201).json({ periods });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Edits an existing period's dates and/or active flag. Unlike POST above,
+// deliberately does NOT enforce "start_date cannot be earlier than today" —
+// that guard exists to stop backdating a brand-new declaration; editing is
+// inherently a correction action and needs to work on periods that have
+// already started (or already ended) too. Still enforces the max span and
+// the one-declared-period-per-year rule (excluding this period itself).
+router.patch('/ramzan-periods/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { start_date, end_date, active } = req.body;
+
+    const periods = await getRamzanPeriods();
+    const index = periods.findIndex((p) => p.id === id);
+    if (index === -1) {
+      return res.status(404).json({ error: `Ramzan period ${id} not found` });
+    }
+
+    const current = periods[index];
+    const nextStartDate = start_date ?? current.start_date;
+    const nextEndDate = end_date ?? current.end_date;
+
+    if (end_date !== undefined || start_date !== undefined) {
+      if (nextEndDate < nextStartDate) {
+        return res.status(400).json({ error: 'end_date cannot be earlier than start_date' });
+      }
+
+      const spanDays = (new Date(`${nextEndDate}T00:00:00Z`) - new Date(`${nextStartDate}T00:00:00Z`)) / MS_PER_DAY;
+      if (spanDays > MAX_RAMZAN_SPAN_DAYS) {
+        return res.status(400).json({ error: `a Ramzan period cannot span more than ${MAX_RAMZAN_SPAN_DAYS} days` });
+      }
+
+      const newYear = nextStartDate.slice(0, 4);
+      const collidesWithYear = periods.some((p) => p.id !== id && p.start_date.slice(0, 4) === newYear);
+      if (collidesWithYear) {
+        return res.status(400).json({ error: `a Ramzan period has already been declared for ${newYear}` });
+      }
+    }
+
+    if (active !== undefined && typeof active !== 'boolean') {
+      return res.status(400).json({ error: 'active must be a boolean' });
+    }
+
+    periods[index] = {
+      ...current,
+      start_date: nextStartDate,
+      end_date: nextEndDate,
+      active: active ?? current.active,
+    };
+    await setSetting('ramzan_periods', JSON.stringify(periods));
+
+    res.json({ periods });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/ramzan-periods/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const periods = await getRamzanPeriods();
+    const filtered = periods.filter((p) => p.id !== id);
+    if (filtered.length === periods.length) {
+      return res.status(404).json({ error: `Ramzan period ${id} not found` });
+    }
+
+    await setSetting('ramzan_periods', JSON.stringify(filtered));
+    res.status(204).end();
   } catch (err) {
     next(err);
   }

@@ -62,9 +62,16 @@ router.get('/', requireBackofficeAuth, async (req, res, next) => {
     // timezone (same issue already fixed for ot_approvals.work_date),
     // shifting the displayed value by a day. Casting to text sends the
     // plain 'YYYY-MM-DD' string a JSON API consumer expects.
+    // punch_count powers the Tasks page's Completed/Pending/Not Started
+    // tabs (item 6): even & non-zero = Completed, odd = Pending, zero = Not
+    // Started — derived client-side from this count, matching the same
+    // even/odd First-In-Last-Out convention punches use everywhere else.
+    // Rejected punches don't count as progress, same exclusion as every
+    // other punch_count/session calculation in this app.
     const result = await pool.query(
-      `SELECT t.id, t.emp_id, e."EmpName" AS employee_name, t.project_code, p.project_name,
-              t.task_date::text AS task_date, t.priority, t.description, t.location_site, t.status, t.source, t.created_by, t.created_at
+      `SELECT t.id, t.display_id, t.emp_id, e."EmpName" AS employee_name, t.project_code, p.project_name,
+              t.task_date::text AS task_date, t.priority, t.description, t.location_site, t.status, t.source, t.created_by, t.created_at,
+              (SELECT count(*)::int FROM punches pu WHERE pu.task_id = t.id AND pu.approval_status <> 'rejected') AS punch_count
        FROM tasks t
        LEFT JOIN employees e ON e."EmpId" = t.emp_id
        LEFT JOIN projects p ON p.project_code = t.project_code
@@ -161,13 +168,13 @@ router.post('/bulk-upload', requireBackofficeAuth, uploadExcel.single('file'), a
   }
 });
 
-// Backoffice-only — powers the Add Punch modal's project restriction: an
-// admin correcting attendance may only pick a project the employee actually
-// has a real task for on that date, or (if none) their department default —
-// never an arbitrary project off a free dropdown. Deduped by project_code,
-// same reasoning as mobile's PunchProjectList (a task list can reference the
-// same project more than once).
-router.get('/punchable-projects', requireBackofficeAuth, async (req, res, next) => {
+// Backoffice-only — powers the Add Punch modal's task picker: an admin
+// correcting attendance may only pick a task the employee is actually
+// assigned on that date, or (if none) their department default project —
+// never an arbitrary task/project off a free dropdown. Deliberately NOT
+// deduped by project_code — two tasks sharing a project are two separate,
+// independently punchable selections now that punches track task_id.
+router.get('/punchable-tasks', requireBackofficeAuth, async (req, res, next) => {
   try {
     const { emp_id, date } = req.query;
     if (!emp_id) {
@@ -183,13 +190,7 @@ router.get('/punchable-projects', requireBackofficeAuth, async (req, res, next) 
     }
 
     const tasks = await getTasksForDate(emp_id, date);
-    const seen = new Map();
-    for (const task of tasks) {
-      if (!seen.has(task.project_code)) {
-        seen.set(task.project_code, { project_code: task.project_code, is_default: task.is_default });
-      }
-    }
-    res.json({ emp_id, date, projects: [...seen.values()] });
+    res.json({ emp_id, date, tasks });
   } catch (err) {
     next(err);
   }

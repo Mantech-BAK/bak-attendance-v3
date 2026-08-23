@@ -1,16 +1,19 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Clock, Moon, Copy, CheckCircle2, XCircle, Loader2, CalendarRange, Trash2, AlertTriangle } from 'lucide-react';
+import { Clock, Moon, Copy, CheckCircle2, XCircle, Loader2, CalendarRange, Trash2, AlertTriangle, Pencil, Power, PowerOff } from 'lucide-react';
 import {
   fetchDailyWorkingHours,
   saveDailyWorkingHours,
   fetchRamzanPeriods,
   declareRamzanPeriod,
+  updateRamzanPeriod,
+  deleteRamzanPeriod,
   fetchRamzanWorkingHours,
   saveRamzanWorkingHours,
   fetchDuplicatePunchWindow,
   saveDuplicatePunchWindow,
   fetchEmployees,
   resetTestData,
+  ApiError,
 } from '@/lib/api';
 import type { RamzanPeriod, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
@@ -47,6 +50,18 @@ export function SettingsPage() {
   const [duplicateWindowSubmitting, setDuplicateWindowSubmitting] = useState(false);
   const [duplicateWindowError, setDuplicateWindowError] = useState<string | null>(null);
   const [duplicateWindowSuccess, setDuplicateWindowSuccess] = useState(false);
+
+  const [editingPeriod, setEditingPeriod] = useState<RamzanPeriod | null>(null);
+  const [editStartDate, setEditStartDate] = useState('');
+  const [editEndDate, setEditEndDate] = useState('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const [deletingPeriod, setDeletingPeriod] = useState<RamzanPeriod | null>(null);
+  const [periodDeleting, setPeriodDeleting] = useState(false);
+  const [periodDeleteError, setPeriodDeleteError] = useState<string | null>(null);
+
+  const [togglingPeriodId, setTogglingPeriodId] = useState<string | null>(null);
 
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
@@ -137,6 +152,62 @@ export function SettingsPage() {
       setPeriodError(err instanceof Error ? err.message : 'Could not declare the period. Please try again.');
     } finally {
       setPeriodSubmitting(false);
+    }
+  }
+
+  function openEditPeriod(p: RamzanPeriod) {
+    setEditingPeriod(p);
+    setEditStartDate(p.start_date);
+    setEditEndDate(p.end_date);
+    setEditError(null);
+  }
+
+  async function handleEditSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!editingPeriod) return;
+    setEditError(null);
+
+    if (!editStartDate || !editEndDate) {
+      setEditError('Start date and end date are both required.');
+      return;
+    }
+
+    setEditSubmitting(true);
+    try {
+      const result = await updateRamzanPeriod(editingPeriod.id, { start_date: editStartDate, end_date: editEndDate });
+      setPeriods(result.periods);
+      setEditingPeriod(null);
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : 'Could not save changes. Please try again.');
+    } finally {
+      setEditSubmitting(false);
+    }
+  }
+
+  async function handleToggleActive(p: RamzanPeriod) {
+    setTogglingPeriodId(p.id);
+    try {
+      const result = await updateRamzanPeriod(p.id, { active: !p.active });
+      setPeriods(result.periods);
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Could not update the period. Please try again.');
+    } finally {
+      setTogglingPeriodId(null);
+    }
+  }
+
+  async function handleConfirmDeletePeriod() {
+    if (!deletingPeriod) return;
+    setPeriodDeleteError(null);
+    setPeriodDeleting(true);
+    try {
+      await deleteRamzanPeriod(deletingPeriod.id);
+      setPeriods((prev) => prev.filter((p) => p.id !== deletingPeriod.id));
+      setDeletingPeriod(null);
+    } catch (err) {
+      setPeriodDeleteError(err instanceof ApiError ? err.message : 'Could not delete the period. Please try again.');
+    } finally {
+      setPeriodDeleting(false);
     }
   }
 
@@ -352,12 +423,14 @@ export function SettingsPage() {
           </Card>
         ) : (
           <Card className="divide-y divide-slate-100">
-            {sortedPeriods.map((p, i) => {
+            {sortedPeriods.map((p) => {
               const declarer = employees.find((e) => e.emp_id === p.declared_by);
               const isPast = p.end_date < TODAY;
-              const isActive = p.start_date <= TODAY && TODAY <= p.end_date;
+              const isActive = p.active && p.start_date <= TODAY && TODAY <= p.end_date;
+              const statusLabel = !p.active ? 'Deactivated' : isActive ? 'Active now' : isPast ? 'Past' : 'Upcoming';
+              const statusVariant = !p.active ? 'neutral' : isActive ? 'accent' : isPast ? 'neutral' : 'info';
               return (
-                <div key={`${p.start_date}-${p.end_date}-${i}`} className="flex items-center justify-between gap-4 p-5">
+                <div key={p.id} className="flex items-center justify-between gap-4 p-5">
                   <div>
                     <p className="text-sm font-medium text-slate-900">
                       {formatDate(p.start_date)} – {formatDate(p.end_date)}
@@ -366,9 +439,35 @@ export function SettingsPage() {
                       Declared by {declarer?.name ?? p.declared_by} · {formatDate(p.declared_at)}
                     </p>
                   </div>
-                  <Badge variant={isActive ? 'accent' : isPast ? 'neutral' : 'info'}>
-                    {isActive ? 'Active now' : isPast ? 'Past' : 'Upcoming'}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={statusVariant}>{statusLabel}</Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleToggleActive(p)}
+                      disabled={togglingPeriodId === p.id}
+                      className="!px-2 !py-1"
+                    >
+                      {togglingPeriodId === p.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : p.active ? (
+                        <PowerOff className="h-3.5 w-3.5" />
+                      ) : (
+                        <Power className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => openEditPeriod(p)} className="!px-2 !py-1">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setPeriodDeleteError(null); setDeletingPeriod(p); }}
+                      className="!px-2 !py-1 text-rose-600 hover:bg-rose-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
               );
             })}
@@ -398,6 +497,62 @@ export function SettingsPage() {
           </Button>
         </Card>
       </div>
+
+      <Modal open={editingPeriod !== null} onClose={() => setEditingPeriod(null)} title="Edit Ramzan Period">
+        <form onSubmit={handleEditSubmit} className="space-y-4">
+          <Input value={editStartDate} onChange={setEditStartDate} label="Start Date" id="edit-ramzan-start" type="date" />
+          <Input value={editEndDate} onChange={setEditEndDate} label="End Date" id="edit-ramzan-end" type="date" />
+          <p className="text-xs text-slate-400">
+            Editing doesn't retroactively change any confirmation-sheet rows or overtime approvals already
+            generated for dates in this period — only reports generated after this edit reflect the new dates.
+          </p>
+
+          {editError && (
+            <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+              <XCircle className="h-4 w-4 shrink-0" />{editError}
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-1">
+            <Button type="button" variant="secondary" onClick={() => setEditingPeriod(null)} disabled={editSubmitting} className="flex-1">
+              Cancel
+            </Button>
+            <Button type="submit" disabled={editSubmitting} className="flex-1">
+              {editSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>) : 'Save Changes'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={deletingPeriod !== null} onClose={() => setDeletingPeriod(null)} title="Delete this Ramzan period?">
+        <p className="mb-4 text-sm text-slate-600">
+          {deletingPeriod && (
+            <>This permanently removes the{' '}
+              <span className="font-medium text-slate-900">{formatDate(deletingPeriod.start_date)} – {formatDate(deletingPeriod.end_date)}</span>
+              {' '}period. Confirmation-sheet rows and overtime approvals already generated for dates inside it are not affected — only future
+              report generation stops applying it. This cannot be undone.</>
+          )}
+        </p>
+
+        {periodDeleteError && (
+          <div className="mb-4 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+            <XCircle className="h-4 w-4 shrink-0" />{periodDeleteError}
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <Button variant="secondary" onClick={() => setDeletingPeriod(null)} disabled={periodDeleting} className="flex-1">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmDeletePeriod}
+            disabled={periodDeleting}
+            className="flex-1 bg-rose-600 hover:bg-rose-700 focus-visible:outline-rose-600"
+          >
+            {periodDeleting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Deleting…</>) : (<><Trash2 className="h-4 w-4" /> Delete Period</>)}
+          </Button>
+        </div>
+      </Modal>
 
       <Modal open={showResetConfirm} onClose={() => setShowResetConfirm(false)} title="Reset test data?">
         <p className="mb-4 text-sm text-slate-600">

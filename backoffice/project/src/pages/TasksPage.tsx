@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { ClipboardList, Plus, CheckCircle2, XCircle, Loader2, MapPin, Calendar, Download, Upload } from 'lucide-react';
+import { ClipboardList, Plus, CheckCircle2, XCircle, Loader2, MapPin, Calendar, Download, Upload, Filter, X } from 'lucide-react';
 import { fetchTasks, fetchEmployees, fetchProjects, createTask, tasksExportUrl, authHeaders } from '@/lib/api';
 import type { Task, Employee, Project } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Select, Textarea, Input, Spinner, EmptyState } from '@/components/ui';
 import { BulkUploadTasksModal } from '@/components/BulkUploadTasksModal';
-import { formatDate, initials } from '@/lib/utils';
+import { formatDate, initials, cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 
 function todayDate(): string {
@@ -28,6 +28,26 @@ const EMPTY_FORM: FormState = {
   locationSite: '',
 };
 
+// Derived from each task's own punch_count (via task_id), not the tasks.status
+// DB column (which never actually transitions off 'pending' anywhere in this
+// system, so it isn't a useful filter on its own): zero punches means the
+// employee hasn't started it, an odd count means it's currently open
+// (in progress), an even non-zero count means every session against it has
+// been opened and closed.
+type PunchStatus = 'not_started' | 'pending' | 'completed';
+
+function punchStatus(task: Task): PunchStatus {
+  if (task.punch_count === 0) return 'not_started';
+  return task.punch_count % 2 === 0 ? 'completed' : 'pending';
+}
+
+const TABS: { key: PunchStatus | 'all'; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'completed', label: 'Completed' },
+  { key: 'pending', label: 'Pending' },
+  { key: 'not_started', label: 'Not Started' },
+];
+
 export function TasksPage() {
   const { session } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -38,11 +58,17 @@ export function TasksPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [activeTab, setActiveTab] = useState<PunchStatus | 'all'>('all');
   const [exportDate, setExportDate] = useState(todayDate());
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
+
+  const [dateFilter, setDateFilter] = useState('');
+  const [projectFilter, setProjectFilter] = useState('all');
+  const [departmentFilter, setDepartmentFilter] = useState('all');
+  const [employeeFilter, setEmployeeFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
 
   useEffect(() => {
     load();
@@ -121,14 +147,42 @@ export function TasksPage() {
     }
   }
 
-  const availableStatuses = useMemo(() => {
-    return Array.from(new Set(tasks.map((t) => t.status))).sort();
+  const employeeDeptMap = useMemo(() => new Map(employees.map((e) => [e.emp_id, e.department])), [employees]);
+  const departments = useMemo(
+    () => Array.from(new Set(employees.map((e) => e.department).filter(Boolean))) as string[],
+    [employees],
+  );
+
+  const tabCounts = useMemo(() => {
+    const counts: Record<PunchStatus | 'all', number> = { all: tasks.length, completed: 0, pending: 0, not_started: 0 };
+    for (const t of tasks) counts[punchStatus(t)] += 1;
+    return counts;
   }, [tasks]);
 
   const filtered = useMemo(() => {
-    if (statusFilter === 'all') return tasks;
-    return tasks.filter((t) => t.status === statusFilter);
-  }, [tasks, statusFilter]);
+    return tasks.filter((t) => {
+      if (activeTab !== 'all' && punchStatus(t) !== activeTab) return false;
+      if (projectFilter !== 'all' && t.project_code !== projectFilter) return false;
+      if (employeeFilter !== 'all' && t.emp_id !== employeeFilter) return false;
+      if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
+      if (departmentFilter !== 'all') {
+        const empDept = employeeDeptMap.get(t.emp_id);
+        if (empDept !== departmentFilter) return false;
+      }
+      if (dateFilter && t.task_date !== dateFilter) return false;
+      return true;
+    });
+  }, [tasks, activeTab, projectFilter, employeeFilter, priorityFilter, departmentFilter, dateFilter, employeeDeptMap]);
+
+  const hasFilters = dateFilter || projectFilter !== 'all' || departmentFilter !== 'all' || employeeFilter !== 'all' || priorityFilter !== 'all';
+
+  function clearFilters() {
+    setDateFilter('');
+    setProjectFilter('all');
+    setDepartmentFilter('all');
+    setEmployeeFilter('all');
+    setPriorityFilter('all');
+  }
 
   if (loading) {
     return (
@@ -216,19 +270,71 @@ export function TasksPage() {
         </div>
 
         <div className="lg:col-span-2">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-slate-400" />
-              <h2 className="text-base font-semibold text-slate-900">All Tasks</h2>
-              <Badge variant="neutral">{filtered.length}</Badge>
+          <div className="mb-4 flex items-center gap-2">
+            <ClipboardList className="h-5 w-5 text-slate-400" />
+            <h2 className="text-base font-semibold text-slate-900">All Tasks</h2>
+            <Badge variant="neutral">{filtered.length}</Badge>
+          </div>
+
+          <div className="mb-4 flex gap-1 rounded-lg bg-slate-100 p-1">
+            {TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={cn(
+                  'flex-1 rounded-md px-3 py-2 text-sm font-medium transition',
+                  activeTab === tab.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700',
+                )}
+              >
+                {tab.label} <span className="text-xs text-slate-400">({tabCounts[tab.key]})</span>
+              </button>
+            ))}
+          </div>
+
+          <Card className="mb-4 p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <Filter className="h-4 w-4 text-slate-400" />
+              <span className="text-sm font-medium text-slate-700">Filters</span>
+              {hasFilters && (
+                <button onClick={clearFilters} className="ml-auto flex items-center gap-1 text-xs font-medium text-slate-500 transition hover:text-rose-600">
+                  <X className="h-3 w-3" /> Clear all
+                </button>
+              )}
             </div>
-            <div className="w-40">
-              <Select value={statusFilter} onChange={setStatusFilter} label="" id="task-status-filter">
-                <option value="all">All statuses</option>
-                {availableStatuses.map((s) => (<option key={s} value={s}>{s}</option>))}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="task-date-filter" className="text-sm font-medium text-slate-700">Date</label>
+                <div className="relative">
+                  <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    id="task-date-filter"
+                    type="date"
+                    value={dateFilter}
+                    onChange={(e) => setDateFilter(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 shadow-sm transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                  />
+                </div>
+              </div>
+              <Select value={projectFilter} onChange={setProjectFilter} label="Project" id="task-project-filter">
+                <option value="all">All projects</option>
+                {projects.map((p) => (<option key={p.project_code} value={p.project_code}>{p.project_name ?? p.project_code}</option>))}
+              </Select>
+              <Select value={departmentFilter} onChange={setDepartmentFilter} label="Department" id="task-dept-filter">
+                <option value="all">All departments</option>
+                {departments.map((d) => (<option key={d} value={d}>{d}</option>))}
+              </Select>
+              <Select value={employeeFilter} onChange={setEmployeeFilter} label="Employee" id="task-emp-filter">
+                <option value="all">All employees</option>
+                {employees.map((e) => (<option key={e.emp_id} value={e.emp_id}>{e.name}</option>))}
+              </Select>
+              <Select value={priorityFilter} onChange={setPriorityFilter} label="Priority" id="task-priority-filter">
+                <option value="all">All priorities</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
               </Select>
             </div>
-          </div>
+          </Card>
 
           <Card className="mb-4 p-4">
             <div className="flex flex-wrap items-end gap-3">
@@ -248,12 +354,15 @@ export function TasksPage() {
 
           {filtered.length === 0 ? (
             <Card className="p-6">
-              <EmptyState icon={<ClipboardList className="h-6 w-6" />} title="No tasks found" message="Create a task using the form on the left." />
+              <EmptyState icon={<ClipboardList className="h-6 w-6" />} title="No tasks found" message="Try adjusting the filters above, or create a task using the form on the left." />
             </Card>
           ) : (
             <div className="space-y-3">
               {filtered.map((t) => {
                 const priorityVariant = t.priority === 'high' ? 'error' : t.priority === 'medium' ? 'warning' : 'neutral';
+                const status = punchStatus(t);
+                const statusVariant = status === 'completed' ? 'success' : status === 'pending' ? 'warning' : 'neutral';
+                const statusLabel = status === 'completed' ? 'Completed' : status === 'pending' ? 'Pending' : 'Not Started';
                 return (
                   <Card key={t.id} className="p-5 transition hover:shadow-md">
                     <div className="flex items-start gap-4">
@@ -261,17 +370,20 @@ export function TasksPage() {
                         {t.employee_name ? initials(t.employee_name) : '—'}
                       </div>
                       <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs text-slate-400">{t.display_id}</span>
+                        </div>
                         <p className="text-sm font-medium text-slate-900">{t.description}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           <Badge variant={priorityVariant}>{t.priority ?? 'none'}</Badge>
-                          <Badge variant="info">{t.status}</Badge>
+                          <Badge variant={statusVariant}>{statusLabel}</Badge>
                           <span className="text-xs text-slate-500">{t.employee_name ?? 'Unassigned'}</span>
                           <span className="text-xs text-slate-400">·</span>
                           <span className="text-xs text-slate-500">{t.project_name ?? 'No project'}</span>
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-slate-400">
                           {t.location_site && (<span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {t.location_site}</span>)}
-                          <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {formatDate(t.created_at)}</span>
+                          <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {formatDate(t.task_date)}</span>
                           <span>Created by {t.created_by}</span>
                         </div>
                       </div>

@@ -1,15 +1,21 @@
 const pool = require('../db');
 const { getAllSettings, parseRamzanPeriods } = require('./settings');
-const { getEffectiveThreshold, applyNestedSubtraction, getUtcDayBounds } = require('./attendance');
+const { getEffectiveThreshold, applyNestedSubtraction, getUtcDayBounds, punchKey } = require('./attendance');
 
-// Gaps under this many minutes between two sequential top-level projects fold
-// into the preceding project's counted time (as part of that real row); gaps
+// Gaps under this many minutes between two sequential top-level sessions fold
+// into the preceding one's counted time (as part of that real row); gaps
 // at or above it still count toward the day's worked total (same as ever —
 // this feeds threshold/OT math shared with the nightly OT cron, see
 // otApprovals.js), they just no longer get their own report row — see
 // computeEmployeeDay's docstring for why.
 const SMALL_GAP_THRESHOLD_MINUTES = 60;
 const DEFAULT_MAX_OT_MINUTES = 600; // 10 hours, used only if max_ot_minutes is somehow missing
+
+// Matches confirmationSheetExcel.js's own REPORT_TIME_ZONE — REMARKS is
+// human-readable business text (e.g. "OT: 5:00 PM - 7:00 PM"), so it needs
+// the same timezone-aware formatting the rest of the sheet uses, not the
+// raw UTC instant.
+const REPORT_TIME_ZONE = 'Asia/Riyadh';
 
 function formatHours(minutes) {
   return Math.round((minutes / 60) * 100) / 100;
@@ -23,20 +29,31 @@ function formatDurationShort(minutes) {
   return `${h}h ${m}m`;
 }
 
-// Groups one employee's punches for one day into per-project sessions
+function formatClockTime(value) {
+  if (!value) return '';
+  return new Date(value).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: REPORT_TIME_ZONE });
+}
+
+// Groups one employee's punches for one day into per-task sessions
 // (First-In-Last-Out), with nested-subtraction already applied — mirrors
 // calculateAttendance()'s grouping but scoped to a single employee/day.
+// Grouped by punchKey(task_id, project_code) — task_id when the punch is
+// against a real task, else project_code for the department-default
+// fallback — so two different tasks sharing the same project become two
+// independent sessions with their own real, separately calculated time
+// (item 4), not merged into one.
 function buildSessionsForDay(punchRows, empId, date) {
   const groups = new Map();
   for (const row of punchRows) {
-    if (!groups.has(row.project_code)) {
-      groups.set(row.project_code, []);
+    const key = punchKey(row.task_id, row.project_code);
+    if (!groups.has(key)) {
+      groups.set(key, []);
     }
-    groups.get(row.project_code).push(row);
+    groups.get(key).push(row);
   }
 
   const sessions = [];
-  for (const [projectCode, punches] of groups.entries()) {
+  for (const punches of groups.values()) {
     const sorted = [...punches].sort((a, b) => a.punch_time - b.punch_time);
     const punchIn = sorted[0];
     const punchOut = sorted.length > 1 ? sorted[sorted.length - 1] : null;
@@ -45,7 +62,8 @@ function buildSessionsForDay(punchRows, empId, date) {
 
     sessions.push({
       emp_id: empId,
-      project_code: projectCode,
+      project_code: punchIn.project_code,
+      task_id: punchIn.task_id,
       date,
       punch_count: sorted.length,
       punch_in: { id: punchIn.id, punch_time: punchIn.punch_time },
@@ -60,13 +78,17 @@ function buildSessionsForDay(punchRows, empId, date) {
 }
 
 /**
- * Computes one employee's one-day confirmation-sheet rows: real per-project
- * rows only (nested-subtraction already applied), small gaps folded into the
- * preceding project with a REMARKS note, and — for OT-eligible employees
- * whose true worked time exceeds the day's threshold — an OT row (on their
- * last real project) capped at max_ot_minutes, with the true uncapped excess
- * noted in REMARKS for transparency even though only the capped amount is
- * ever presented as approvable OT.
+ * Computes one employee's one-day confirmation-sheet rows: real per-task
+ * rows only (nested-subtraction already applied — two tasks sharing a
+ * project are two separate rows with independently calculated real time),
+ * small gaps folded into the preceding session with a REMARKS note, and —
+ * for OT-eligible employees whose true worked time exceeds the day's
+ * threshold — an OT row (on their last real session) capped at
+ * max_ot_minutes, carrying the actual clock time range the overtime
+ * occurred in (the tail end of the last session, working backward by
+ * otMinutes) rather than just a total, with the true uncapped excess noted
+ * in REMARKS for transparency even though only the capped amount is ever
+ * presented as approvable OT.
  *
  * Deliberately does NOT synthesize an absentee row, a shortfall row, or a
  * large-gap "attributed to default project" row — those were removed from
@@ -129,6 +151,7 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
     rows.push({
       project_code: session.project_code,
       project_name: null, // filled in by the caller, which has the projects lookup
+      task_id: session.task_id,
       cost_center: null,
       start_time: session.punch_in.punch_time,
       end_time: session.punch_out.punch_time,
@@ -143,6 +166,7 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
     rows.push({
       project_code: session.project_code,
       project_name: null,
+      task_id: session.task_id,
       cost_center: null,
       start_time: session.punch_in.punch_time,
       end_time: session.punch_out.punch_time,
@@ -156,6 +180,7 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
     rows.push({
       project_code: session.project_code,
       project_name: null,
+      task_id: session.task_id,
       cost_center: null,
       start_time: session.punch_in.punch_time,
       end_time: null,
@@ -177,16 +202,24 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
     const cappedNote = trueExcessMinutes > maxOtMinutes
       ? ` (true excess ${formatDurationShort(trueExcessMinutes)}, capped at ${formatDurationShort(maxOtMinutes)} for approval)`
       : '';
-    const lastProject = topLevel[topLevel.length - 1];
+    const lastSession = topLevel[topLevel.length - 1];
+
+    // OT is attributed to the tail end of the day's last session — working
+    // backward from its actual punch-out by otMinutes — so the report shows
+    // a real clock-time range ("OT: 5:00 PM - 7:00 PM"), not just a total.
+    const otEnd = lastSession.punch_out.punch_time;
+    const otStart = new Date(otEnd.getTime() - otMinutes * 60000);
+    const timeRangeNote = `OT: ${formatClockTime(otStart)} - ${formatClockTime(otEnd)}`;
 
     rows.push({
-      project_code: lastProject.project_code,
+      project_code: lastSession.project_code,
       project_name: null,
+      task_id: lastSession.task_id,
       cost_center: null,
-      start_time: null,
-      end_time: null,
+      start_time: otStart,
+      end_time: otEnd,
       working_minutes: otMinutes,
-      remarks: `Overtime${cappedNote}`,
+      remarks: `${timeRangeNote}${cappedNote}`,
       is_ot_row: true,
     });
   }
@@ -200,11 +233,11 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
  * export. Upserted on (EmpId, AttendanceDate, ProjectId, StartTime) so
  * re-generating the report for an already-persisted date updates existing
  * records instead of duplicating them. Postgres treats NULL as never equal
- * to NULL in a unique constraint, so an untimed row (the OT row is the only
- * one left with no start_time) would never actually conflict on a true NULL
- * StartTime — a fixed midnight-of-the-report-date placeholder is used for
- * those instead of NULL, so idempotency holds uniformly across every row
- * shape.
+ * to NULL in a unique constraint, so an untimed row would never actually
+ * conflict on a true NULL StartTime — every row now carries a real
+ * start_time (even the OT row, since item 8 gave it a real clock-time
+ * range), so this fallback is now only a defensive backstop, not something
+ * any current row shape actually relies on.
  */
 async function persistConfirmationSheetRecord(row) {
   const startTimeForKey = row.start_time || new Date(`${row.attendance_date}T00:00:00.000Z`);
@@ -255,7 +288,7 @@ async function ensureOtApproval({ empId, date, workedMinutes, thresholdMinutes, 
  * nightly cron.
  */
 async function generateConfirmationSheetRows(date) {
-  const [settingsMap, employeesResult, projectsResult, otApprovalsResult] = await Promise.all([
+  const [settingsMap, employeesResult, projectsResult, tasksResult, otApprovalsResult] = await Promise.all([
     getAllSettings(),
     pool.query(
       `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, g.designation_name AS designation,
@@ -268,20 +301,22 @@ async function generateConfirmationSheetRows(date) {
        WHERE e."EmpStatus" = 'active' ORDER BY e."EmpId"`
     ),
     pool.query('SELECT project_code, project_name, cost_center FROM projects'),
+    pool.query('SELECT id, display_id, description FROM tasks'),
     pool.query('SELECT emp_id, status, approved_by FROM ot_approvals WHERE work_date = $1', [date]),
   ]);
 
   const ramzanPeriods = parseRamzanPeriods(settingsMap);
   const projectsByCode = new Map(projectsResult.rows.map((p) => [p.project_code, p]));
+  const tasksById = new Map(tasksResult.rows.map((t) => [t.id, t]));
   const otStatusByEmp = new Map(otApprovalsResult.rows.map((o) => [o.emp_id, { status: o.status, approvedBy: o.approved_by }]));
 
   const { start, end } = getUtcDayBounds(date);
   const punchesResult = await pool.query(
-    `SELECT id, emp_id, project_code, punch_time
+    `SELECT id, emp_id, project_code, task_id, punch_time
      FROM punches
      WHERE approval_status <> 'rejected'
        AND punch_time >= $1 AND punch_time < $2
-     ORDER BY emp_id, project_code, punch_time`,
+     ORDER BY emp_id, project_code, task_id, punch_time`,
     [start, end]
   );
   const punchesByEmp = new Map();
@@ -306,6 +341,16 @@ async function generateConfirmationSheetRows(date) {
         const project = projectsByCode.get(row.project_code);
         row.project_name = project ? project.project_name : row.project_code;
         row.cost_center = project ? project.cost_center : null;
+      }
+      // Distinguishes two rows that share a project but are different real
+      // tasks (item 4) — prefixed onto whatever REMARKS this row already
+      // has (a gap note, an OT range, or nothing).
+      if (row.task_id) {
+        const task = tasksById.get(row.task_id);
+        if (task) {
+          const taskNote = `Task ${task.display_id}${task.description ? ` — ${task.description}` : ''}`;
+          row.remarks = row.remarks ? `${taskNote}. ${row.remarks}` : taskNote;
+        }
       }
     }
 

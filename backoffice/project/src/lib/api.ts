@@ -74,6 +74,10 @@ export type Project = {
 
 export type Task = {
   id: number;
+  // Human-readable TASK-DDMMYYYY-XXX reference id, auto-assigned at
+  // creation — never manually entered, purely a display/reference id
+  // distinct from the internal `id`.
+  display_id: string;
   emp_id: string;
   employee_name: string | null;
   project_code: string | null;
@@ -86,6 +90,10 @@ export type Task = {
   source: string;
   created_by: string;
   created_at: string;
+  // Punches against this task's id, rejected ones excluded — drives the
+  // Tasks page's Completed/Pending/Not Started tabs: 0 = Not Started, odd =
+  // Pending, even & non-zero = Completed.
+  punch_count: number;
 };
 
 export type Punch = {
@@ -95,6 +103,12 @@ export type Punch = {
   employee_designation: string | null;
   project_code: string | null;
   project_name: string | null;
+  // Set when this punch is against a real task (its project_code is that
+  // task's own project, auto-filled server-side) — null for the
+  // department-default fallback (no real task assigned that day).
+  task_id: number | null;
+  task_display_id: string | null;
+  task_description: string | null;
   punch_time: string;
   lat: number;
   lng: number;
@@ -120,9 +134,10 @@ export type ExceptionRow = {
   status: string;
   created_at: string;
   // Only populated when ref_table === 'punches' (currently just
-  // single_punch_only) — the existing incomplete punch's project/time, so
-  // "Add Punch" can pre-fill everything but the missing timestamp.
+  // single_punch_only) — the existing incomplete punch's task/project/time,
+  // so "Add Punch" can pre-fill everything but the missing timestamp.
   ref_project_code: string | null;
+  ref_task_id: number | null;
   ref_punch_time: string | null;
 };
 
@@ -225,13 +240,22 @@ export function uploadTasksBulk(file: File): Promise<BulkTaskUploadResult> {
   });
 }
 
-export type PunchableProject = { project_code: string; is_default: boolean };
+export type PunchableTask = {
+  id: number | null;
+  display_id: string | null;
+  project_code: string;
+  name: string;
+  priority: string | null;
+  status: string;
+  is_default: boolean;
+};
 
-// Powers the Add Punch modal's project restriction — only a project the
-// employee has a real task for on that date, or their department default if
-// none, never an arbitrary project.
-export function fetchPunchableProjects(empId: string, date: string): Promise<{ projects: PunchableProject[] }> {
-  return request(`/api/tasks/punchable-projects?emp_id=${encodeURIComponent(empId)}&date=${encodeURIComponent(date)}`);
+// Powers the Add Punch modal's task picker — only a task the employee is
+// actually assigned on that date, or their department default if none,
+// never an arbitrary task/project. Not deduped by project — two tasks
+// sharing a project are two separate selections (punches track task_id).
+export function fetchPunchableTasks(empId: string, date: string): Promise<{ tasks: PunchableTask[] }> {
+  return request(`/api/tasks/punchable-tasks?emp_id=${encodeURIComponent(empId)}&date=${encodeURIComponent(date)}`);
 }
 
 // Both export/report downloads are backoffice-only routes behind
@@ -273,12 +297,14 @@ export function fetchPunches(): Promise<Punch[]> {
 // queue. punchTime is the admin-supplied explicit timestamp (never "now").
 // entered_by is never sent — the backend derives it from the session token.
 // force skips the backend's near-duplicate check (used on the confirmed
-// resubmit after the admin has seen and accepted the warning). projectCode
-// is mandatory — the backend rejects a missing one with a 400, matching the
-// UI which never lets the form reach Submit without one selected.
+// resubmit after the admin has seen and accepted the warning). Exactly one
+// of taskId/projectCode is mandatory — the backend rejects neither being
+// present with a 400, matching the UI which never lets the form reach
+// Submit without a task (or fallback project) selected.
 export function addAdminPunchCorrection(input: {
   empId: string;
-  projectCode: string;
+  taskId?: number | null;
+  projectCode?: string | null;
   punchTime: string;
   force?: boolean;
 }): Promise<Punch> {
@@ -287,11 +313,40 @@ export function addAdminPunchCorrection(input: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       emp_id: input.empId,
-      project_code: input.projectCode,
+      task_id: input.taskId ?? null,
+      project_code: input.taskId ? null : (input.projectCode ?? null),
       punch_time: input.punchTime,
       force: input.force ?? false,
     }),
   });
+}
+
+// Admin-only punch edit — same validation as creating one, with this
+// punch's own id excluded from every check so a small time correction
+// doesn't spuriously conflict with itself. emp_id is never editable — a
+// different employee is a different punch, not a correction.
+export function updatePunch(id: number, input: {
+  taskId?: number | null;
+  projectCode?: string | null;
+  punchTime: string;
+  force?: boolean;
+}): Promise<Punch> {
+  return request(`/api/punches/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      task_id: input.taskId ?? null,
+      project_code: input.taskId ? null : (input.projectCode ?? null),
+      punch_time: input.punchTime,
+      force: input.force ?? false,
+    }),
+  });
+}
+
+// Real, permanent removal — the frontend must gate this behind an explicit
+// confirmation dialog before calling it.
+export function deletePunch(id: number): Promise<void> {
+  return request(`/api/punches/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 export function fetchExceptions(): Promise<ExceptionRow[]> {
@@ -341,10 +396,12 @@ export type DailyWorkingHours = {
 };
 
 export type RamzanPeriod = {
+  id: string;
   start_date: string;
   end_date: string;
   declared_by: string;
   declared_at: string;
+  active: boolean;
 };
 
 export function fetchDailyWorkingHours(): Promise<DailyWorkingHours> {
@@ -369,6 +426,24 @@ export function declareRamzanPeriod(input: { start_date: string; end_date: strin
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
+}
+
+// Edits dates and/or toggles active — pass only the fields changing.
+// Unlike declaring a new period, editing does NOT enforce "start_date
+// cannot be earlier than today" (a correction needs to work on periods
+// that already started or already ended). Never retroactively touches
+// confirmation_sheet_records/ot_approvals already generated for dates in
+// this period — only future report generation reflects the change.
+export function updateRamzanPeriod(id: string, input: { start_date?: string; end_date?: string; active?: boolean }): Promise<{ periods: RamzanPeriod[] }> {
+  return request(`/api/settings/ramzan-periods/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteRamzanPeriod(id: string): Promise<void> {
+  return request(`/api/settings/ramzan-periods/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 export type RamzanWorkingHours = {
