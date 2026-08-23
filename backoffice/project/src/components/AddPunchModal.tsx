@@ -236,12 +236,12 @@ export function AddPunchModal({
             conflicting_punch?: unknown;
             open_project_code?: string;
           } | null;
-          // A cross-task/project clash (identical timestamp) or an
-          // already-open fallback project on that same day are both hard
-          // blocks on the backend — force cannot bypass either, since
-          // neither is a "might be intentional" case, just a broken
-          // invariant. Surface as a plain error, not a confirm-and-retry
-          // dialog.
+          // A cross-task/project clash (identical timestamp) or something
+          // else already open that same day (only one task can be open at
+          // a time, globally) are both hard blocks on the backend — force
+          // cannot bypass either, since neither is a "might be intentional"
+          // case, just a broken invariant. Surface as a plain error, not a
+          // confirm-and-retry dialog.
           if (body?.conflicting_punch || body?.open_project_code) {
             throw err;
           }

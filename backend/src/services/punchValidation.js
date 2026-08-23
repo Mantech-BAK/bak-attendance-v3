@@ -52,34 +52,39 @@ async function resolvePunchTarget({ emp_id, task_id, project_code }) {
 }
 
 /**
- * Real tasks are fully independent of each other — Task A being open never
- * blocks Task B from opening too, even under the same project. That's what
- * "per-task" actually means (2026-08-23 product decision) and it's what
- * lets a genuine nested session happen through the normal punch flow: open
- * A, open B without closing A first, close B, then come back and close A
- * (see applyNestedSubtraction, which is what turns that into correctly
- * subtracted real time). There is no "only one task open at a time"
- * invariant left to enforce for real tasks — the only question punching a
- * task ever asks is "is THIS task currently open" (even/odd count), which
- * decides IN vs OUT and never blocks.
+ * Only ONE task (or, for the department-default fallback, one project) can
+ * be genuinely "open" at a time for an employee, globally — across every
+ * project, not just within one. Punching anything other than whatever is
+ * currently open (odd punch count that day) is rejected; punching that
+ * same open task/project again (to close it) is always allowed.
  *
- * The department-default fallback (task_id null, bare project_code) is the
- * one case that still enforces "only one open at a time" — exactly as it
- * worked before per-task tracking existed — since there's no task identity
- * to distinguish concurrent fallback punches by.
+ * REVERTED 2026-08-23 — a same-project "tasks are independent" exception
+ * was tried and confirmed working, but the actual product requirement is
+ * the stricter global rule: an employee cannot open any task while a
+ * different task is still open, no exceptions for same-project switches.
+ * This means true overlapping/nested sessions can no longer be produced
+ * through normal live punching (mobile or backoffice) — every punch must
+ * fully close whatever's open before a different task can open.
+ *
+ * applyNestedSubtraction (attendance.js) is deliberately left untouched —
+ * it stays valid for whatever overlapping data can still exist (an
+ * explicit-past-timestamp backoffice entry that happens to overlap, or old
+ * historical data from before this rule existed), it's just no longer
+ * something live punching itself can create going forward.
  *
  * excludePunchId lets an edit check "would this change leave an open
  * conflict" without the punch being edited counting against itself.
  */
 async function checkOpenConflict({ emp_id, task_id, project_code, date, excludePunchId }) {
-  if (task_id) return;
-
   const open = await getOpenPunchForDate(emp_id, date, excludePunchId);
-  if (!open || open.task_id) return; // nothing open, or what's open is a real (independent) task
-  if (open.project_code === project_code) return; // closing the same open fallback project
+  if (!open) return;
 
-  throw new PunchValidationError(409, `${emp_id} has an open punch for project ${open.project_code} on ${date} — close it before punching a different project`, {
-    open_task_id: null,
+  const openKey = punchKey(open.task_id, open.project_code);
+  const thisKey = punchKey(task_id, project_code);
+  if (openKey === thisKey) return; // closing the same thing that's already open
+
+  throw new PunchValidationError(409, `${emp_id} has an open punch for ${describeKey(open)} on ${date} — close it before punching something else`, {
+    open_task_id: open.task_id,
     open_project_code: open.project_code,
   });
 }

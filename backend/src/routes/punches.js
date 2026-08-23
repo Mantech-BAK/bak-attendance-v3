@@ -262,11 +262,10 @@ router.post('/', async (req, res, next) => {
 
     if (target.project_code) {
       // Only one task (or, for the fallback, one project) can be genuinely
-      // "in progress" at a time — punching something DIFFERENT while one is
-      // still open (odd punch count today) is rejected; punching that same
-      // open thing again (to close it) is always allowed. Two different
-      // tasks — even sharing a project — are independent and never block
-      // each other.
+      // "in progress" at a time — globally, across every project — punching
+      // something DIFFERENT while one is still open (odd punch count today)
+      // is rejected; punching that same open thing again (to close it) is
+      // always allowed.
       await checkOpenConflict({
         emp_id,
         task_id: target.task_id,

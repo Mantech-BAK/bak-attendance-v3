@@ -5,18 +5,17 @@ import * as Location from 'expo-location';
 /**
  * One button per task — no longer deduped by project_code (2026-08-23:
  * punches now track task_id, so two tasks sharing a project are two
- * independent, separately punchable things, not one). The single
- * department-default fallback task (id: null, is_default: true) still
- * renders as before when the employee has no real task assigned.
+ * separately punchable things, not one). The single department-default
+ * fallback task (id: null, is_default: true) still renders as before when
+ * the employee has no real task assigned.
  *
  * Tapping a task button both records a punch and declares which task it's
  * for, in one action. Tapping the same (currently open) task again closes
- * it. Real tasks are fully independent — opening one never blocks opening
- * another, even under the same project (that's what actually lets a
- * genuine nested session happen: open Task A, open Task B without closing
- * A, close B, come back and close A). Only the department-default fallback
- * still enforces "one open at a time", since there's no task identity to
- * distinguish concurrent fallback punches by.
+ * it. Only ONE task can be open at a time, globally — across every
+ * project, not just within one (REVERTED 2026-08-23: a same-project
+ * "tasks are independent" exception was tried and confirmed working, but
+ * the actual requirement is the stricter global rule — opening a different
+ * task while one is still open is always blocked, no exceptions).
  *
  * openTaskId/openProjectCode are a proactive client-side hint (fetched via
  * GET /api/punches/today-status) — the real enforcement is the server's
@@ -35,22 +34,25 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
     return task.id ? task.id === openTaskId : task.project_code === openProjectCode && !openTaskId;
   }
 
-  // The fallback project is the only case that can genuinely block — a
-  // different fallback project is open and this isn't it. A real task
-  // never blocks (independent), so this only ever fires for is_default.
+  // Anything open (a real task or the fallback project) blocks every other
+  // task/fallback until it's closed — global, not scoped to one project.
+  // Returns a human-readable name for whatever's open, for the alert/hint.
   function blockedBy(task) {
-    if (task.id) return null;
-    if (!openProjectCode || openTaskId) return null;
-    if (task.project_code === openProjectCode) return null;
+    const anythingOpen = openTaskId !== null || openProjectCode !== null;
+    if (!anythingOpen || isOpen(task)) return null;
+    if (openTaskId) {
+      const openTask = list.find((t) => t.id === openTaskId);
+      return openTask ? openTask.name : `task ${openTaskId}`;
+    }
     return openProjectCode;
   }
 
   async function handlePress(task) {
     if (submittingKey) return;
 
-    const blockingProject = blockedBy(task);
-    if (blockingProject) {
-      Alert.alert('Project already open', `Close "${blockingProject}" before punching a different project.`);
+    const blockingName = blockedBy(task);
+    if (blockingName) {
+      Alert.alert('Something else is open', `Close "${blockingName}" before punching a different task.`);
       return;
     }
 
@@ -125,7 +127,7 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
                 <Text style={[styles.defaultHint, open && styles.openText]}>No task assigned — department default project</Text>
               )}
               {open && <Text style={styles.openHint}>Open — tap to close</Text>}
-              {blocked && <Text style={styles.blockedHint}>Close your open project first</Text>}
+              {blocked && <Text style={styles.blockedHint}>Close what's open first</Text>}
             </View>
             {isSubmitting && <ActivityIndicator color={open ? '#fff' : '#2563eb'} />}
           </TouchableOpacity>

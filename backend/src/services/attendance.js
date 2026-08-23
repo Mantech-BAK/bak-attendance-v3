@@ -306,11 +306,11 @@ function calculateAttendanceForAllEmployees(date) {
  * Returns the identity — { task_id, project_code } — of the one thing (if
  * any) the employee has left "open" on the given date: an odd punch count
  * within its punchKey() group, meaning it hasn't been closed with a
- * matching punch yet. Punching the SAME task (or, for the department-default
- * fallback, the same project) again closes it; punching anything else while
- * this is open is blocked (routes/punches.js). Two different tasks — even
- * under the same project — are two independent keys and don't block each
- * other; only two punches sharing the exact same key do.
+ * matching punch yet. Purely a lookup — the actual policy of what punching
+ * something else while this is open should do (block it) lives in
+ * checkOpenConflict (punchValidation.js), which currently enforces a
+ * global "only one thing open at a time" rule: punching anything other
+ * than this exact open task/project is rejected, no same-project exception.
  *
  * date is a 'YYYY-MM-DD' string; bounds are computed via getUtcDayBounds
  * (never SQL's CURRENT_DATE or a ::date-cast string) so this can never
