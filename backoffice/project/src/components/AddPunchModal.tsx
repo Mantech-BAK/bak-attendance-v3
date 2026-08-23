@@ -12,10 +12,10 @@ import { formatDateTime } from '@/lib/utils';
 // do the UTC conversion, rather than gluing the digits straight onto a "Z"
 // suffix (which silently mislabels local time as UTC and shifts every
 // saved punch by the browser's UTC offset).
-function localDateTimeToIso(date: string, hour12: string, minute: string, period: string): string {
-  const hour = Number(hour12) % 12 + (period === 'PM' ? 12 : 0);
+function localDateTimeToIso(date: string, time: string): string {
+  const [hour, minute] = time.split(':').map(Number);
   const [year, month, day] = date.split('-').map(Number);
-  return new Date(year, month - 1, day, hour, Number(minute), 0, 0).toISOString();
+  return new Date(year, month - 1, day, hour, minute, 0, 0).toISOString();
 }
 
 // Admin-only manual punch correction — sets an explicit timestamp (never
@@ -48,9 +48,7 @@ export function AddPunchModal({
   const [empId, setEmpId] = useState('');
   const [projectCode, setProjectCode] = useState('');
   const [date, setDate] = useState('');
-  const [hour, setHour] = useState('');
-  const [minute, setMinute] = useState('');
-  const [period, setPeriod] = useState('');
+  const [time, setTime] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,9 +64,7 @@ export function AddPunchModal({
       setEmpId(defaultEmpId ?? '');
       setProjectCode(defaultProjectCode ?? '');
       setDate(defaultDate ?? '');
-      setHour('');
-      setMinute('');
-      setPeriod('');
+      setTime('');
       setError(null);
       setPunchableCodes(null);
     }
@@ -120,7 +116,7 @@ export function AddPunchModal({
   // Project, date, and time are all mandatory — a punch with any of them
   // missing is meaningless, so Submit stays disabled until the form is
   // genuinely complete rather than only validating after the fact.
-  const isComplete = !!empId && !!projectCode && !!date && !!hour && !!minute && !!period;
+  const isComplete = !!empId && !!projectCode && !!date && !!time;
 
   async function submitPunch(punchTime: string, force: boolean) {
     return addAdminPunchCorrection({
@@ -138,14 +134,14 @@ export function AddPunchModal({
     // Defense in depth — Submit is already disabled until isComplete, but
     // this still runs in case the button is somehow triggered anyway (e.g.
     // pressing Enter in a field before state has settled).
-    if (!empId || !projectCode || !date || !hour || !minute || !period) {
+    if (!empId || !projectCode || !date || !time) {
       setError('Employee, project, date, and time are all required.');
       return;
     }
 
     setSubmitting(true);
     try {
-      const punchTime = localDateTimeToIso(date, hour, minute, period);
+      const punchTime = localDateTimeToIso(date, time);
       let punch;
       try {
         punch = await submitPunch(punchTime, false);
@@ -206,30 +202,7 @@ export function AddPunchModal({
 
         <div className="grid grid-cols-2 gap-3">
           <Input value={date} onChange={setDate} label="Date" id="add-punch-date" type="date" />
-          <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-slate-700">Time</span>
-            <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
-              <Select value={hour} onChange={setHour} id="add-punch-hour">
-                <option value="">Hour</option>
-                {Array.from({ length: 12 }, (_, index) => index + 1).map((value) => (
-                  <option key={value} value={value}>{value}</option>
-                ))}
-              </Select>
-              <Select value={minute} onChange={setMinute} id="add-punch-minute">
-                <option value="">Minute</option>
-                {Array.from({ length: 60 }, (_, index) => index).map((value) => (
-                  <option key={value} value={String(value).padStart(2, '0')}>
-                    {String(value).padStart(2, '0')}
-                  </option>
-                ))}
-              </Select>
-              <Select value={period} onChange={setPeriod} id="add-punch-period">
-                <option value="">AM/PM</option>
-                <option value="AM">AM</option>
-                <option value="PM">PM</option>
-              </Select>
-            </div>
-          </div>
+          <Input value={time} onChange={setTime} label="Time" id="add-punch-time" type="time" lang="en-US" />
         </div>
 
         <Select

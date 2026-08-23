@@ -129,6 +129,7 @@ export function Input({
   id,
   type = 'text',
   placeholder,
+  lang,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -136,6 +137,7 @@ export function Input({
   id?: string;
   type?: string;
   placeholder?: string;
+  lang?: string;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -147,6 +149,7 @@ export function Input({
         type={type}
         value={value}
         placeholder={placeholder}
+        lang={lang}
         onChange={(e) => onChange(e.target.value)}
         className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
       />
