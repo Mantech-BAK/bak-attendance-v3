@@ -29,10 +29,13 @@ type ReportData = {
   sessions: AttendanceSession[];
 };
 
+// Uses counted_minutes, not a raw punch_in/punch_out subtraction — a raw
+// subtraction double-counts any time another project's session nests
+// inside this one's span (see applyNestedSubtraction in the backend),
+// which is exactly what counted_minutes has already had removed.
 function sessionHours(session: AttendanceSession): number {
-  if (!session.punch_out) return 0;
-  const ms = new Date(session.punch_out.punch_time).getTime() - new Date(session.punch_in.punch_time).getTime();
-  return ms / (1000 * 60 * 60);
+  if (!session.punch_out || session.counted_minutes === null) return 0;
+  return session.counted_minutes / 60;
 }
 
 export function ReportsPage() {
@@ -227,7 +230,7 @@ export function ReportsPage() {
                       <td className="px-4 py-3 text-sm text-slate-700">{proj?.project_name ?? s.project_code ?? '—'}</td>
                       <td className="px-4 py-3 text-sm text-slate-700">{formatDateTime(s.punch_in.punch_time)}</td>
                       <td className="px-4 py-3 text-sm text-slate-700">{s.punch_out ? formatDateTime(s.punch_out.punch_time) : <span className="text-slate-400">Incomplete</span>}</td>
-                      <td className="px-4 py-3 text-sm text-slate-700">{s.worked_minutes !== null ? `${(s.worked_minutes / 60).toFixed(1)}h` : '—'}</td>
+                      <td className="px-4 py-3 text-sm text-slate-700">{s.counted_minutes !== null ? `${(s.counted_minutes / 60).toFixed(1)}h` : '—'}</td>
                       <td className="px-4 py-3 text-sm text-slate-500">{(s.threshold_minutes / 60).toFixed(1)}h <span className="text-xs text-slate-400">({s.threshold_source.replace(/_/g, ' ')})</span></td>
                       <td className="px-4 py-3">
                         {s.is_overtime ? (

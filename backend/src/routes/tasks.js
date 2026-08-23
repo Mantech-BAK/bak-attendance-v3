@@ -100,7 +100,7 @@ router.get('/export', requireBackofficeAuth, async (req, res, next) => {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Tasks');
     sheet.columns = [
-      { header: 'ID', key: 'id', width: 8 },
+      { header: 'Employee ID', key: 'emp_id', width: 12 },
       { header: 'Employee', key: 'employee_name', width: 22 },
       { header: 'Project', key: 'project_name', width: 24 },
       { header: 'Priority', key: 'priority', width: 10 },

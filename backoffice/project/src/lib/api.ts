@@ -134,7 +134,14 @@ export type AttendanceSession = {
   punch_in: { id: number; punch_time: string };
   punch_out: { id: number; punch_time: string } | null;
   incomplete: boolean;
+  // worked_minutes is the RAW punch_in-to-punch_out span — do NOT use it to
+  // display or sum "hours worked" when another project's session can nest
+  // inside this one's span (see applyNestedSubtraction in the backend).
+  // counted_minutes is worked_minutes minus any nested project's time
+  // already subtracted server-side, and is what should always be shown.
   worked_minutes: number | null;
+  counted_minutes: number | null;
+  nested_within: string | null;
   threshold_minutes: number;
   threshold_source: 'ramzan' | 'daily_override' | 'global_default';
   is_overtime: boolean | null;
@@ -148,6 +155,42 @@ export function fetchEmployees(): Promise<Employee[]> {
 export function regenerateLoginCode(empId: string): Promise<{ emp_id: string; login_code: string }> {
   return request(`/api/employees/${encodeURIComponent(empId)}/login-code/regenerate`, {
     method: 'POST',
+  });
+}
+
+export type UpdateEmployeeResult = {
+  emp_id: string;
+  name: string;
+  status: string;
+  login_code: string | null;
+  ot_eligible: 'Y' | 'N';
+  reporting_manager_emp_id: string | null;
+};
+
+// currentEmpId addresses the row being edited (the URL path param); newEmpId
+// is what EmpId should become — usually the same value, but can differ when
+// the admin is renaming it. Safe to rename even for an employee with
+// existing punches/tasks: the backend's ON UPDATE CASCADE migration
+// propagates it everywhere automatically in one statement.
+export function updateEmployee(currentEmpId: string, input: {
+  newEmpId: string;
+  name: string;
+  status: string;
+  loginCode: string | null;
+  otEligible: boolean;
+  reportingManagerEmpId: string | null;
+}): Promise<UpdateEmployeeResult> {
+  return request(`/api/employees/${encodeURIComponent(currentEmpId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      new_emp_id: input.newEmpId,
+      name: input.name,
+      status: input.status,
+      login_code: input.loginCode,
+      ot_eligible: input.otEligible,
+      reporting_manager_emp_id: input.reportingManagerEmpId,
+    }),
   });
 }
 

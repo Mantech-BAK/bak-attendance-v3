@@ -18,6 +18,19 @@ function localDateTimeToIso(date: string, time: string): string {
   return new Date(year, month - 1, day, hour, minute, 0, 0).toISOString();
 }
 
+// Pre-fills the form with "now" (admin's own local wall-clock) as a
+// convenience default — they can still change either field freely before
+// submitting. The backend itself never defaults to "now" on its own; it
+// always receives whatever explicit date/time the form actually submits.
+function nowDateAndTime(): { date: string; time: string } {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+  };
+}
+
 // Admin-only manual punch correction — sets an explicit timestamp (never
 // "now") and is auto-approved immediately, no review queue. Shared between
 // the Punches page (general "Add Punch") and the Exceptions page (contextual
@@ -61,10 +74,14 @@ export function AddPunchModal({
 
   useEffect(() => {
     if (open) {
+      // defaultDate (the Exceptions flow completing a specific existing
+      // punch) always wins over "now" — that flow needs the date of the
+      // incomplete session being corrected, not today.
+      const { date: nowDate, time: nowTime } = nowDateAndTime();
       setEmpId(defaultEmpId ?? '');
       setProjectCode(defaultProjectCode ?? '');
-      setDate(defaultDate ?? '');
-      setTime('');
+      setDate(defaultDate ?? nowDate);
+      setTime(defaultDate ? '' : nowTime);
       setError(null);
       setPunchableCodes(null);
     }
@@ -147,13 +164,18 @@ export function AddPunchModal({
         punch = await submitPunch(punchTime, false);
       } catch (err) {
         if (err instanceof ApiError && err.status === 409) {
-          const body = err.body as { duplicate?: { punch_time: string }; conflicting_punch?: unknown } | null;
-          // A cross-project clash (identical timestamp, different project)
-          // is a hard block on the backend — force cannot bypass it, since
-          // there's no legitimate correction that needs two projects to
-          // share an instant, only a broken punch-ordering. Surface it as a
-          // plain error, not a confirm-and-retry dialog.
-          if (body?.conflicting_punch) {
+          const body = err.body as {
+            duplicate?: { punch_time: string };
+            conflicting_punch?: unknown;
+            open_project_code?: string;
+          } | null;
+          // A cross-project clash (identical timestamp) or an already-open
+          // project on that same day (the even/odd "one project at a time"
+          // rule) are both hard blocks on the backend — force cannot bypass
+          // either, since neither is a "might be intentional" case, just a
+          // broken invariant. Surface as a plain error, not a
+          // confirm-and-retry dialog.
+          if (body?.conflicting_punch || body?.open_project_code) {
             throw err;
           }
           // Otherwise it's the near-duplicate (same-project, within the

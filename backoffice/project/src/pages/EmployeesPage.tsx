@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Users, Search, Briefcase, Building2, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { Users, Search, Briefcase, Building2, Eye, EyeOff, RefreshCw, Pencil } from 'lucide-react';
 import { fetchEmployees, regenerateLoginCode } from '@/lib/api';
 import type { Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Spinner, EmptyState, Select, Button } from '@/components/ui';
+import { EditEmployeeModal } from '@/components/EditEmployeeModal';
 import { initials } from '@/lib/utils';
 
 export function EmployeesPage() {
@@ -14,6 +15,7 @@ export function EmployeesPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
 
   function toggleRevealed(empId: string) {
     setRevealedIds((prev) => {
@@ -125,6 +127,7 @@ export function EmployeesPage() {
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Reports To</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Login Code</th>
+                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -184,6 +187,16 @@ export function EmployeesPage() {
                         </Button>
                       </div>
                     </td>
+                    <td className="px-6 py-4 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditingEmployee(e)}
+                        className="!px-2 !py-1"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -191,6 +204,15 @@ export function EmployeesPage() {
           </div>
         </Card>
       )}
+
+      <EditEmployeeModal
+        open={editingEmployee !== null}
+        onClose={() => setEditingEmployee(null)}
+        employee={editingEmployee}
+        onSuccess={(updated) => {
+          setEmployees((prev) => prev.map((emp) => (emp.emp_id === editingEmployee?.emp_id ? updated : emp)));
+        }}
+      />
     </>
   );
 }

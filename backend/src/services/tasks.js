@@ -145,13 +145,16 @@ async function createTask({ emp_id, project_code, priority, description, locatio
   const projectResult = await pool.query('SELECT project_code FROM projects WHERE project_code = $1', [project_code]);
   if (projectResult.rows.length === 0) throw new TaskValidationError(400, `project ${project_code} not found`);
 
-  // Same employee + same day + same project is a duplicate — a different
-  // project for that employee that day is still a distinct, legitimate task
-  // and stays allowed. Status is never checked: tasks never transition off
-  // 'pending' anywhere in this system, so an existing row always counts.
+  // Same employee + same day + same project + same description (exact
+  // match) is a duplicate — a different description on that same
+  // project/day is a distinct, legitimate second task (e.g. two separate
+  // things to do on the same project that day), and stays allowed. A
+  // different project for that employee that day is likewise always
+  // allowed. Status is never checked: tasks never transition off 'pending'
+  // anywhere in this system, so an existing row always counts.
   const duplicateResult = await pool.query(
-    `SELECT id FROM tasks WHERE emp_id = $1 AND project_code = $2 AND task_date = COALESCE($3::date, CURRENT_DATE)`,
-    [emp_id, project_code, taskDate || null]
+    `SELECT id FROM tasks WHERE emp_id = $1 AND project_code = $2 AND task_date = COALESCE($3::date, CURRENT_DATE) AND description = $4`,
+    [emp_id, project_code, taskDate || null, description]
   );
   if (duplicateResult.rows.length > 0) {
     throw new TaskValidationError(409, 'This task already exists.');

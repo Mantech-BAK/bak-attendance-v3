@@ -1,7 +1,7 @@
 const express = require('express');
 const pool = require('../db');
 const { reverseGeocode } = require('../services/reverseGeocode');
-const { getOpenProjectForToday } = require('../services/attendance');
+const { getOpenProjectForToday, getOpenProjectForDate, dateKey } = require('../services/attendance');
 const { getDuplicatePunchWindowMinutes } = require('../services/settings');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
@@ -370,6 +370,25 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
     const projectResult = await pool.query('SELECT project_code FROM projects WHERE project_code = $1', [project_code]);
     if (projectResult.rows.length === 0) {
       return res.status(400).json({ error: `project ${project_code} not found` });
+    }
+
+    // Same even/odd "one project open at a time" rule POST / already
+    // enforces for self/supervisor punches — this endpoint previously
+    // skipped it entirely (not just for today; it never checked any date),
+    // which let an admin manually create the exact overlapping-project
+    // state mobile already refuses to produce. Scoped to whichever
+    // calendar day the submitted punch_time actually falls on (not always
+    // today, since admin-correction backfills arbitrary dates) rather than
+    // hardcoded to today like the mobile-facing check. Punching the
+    // already-open project itself (closing it) is still always allowed.
+    // Not skippable via force — an open session spanning two projects at
+    // once isn't a "might be intentional" case, it's a broken invariant.
+    const openProjectCode = await getOpenProjectForDate(emp_id, dateKey(parsedPunchTime));
+    if (openProjectCode && openProjectCode !== project_code) {
+      return res.status(409).json({
+        error: `${emp_id} has an open punch for project ${openProjectCode} on ${dateKey(parsedPunchTime)} — close it before punching a different project`,
+        open_project_code: openProjectCode,
+      });
     }
 
     // Two different projects sharing the exact same instant is ambiguous

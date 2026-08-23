@@ -168,6 +168,90 @@ router.post('/:emp_id/login-code/regenerate', requireBackofficeAuth, async (req,
   }
 });
 
+const LOGIN_CODE_PATTERN = /^[A-Z]{5}$/;
+
+/**
+ * Full-record edit from the backoffice Employees page — name, status
+ * (active/inactive), login code, OT eligibility, and reporting manager, plus
+ * EmpId itself. EmpId is the primary key: renaming it is safe only because
+ * of the 2026-08-23 migration adding ON UPDATE CASCADE to every FK that
+ * references employees.EmpId (punches, tasks, ot_approvals,
+ * confirmation_sheet_records) and adding one for the first time on
+ * EmpReportMgrId (previously unconstrained) — a single UPDATE here is all
+ * that's needed; Postgres propagates the rename everywhere automatically.
+ *
+ * Deliberately does NOT cover department/designation/division/religion —
+ * those are FK-coded fields with no list-fetching endpoint anywhere in this
+ * app yet (the Employees table only ever shows their already-joined display
+ * names), so editing them here would need new reference-data endpoints this
+ * change doesn't add. Scoped to the fields this form can actually validate.
+ */
+router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
+  try {
+    const { emp_id } = req.params;
+    const { new_emp_id, name, status, login_code, ot_eligible, reporting_manager_emp_id } = req.body;
+
+    if (!new_emp_id || !String(new_emp_id).trim()) {
+      return res.status(400).json({ error: 'new_emp_id is required' });
+    }
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    if (status !== 'active' && status !== 'inactive') {
+      return res.status(400).json({ error: "status must be 'active' or 'inactive'" });
+    }
+    if (typeof ot_eligible !== 'boolean') {
+      return res.status(400).json({ error: 'ot_eligible must be a boolean' });
+    }
+
+    const trimmedNewEmpId = String(new_emp_id).trim();
+    const trimmedName = String(name).trim();
+    const trimmedLoginCode = login_code ? String(login_code).trim().toUpperCase() : null;
+    if (trimmedLoginCode && !LOGIN_CODE_PATTERN.test(trimmedLoginCode)) {
+      return res.status(400).json({ error: 'login_code must be exactly 5 letters (A-Z)' });
+    }
+    const trimmedManagerId = reporting_manager_emp_id ? String(reporting_manager_emp_id).trim() : null;
+    if (trimmedManagerId && trimmedManagerId === trimmedNewEmpId) {
+      return res.status(400).json({ error: 'an employee cannot report to themselves' });
+    }
+
+    const existing = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: `employee ${emp_id} not found` });
+    }
+
+    try {
+      const result = await pool.query(
+        `UPDATE employees
+         SET "EmpId" = $1, "EmpName" = $2, "EmpStatus" = $3, login_code = $4,
+             "EmpOtStatus" = $5, "EmpReportMgrId" = $6
+         WHERE "EmpId" = $7
+         RETURNING "EmpId" AS emp_id, "EmpName" AS name, "EmpStatus" AS status, login_code,
+                   CASE WHEN "EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
+                   "EmpReportMgrId" AS reporting_manager_emp_id`,
+        [trimmedNewEmpId, trimmedName, status, trimmedLoginCode, ot_eligible, trimmedManagerId, emp_id]
+      );
+      res.json(result.rows[0]);
+    } catch (err) {
+      if (err.code === '23505') {
+        if (err.constraint === 'employees_pkey') {
+          return res.status(409).json({ error: `employee ID ${trimmedNewEmpId} is already in use` });
+        }
+        if (err.constraint === 'employees_login_code_key') {
+          return res.status(409).json({ error: `login code ${trimmedLoginCode} is already in use` });
+        }
+        return res.status(409).json({ error: 'that value is already in use by another employee' });
+      }
+      if (err.code === '23503') {
+        return res.status(400).json({ error: `reporting_manager_emp_id ${trimmedManagerId} not found` });
+      }
+      throw err;
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Handles Multer errors (bad mime type, file too large) with a clean 400
 // instead of falling through to the default Express error page.
 router.use((err, req, res, next) => {

@@ -280,13 +280,14 @@ function calculateAttendanceForAllEmployees(date) {
 
 /**
  * Returns the project_code of the one project (if any) the employee has
- * left "open" today — an odd punch count, meaning it hasn't been closed
- * with a matching punch yet. Scoped to today via explicit JS Date bounds
- * (see getUtcDayBounds) rather than SQL's CURRENT_DATE or a ::date-cast
- * string, so it can never disagree with dateKey()'s UTC-based day boundary.
+ * left "open" on the given date — an odd punch count, meaning it hasn't
+ * been closed with a matching punch yet. date is a 'YYYY-MM-DD' string;
+ * bounds are computed via getUtcDayBounds (never SQL's CURRENT_DATE or a
+ * ::date-cast string) so this can never disagree with dateKey()'s
+ * UTC-based day boundary.
  */
-async function getOpenProjectForToday(empId) {
-  const { start, end } = getUtcDayBounds(dateKey(new Date()));
+async function getOpenProjectForDate(empId, date) {
+  const { start, end } = getUtcDayBounds(date);
 
   const { rows } = await pool.query(
     `SELECT project_code, count(*)::int AS cnt
@@ -303,10 +304,15 @@ async function getOpenProjectForToday(empId) {
   return open ? open.project_code : null;
 }
 
+function getOpenProjectForToday(empId) {
+  return getOpenProjectForDate(empId, dateKey(new Date()));
+}
+
 module.exports = {
   calculateAttendanceForEmployee,
   calculateAttendanceForAllEmployees,
   getOpenProjectForToday,
+  getOpenProjectForDate,
   dateKey,
   getUtcDayBounds,
   getEffectiveThreshold,
