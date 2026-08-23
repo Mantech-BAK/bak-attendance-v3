@@ -16,6 +16,7 @@ export function formatDateTime(value: string | null): string {
   return new Date(value).toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
+    hour12: true,
     hour: 'numeric',
     minute: '2-digit',
   });
@@ -24,6 +25,7 @@ export function formatDateTime(value: string | null): string {
 export function formatTime(value: string | null): string {
   if (!value) return '—';
   return new Date(value).toLocaleTimeString('en-US', {
+    hour12: true,
     hour: 'numeric',
     minute: '2-digit',
   });

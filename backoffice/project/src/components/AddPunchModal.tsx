@@ -12,10 +12,25 @@ import { formatDateTime } from '@/lib/utils';
 // do the UTC conversion, rather than gluing the digits straight onto a "Z"
 // suffix (which silently mislabels local time as UTC and shifts every
 // saved punch by the browser's UTC offset).
-function localDateTimeToIso(date: string, time: string): string {
+function parse12HourTime(value: string): { hour: number; minute: number } | null {
+  const match = value.trim().match(/^(\d{1,2}):([0-5]\d)\s*(AM|PM)$/i);
+  if (!match) return null;
+
+  const hour12 = Number(match[1]);
+  if (hour12 < 1 || hour12 > 12) return null;
+
+  const isPm = match[3].toUpperCase() === 'PM';
+  return {
+    hour: hour12 % 12 + (isPm ? 12 : 0),
+    minute: Number(match[2]),
+  };
+}
+
+function localDateTimeToIso(date: string, time: string): string | null {
+  const parsedTime = parse12HourTime(time);
+  if (!parsedTime) return null;
   const [year, month, day] = date.split('-').map(Number);
-  const [hour, minute] = time.split(':').map(Number);
-  return new Date(year, month - 1, day, hour, minute, 0, 0).toISOString();
+  return new Date(year, month - 1, day, parsedTime.hour, parsedTime.minute, 0, 0).toISOString();
 }
 
 // Admin-only manual punch correction — sets an explicit timestamp (never
@@ -142,6 +157,10 @@ export function AddPunchModal({
     setSubmitting(true);
     try {
       const punchTime = localDateTimeToIso(date, time);
+      if (!punchTime) {
+        setError('Enter a valid time in 12-hour format, such as 2:30 PM.');
+        return;
+      }
       let punch;
       try {
         punch = await submitPunch(punchTime, false);
@@ -202,7 +221,14 @@ export function AddPunchModal({
 
         <div className="grid grid-cols-2 gap-3">
           <Input value={date} onChange={setDate} label="Date" id="add-punch-date" type="date" />
-          <Input value={time} onChange={setTime} label="Time" id="add-punch-time" type="time" />
+          <Input
+            value={time}
+            onChange={setTime}
+            label="Time"
+            id="add-punch-time"
+            placeholder="2:30 PM"
+            type="text"
+          />
         </div>
 
         <Select
