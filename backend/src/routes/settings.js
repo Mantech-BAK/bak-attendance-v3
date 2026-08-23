@@ -271,7 +271,15 @@ router.delete('/ramzan-periods/:id', async (req, res, next) => {
 // confirm: 'RESET' is a second, server-side safety net behind whatever
 // confirmation dialog the caller already showed — a stray/scripted POST
 // without it is rejected rather than silently wiping data.
-const RESET_TABLES = ['confirmation_sheet_records', 'ot_approvals', 'exceptions', 'tasks', 'punches'];
+//
+// task_id_counters must be reset alongside tasks — otherwise a task
+// created right after a reset would keep numbering from wherever the old
+// counter left off (e.g. TASK-DDMMYYYY-012) instead of genuinely
+// restarting at 001, silently contradicting the "clean slate" this button
+// promises. It has no identity column of its own (PK is task_date, not a
+// serial), so RESTART IDENTITY is a no-op for it — TRUNCATE alone is what
+// actually matters here.
+const RESET_TABLES = ['confirmation_sheet_records', 'ot_approvals', 'exceptions', 'tasks', 'punches', 'task_id_counters'];
 
 router.post('/reset-test-data', async (req, res, next) => {
   try {
