@@ -337,7 +337,7 @@ router.post('/', async (req, res, next) => {
 
 /**
  * Admin-only manual punch correction — for backfilling a punch an employee
- * never actually recorded (most commonly to resolve a single_punch_only
+ * never actually recorded (most commonly to resolve an odd_punch_count
  * exception), or any other missing entry. Deliberately a separate endpoint
  * from POST / rather than a variant of it: this accepts an explicit
  * admin-supplied punch_time instead of trusting the server clock, skips the

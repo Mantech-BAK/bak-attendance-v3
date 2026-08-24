@@ -4,11 +4,16 @@ const { getAllSettings, parseRamzanPeriods } = require('./settings');
 /**
  * Punch type (IN/OUT) is never stored — it's derived here, at calculation
  * time, from punch_time ordering within an (emp_id, punch key, day) group:
- * earliest = IN, latest = OUT (First-In-Last-Out). A group with only one
- * punch is an incomplete session and raises a 'single_punch_only' exception
- * for supervisor review — but only for past days. A single punch for today
- * is normal and expected mid-day (the employee just hasn't pressed Punch
- * again to close that task yet), not an anomaly.
+ * earliest = IN, latest = OUT (First-In-Last-Out). A group with an ODD
+ * punch count (1, 3, 5, ...) — not just exactly one — is genuinely
+ * incomplete: whatever punch closed the most recent open cycle is missing,
+ * so the group has no real "OUT" yet. That raises an 'odd_punch_count'
+ * exception for supervisor review — but only for past days; an odd count
+ * for TODAY is normal and expected mid-day (the employee just hasn't
+ * pressed Punch again to close that task yet), not an anomaly. Once the
+ * same group's count goes back to even (a matching close punch shows up,
+ * e.g. via an admin correction), the exception auto-resolves on its own —
+ * see raiseOddPunchException/resolveOddPunchException below.
  *
  * The "punch key" identifies what's actually being tracked: task_id when the
  * punch is against a real task, else project_code for the department-default
@@ -93,26 +98,59 @@ function getEffectiveThreshold({ religion, date, settingsMap, ramzanPeriods }) {
   return { minutes: globalMinutes, source: 'global_default' };
 }
 
-async function raiseSinglePunchException(empId, projectCode, date, punch) {
+/**
+ * Groups a punch group's raw rows into a session shape — shared by
+ * calculateAttendance (this file) and dailyConfirmation.js's
+ * buildSessionsForDay, so the two never drift on what "incomplete" means.
+ * An ODD count (not just exactly one) is incomplete: the most recent open
+ * cycle in the group has no matching close punch yet, so there's no real
+ * punch_out — treating the last punch as if it closed the session would be
+ * wrong (it's actually the dangling open one).
+ */
+function buildSessionFromPunches(punches) {
+  const sorted = [...punches].sort((a, b) => a.punch_time - b.punch_time);
+  const punchIn = sorted[0];
+  const incomplete = sorted.length % 2 !== 0;
+  const punchOut = incomplete ? null : sorted[sorted.length - 1];
+  const workedMinutes = incomplete ? null : Math.round((punchOut.punch_time - punchIn.punch_time) / 60000);
+  return { punchIn, punchOut, incomplete, workedMinutes, punchCount: sorted.length };
+}
+
+async function raiseOddPunchException(empId, projectCode, date, punch, punchCount) {
   const existing = await pool.query(
     `SELECT id FROM exceptions
-     WHERE type = 'single_punch_only' AND ref_table = 'punches' AND ref_id = $1 AND status = 'open'`,
+     WHERE type = 'odd_punch_count' AND ref_table = 'punches' AND ref_id = $1 AND status = 'open'`,
     [punch.id]
   );
   if (existing.rows.length > 0) {
     return null;
   }
 
-  const details = `Employee ${empId} has only one punch for project ${projectCode || 'unassigned'} on ${date} — session is incomplete.`;
+  const details = `Employee ${empId} has ${punchCount} punch${punchCount === 1 ? '' : 'es'} (odd count) for project ${projectCode || 'unassigned'} on ${date} — session is incomplete/still open.`;
 
   const result = await pool.query(
     `INSERT INTO exceptions (type, emp_id, ref_table, ref_id, details, status)
-     VALUES ('single_punch_only', $1, 'punches', $2, $3, 'open')
+     VALUES ('odd_punch_count', $1, 'punches', $2, $3, 'open')
      RETURNING id, type, emp_id, ref_table, ref_id, details, status, created_at`,
     [empId, punch.id, details]
   );
 
   return result.rows[0];
+}
+
+// The reverse of raiseOddPunchException — once the same group (identified
+// by its stable first punch, which never changes as later punches are
+// added) goes back to an even count, whatever open exception was raised
+// for it no longer applies. Runs unconditionally alongside the raise check
+// on every calculateAttendance call; matches 0 rows (and is a no-op) the
+// vast majority of the time, same pattern as ensureOtApproval's
+// ON CONFLICT DO NOTHING elsewhere in this app.
+async function resolveOddPunchException(punchId) {
+  await pool.query(
+    `UPDATE exceptions SET status = 'resolved'
+     WHERE type = 'odd_punch_count' AND ref_table = 'punches' AND ref_id = $1 AND status = 'open'`,
+    [punchId]
+  );
 }
 
 /**
@@ -239,26 +277,25 @@ async function calculateAttendance(empId, date) {
   const exceptionsRaised = [];
 
   for (const { empId: groupEmpId, projectCode, taskId, date, punches } of groups.values()) {
-    const sorted = [...punches].sort((a, b) => a.punch_time - b.punch_time);
-    const punchIn = sorted[0];
-    const punchOut = sorted.length > 1 ? sorted[sorted.length - 1] : null;
-    const incomplete = sorted.length === 1;
+    const { punchIn, punchOut, incomplete, workedMinutes, punchCount } = buildSessionFromPunches(punches);
 
-    if (incomplete && date !== today) {
-      const raised = await raiseSinglePunchException(groupEmpId, projectCode, date, punchIn);
-      if (raised) {
-        exceptionsRaised.push(raised);
+    if (date !== today) {
+      if (incomplete) {
+        const raised = await raiseOddPunchException(groupEmpId, projectCode, date, punchIn, punchCount);
+        if (raised) {
+          exceptionsRaised.push(raised);
+        }
+      } else {
+        await resolveOddPunchException(punchIn.id);
       }
     }
-
-    const workedMinutes = incomplete ? null : Math.round((punchOut.punch_time - punchIn.punch_time) / 60000);
 
     sessions.push({
       emp_id: groupEmpId,
       project_code: projectCode,
       task_id: taskId,
       date,
-      punch_count: sorted.length,
+      punch_count: punchCount,
       punch_in: { id: punchIn.id, punch_time: punchIn.punch_time },
       punch_out: punchOut ? { id: punchOut.id, punch_time: punchOut.punch_time } : null,
       incomplete,
@@ -352,4 +389,5 @@ module.exports = {
   getUtcDayBounds,
   getEffectiveThreshold,
   applyNestedSubtraction,
+  buildSessionFromPunches,
 };

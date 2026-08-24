@@ -50,7 +50,7 @@ function taskKey(task: Pick<PunchableTask, 'id' | 'project_code'>): string {
  * Admin-only manual punch correction — sets an explicit timestamp (never
  * "now") and is auto-approved immediately, no review queue. Shared between
  * the Punches page ("Add Punch" and, via editingPunch, "Edit Punch"), and
- * the Exceptions page (contextual "Add Punch" on a single_punch_only card,
+ * the Exceptions page (contextual "Add Punch" on an odd_punch_count card,
  * with employee/task/date pre-filled from the existing incomplete punch).
  *
  * The task picker (not a separate project picker) is the entire point of

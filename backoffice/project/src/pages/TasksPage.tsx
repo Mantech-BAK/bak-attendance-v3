@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { ClipboardList, Plus, CheckCircle2, XCircle, Loader2, MapPin, Calendar, Download, Upload, Filter, X } from 'lucide-react';
-import { fetchTasks, fetchEmployees, fetchProjects, createTask, tasksExportUrl, authHeaders } from '@/lib/api';
+import { ClipboardList, Plus, CheckCircle2, XCircle, Loader2, MapPin, Calendar, Download, Upload, Filter, X, Pencil, Trash2 } from 'lucide-react';
+import { fetchTasks, fetchEmployees, fetchProjects, createTask, deleteTask, tasksExportUrl, authHeaders, ApiError } from '@/lib/api';
 import type { Task, Employee, Project } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, Badge, Button, Select, Textarea, Input, Spinner, EmptyState } from '@/components/ui';
+import { Card, Badge, Button, Select, Textarea, Input, Spinner, EmptyState, Modal } from '@/components/ui';
 import { BulkUploadTasksModal } from '@/components/BulkUploadTasksModal';
+import { EditTaskModal } from '@/components/EditTaskModal';
 import { formatDate, initials, cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 
@@ -63,6 +64,10 @@ export function TasksPage() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [deletingTask, setDeletingTask] = useState<Task | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [dateFilter, setDateFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('all');
@@ -90,6 +95,21 @@ export function TasksPage() {
   // read. Just re-fetches the list in place.
   async function refreshTasks() {
     setTasks(await fetchTasks());
+  }
+
+  async function handleConfirmDelete() {
+    if (!deletingTask) return;
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      await deleteTask(deletingTask.id);
+      setTasks((prev) => prev.filter((t) => t.id !== deletingTask.id));
+      setDeletingTask(null);
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : 'Could not delete the task. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -387,6 +407,14 @@ export function TasksPage() {
                           <span>Created by {t.created_by}</span>
                         </div>
                       </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => setEditingTask(t)} className="!px-2 !py-1">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => { setDeleteError(null); setDeletingTask(t); }} className="!px-2 !py-1 text-rose-600 hover:bg-rose-50">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
                   </Card>
                 );
@@ -401,6 +429,47 @@ export function TasksPage() {
         onClose={() => setShowBulkUpload(false)}
         onSuccess={refreshTasks}
       />
+
+      <EditTaskModal
+        open={editingTask !== null}
+        onClose={() => setEditingTask(null)}
+        task={editingTask}
+        projects={projects}
+        // Refetches rather than merging the PUT response in place — that
+        // response doesn't carry the joined employee_name/project_name (only
+        // GET / does), so a merge would leave a stale project_name showing
+        // if the admin just changed the project.
+        onSuccess={refreshTasks}
+      />
+
+      <Modal open={deletingTask !== null} onClose={() => setDeletingTask(null)} title="Delete this task?">
+        <p className="mb-4 text-sm text-slate-600">
+          {deletingTask && (
+            <>This permanently removes <span className="font-medium text-slate-900">{deletingTask.display_id}</span>
+              {' '}(&ldquo;{deletingTask.description}&rdquo;) for {deletingTask.employee_name ?? deletingTask.emp_id}.
+              {' '}Blocked if any punch already references this task. This cannot be undone.</>
+          )}
+        </p>
+
+        {deleteError && (
+          <div className="mb-4 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+            <XCircle className="h-4 w-4 shrink-0" />{deleteError}
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <Button variant="secondary" onClick={() => setDeletingTask(null)} disabled={deleting} className="flex-1">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmDelete}
+            disabled={deleting}
+            className="flex-1 bg-rose-600 hover:bg-rose-700 focus-visible:outline-rose-600"
+          >
+            {deleting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Deleting…</>) : (<><Trash2 className="h-4 w-4" /> Delete Task</>)}
+          </Button>
+        </div>
+      </Modal>
     </>
   );
 }

@@ -134,7 +134,7 @@ export type ExceptionRow = {
   status: string;
   created_at: string;
   // Only populated when ref_table === 'punches' (currently just
-  // single_punch_only) — the existing incomplete punch's task/project/time,
+  // odd_punch_count) — the existing incomplete punch's task/project/time,
   // so "Add Punch" can pre-fill everything but the missing timestamp.
   ref_project_code: string | null;
   ref_task_id: number | null;
@@ -287,6 +287,37 @@ export function createTask(input: {
       source: 'backoffice',
     }),
   });
+}
+
+// Admin-only task edit — same validation as creating one (project must
+// exist, description required, the emp_id+day+project+description
+// duplicate rule). emp_id is never editable — reassigning to a different
+// employee isn't a correction, it's a different task.
+export function updateTask(id: number, input: {
+  projectCode: string;
+  priority: string;
+  description: string;
+  locationSite: string | null;
+  taskDate: string;
+}): Promise<Task> {
+  return request(`/api/tasks/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      project_code: input.projectCode,
+      priority: input.priority,
+      description: input.description,
+      location_site: input.locationSite,
+      task_date: input.taskDate,
+    }),
+  });
+}
+
+// Real, permanent removal — the backend rejects this (409) if any punch
+// already references the task, and the frontend must gate this behind an
+// explicit confirmation dialog before calling it.
+export function deleteTask(id: number): Promise<void> {
+  return request(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 export function fetchPunches(): Promise<Punch[]> {

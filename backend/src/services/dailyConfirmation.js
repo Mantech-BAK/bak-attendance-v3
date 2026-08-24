@@ -1,6 +1,6 @@
 const pool = require('../db');
 const { getAllSettings, parseRamzanPeriods } = require('./settings');
-const { getEffectiveThreshold, applyNestedSubtraction, getUtcDayBounds, punchKey } = require('./attendance');
+const { getEffectiveThreshold, applyNestedSubtraction, getUtcDayBounds, punchKey, buildSessionFromPunches } = require('./attendance');
 
 // Gaps under this many minutes between two sequential top-level sessions fold
 // into the preceding one's counted time (as part of that real row); gaps
@@ -54,18 +54,14 @@ function buildSessionsForDay(punchRows, empId, date) {
 
   const sessions = [];
   for (const punches of groups.values()) {
-    const sorted = [...punches].sort((a, b) => a.punch_time - b.punch_time);
-    const punchIn = sorted[0];
-    const punchOut = sorted.length > 1 ? sorted[sorted.length - 1] : null;
-    const incomplete = sorted.length === 1;
-    const workedMinutes = incomplete ? null : Math.round((punchOut.punch_time - punchIn.punch_time) / 60000);
+    const { punchIn, punchOut, incomplete, workedMinutes, punchCount } = buildSessionFromPunches(punches);
 
     sessions.push({
       emp_id: empId,
       project_code: punchIn.project_code,
       task_id: punchIn.task_id,
       date,
-      punch_count: sorted.length,
+      punch_count: punchCount,
       punch_in: { id: punchIn.id, punch_time: punchIn.punch_time },
       punch_out: punchOut ? { id: punchOut.id, punch_time: punchOut.punch_time } : null,
       incomplete,

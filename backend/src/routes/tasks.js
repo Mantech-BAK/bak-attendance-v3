@@ -53,6 +53,96 @@ router.post('/', async (req, res, next) => {
   }
 });
 
+/**
+ * Admin-only task edit — same validation as creating one (project must
+ * exist, description required, the same emp_id+day+project+description
+ * duplicate rule), with this task's own id excluded from the duplicate
+ * check so saving without actually changing anything doesn't collide with
+ * itself. emp_id is never editable here — reassigning a task to a
+ * different employee isn't a "correction," it's a different task; delete
+ * and re-create instead (same reasoning as punch edit's emp_id lock).
+ * display_id is also never regenerated on edit — it's a permanent
+ * reference id fixed at creation, even if task_date is later corrected.
+ */
+router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { project_code, priority, description, location_site, task_date } = req.body;
+
+    const existingResult = await pool.query('SELECT id, emp_id FROM tasks WHERE id = $1', [id]);
+    if (existingResult.rows.length === 0) {
+      return res.status(404).json({ error: `task ${id} not found` });
+    }
+    const empId = existingResult.rows[0].emp_id;
+
+    if (!project_code) {
+      return res.status(400).json({ error: 'project_code is required' });
+    }
+    if (!description) {
+      return res.status(400).json({ error: 'description is required' });
+    }
+    if (!task_date || !DATE_PATTERN.test(task_date)) {
+      return res.status(400).json({ error: 'task_date is required in YYYY-MM-DD format' });
+    }
+
+    const projectResult = await pool.query('SELECT project_code FROM projects WHERE project_code = $1', [project_code]);
+    if (projectResult.rows.length === 0) {
+      return res.status(400).json({ error: `project ${project_code} not found` });
+    }
+
+    const duplicateResult = await pool.query(
+      `SELECT id FROM tasks
+       WHERE emp_id = $1 AND project_code = $2 AND task_date = $3::date AND description = $4 AND id != $5`,
+      [empId, project_code, task_date, description, id]
+    );
+    if (duplicateResult.rows.length > 0) {
+      return res.status(409).json({ error: 'This task already exists.' });
+    }
+
+    const result = await pool.query(
+      `UPDATE tasks
+       SET project_code = $1, priority = $2, description = $3, location_site = $4, task_date = $5::date
+       WHERE id = $6
+       RETURNING id, display_id, emp_id, task_date::text AS task_date, project_code, priority, description,
+                 location_site, status, source, created_by, created_at`,
+      [project_code, priority || null, description, location_site || null, task_date, id]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Real, permanent removal — blocked (409, not a silent cascade) if any
+// punch already references this task via task_id, since punches.task_id
+// has no ON DELETE CASCADE: deleting a task with real recorded attendance
+// under it would either fail on the FK or (if it didn't) silently orphan
+// that punch data. The frontend gates this behind an explicit confirmation
+// dialog before ever calling it.
+router.delete('/:id', requireBackofficeAuth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const punchCountResult = await pool.query('SELECT count(*)::int AS cnt FROM punches WHERE task_id = $1', [id]);
+    const punchCount = punchCountResult.rows[0].cnt;
+    if (punchCount > 0) {
+      return res.status(409).json({
+        error: `Cannot delete: ${punchCount} punch${punchCount === 1 ? '' : 'es'} already reference${punchCount === 1 ? 's' : ''} this task. Delete ${punchCount === 1 ? 'it' : 'them'} first.`,
+      });
+    }
+
+    const result = await pool.query('DELETE FROM tasks WHERE id = $1 RETURNING id', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: `task ${id} not found` });
+    }
+
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Backoffice-only (full task list) — mobile only ever creates tasks
 // (POST / above) or reads its own via /me/:emp_id, never lists everyone's.
 router.get('/', requireBackofficeAuth, async (req, res, next) => {
