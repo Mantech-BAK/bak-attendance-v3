@@ -10,7 +10,7 @@ router.use(requireBackofficeAuth);
 const VALID_STATUSES = ['open', 'resolved'];
 
 // rp (referenced punch) is only populated for exceptions whose ref_table is
-// 'punches' — currently just odd_punch_count. Lets the backoffice's
+// 'punches' — currently just single_punch_only. Lets the backoffice's
 // "Add Punch" action on an exception pre-fill the project and date from the
 // existing incomplete punch, so the admin only has to supply the missing
 // time.

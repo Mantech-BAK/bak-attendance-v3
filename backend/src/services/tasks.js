@@ -49,23 +49,30 @@ async function getDepartmentDefaultProject(empId) {
  */
 async function getTasksForDate(empId, date) {
   const result = await pool.query(
-    `SELECT id, project_code, priority, description, location_site, status, display_id
-     FROM tasks
-     WHERE emp_id = $1 AND task_date = $2::date
-     ORDER BY id`,
+    `SELECT t.id, t.project_code, t.priority, t.description, t.location_site, t.status, t.display_id,
+            (SELECT count(*)::int FROM punches pu WHERE pu.task_id = t.id AND pu.approval_status <> 'rejected') AS punch_count
+     FROM tasks t
+     WHERE t.emp_id = $1 AND t.task_date = $2::date
+     ORDER BY t.id`,
     [empId, date]
   );
 
   if (result.rows.length > 0) {
-    return result.rows.map((task) => ({
-      id: task.id,
-      display_id: task.display_id,
-      project_code: task.project_code,
-      name: task.description || task.location_site || task.project_code,
-      priority: task.priority,
-      status: task.status,
-      is_default: false,
-    }));
+    // A task at its 2-punch cap is Completed and no longer punchable — drop
+    // it from the list rather than the fallback below, which only ever
+    // applies when NO real task was assigned that day at all (see the
+    // comment above getDepartmentDefaultProject's usage below).
+    return result.rows
+      .filter((task) => task.punch_count < 2)
+      .map((task) => ({
+        id: task.id,
+        display_id: task.display_id,
+        project_code: task.project_code,
+        name: task.description || task.location_site || task.project_code,
+        priority: task.priority,
+        status: task.status,
+        is_default: false,
+      }));
   }
 
   const defaultProject = await getDepartmentDefaultProject(empId);
@@ -90,23 +97,31 @@ async function getTasksForDate(empId, date) {
 // that mismatch entirely.
 async function getTodaysTasks(empId) {
   const result = await pool.query(
-    `SELECT id, project_code, priority, description, location_site, status, display_id
-     FROM tasks
-     WHERE emp_id = $1 AND task_date = CURRENT_DATE
-     ORDER BY id`,
+    `SELECT t.id, t.project_code, t.priority, t.description, t.location_site, t.status, t.display_id,
+            (SELECT count(*)::int FROM punches pu WHERE pu.task_id = t.id AND pu.approval_status <> 'rejected') AS punch_count
+     FROM tasks t
+     WHERE t.emp_id = $1 AND t.task_date = CURRENT_DATE
+     ORDER BY t.id`,
     [empId]
   );
 
   if (result.rows.length > 0) {
-    return result.rows.map((task) => ({
-      id: task.id,
-      display_id: task.display_id,
-      project_code: task.project_code,
-      name: task.description || task.location_site || task.project_code,
-      priority: task.priority,
-      status: task.status,
-      is_default: false,
-    }));
+    // Same Completed-drop as getTasksForDate above — a task at its 2-punch
+    // cap disappears from the employee's own Tasks tab (and the supervisor's
+    // on-behalf punch view, which reuses this same function via
+    // POST /api/punch/identify) without falling through to the department
+    // default, since real tasks were assigned this day regardless.
+    return result.rows
+      .filter((task) => task.punch_count < 2)
+      .map((task) => ({
+        id: task.id,
+        display_id: task.display_id,
+        project_code: task.project_code,
+        name: task.description || task.location_site || task.project_code,
+        priority: task.priority,
+        status: task.status,
+        is_default: false,
+      }));
   }
 
   const defaultProject = await getDepartmentDefaultProject(empId);

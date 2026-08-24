@@ -134,7 +134,7 @@ export type ExceptionRow = {
   status: string;
   created_at: string;
   // Only populated when ref_table === 'punches' (currently just
-  // odd_punch_count) — the existing incomplete punch's task/project/time,
+  // single_punch_only) — the existing incomplete punch's task/project/time,
   // so "Add Punch" can pre-fill everything but the missing timestamp.
   ref_project_code: string | null;
   ref_task_id: number | null;

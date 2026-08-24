@@ -407,14 +407,16 @@ export function TasksPage() {
                           <span>Created by {t.created_by}</span>
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => setEditingTask(t)} className="!px-2 !py-1">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => { setDeleteError(null); setDeletingTask(t); }} className="!px-2 !py-1 text-rose-600 hover:bg-rose-50">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
+                      {status !== 'completed' && (
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => setEditingTask(t)} className="!px-2 !py-1">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => { setDeleteError(null); setDeletingTask(t); }} className="!px-2 !py-1 text-rose-600 hover:bg-rose-50">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </Card>
                 );

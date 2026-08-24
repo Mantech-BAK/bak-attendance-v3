@@ -4,16 +4,21 @@ const { getAllSettings, parseRamzanPeriods } = require('./settings');
 /**
  * Punch type (IN/OUT) is never stored — it's derived here, at calculation
  * time, from punch_time ordering within an (emp_id, punch key, day) group:
- * earliest = IN, latest = OUT (First-In-Last-Out). A group with an ODD
- * punch count (1, 3, 5, ...) — not just exactly one — is genuinely
- * incomplete: whatever punch closed the most recent open cycle is missing,
- * so the group has no real "OUT" yet. That raises an 'odd_punch_count'
+ * earliest = IN, latest = OUT (First-In-Last-Out). A real task can never
+ * accumulate more than its 2 punches (open + close — enforced at write time
+ * by checkTaskPunchCap in punchValidation.js, which hard-blocks a 3rd), so
+ * for task-based groups an odd count only ever means exactly 1: the task is
+ * still Pending, its close punch hasn't happened yet. The department-default
+ * fallback (no real task, keyed by bare project_code) has no such cap, so
+ * buildSessionFromPunches below still treats ANY odd count as incomplete —
+ * whatever punch closed the most recent open cycle is missing — rather than
+ * assuming it can only be 1. Either way this raises a 'single_punch_only'
  * exception for supervisor review — but only for past days; an odd count
  * for TODAY is normal and expected mid-day (the employee just hasn't
  * pressed Punch again to close that task yet), not an anomaly. Once the
  * same group's count goes back to even (a matching close punch shows up,
  * e.g. via an admin correction), the exception auto-resolves on its own —
- * see raiseOddPunchException/resolveOddPunchException below.
+ * see raiseSinglePunchException/resolveSinglePunchException below.
  *
  * The "punch key" identifies what's actually being tracked: task_id when the
  * punch is against a real task, else project_code for the department-default
@@ -116,21 +121,23 @@ function buildSessionFromPunches(punches) {
   return { punchIn, punchOut, incomplete, workedMinutes, punchCount: sorted.length };
 }
 
-async function raiseOddPunchException(empId, projectCode, date, punch, punchCount) {
+async function raiseSinglePunchException(empId, projectCode, date, punch, punchCount) {
   const existing = await pool.query(
     `SELECT id FROM exceptions
-     WHERE type = 'odd_punch_count' AND ref_table = 'punches' AND ref_id = $1 AND status = 'open'`,
+     WHERE type = 'single_punch_only' AND ref_table = 'punches' AND ref_id = $1 AND status = 'open'`,
     [punch.id]
   );
   if (existing.rows.length > 0) {
     return null;
   }
 
-  const details = `Employee ${empId} has ${punchCount} punch${punchCount === 1 ? '' : 'es'} (odd count) for project ${projectCode || 'unassigned'} on ${date} — session is incomplete/still open.`;
+  const details = punchCount === 1
+    ? `Employee ${empId} has a single punch for project ${projectCode || 'unassigned'} on ${date} — session is incomplete/still open.`
+    : `Employee ${empId} has ${punchCount} punches (odd count) for project ${projectCode || 'unassigned'} on ${date} — session is incomplete/still open.`;
 
   const result = await pool.query(
     `INSERT INTO exceptions (type, emp_id, ref_table, ref_id, details, status)
-     VALUES ('odd_punch_count', $1, 'punches', $2, $3, 'open')
+     VALUES ('single_punch_only', $1, 'punches', $2, $3, 'open')
      RETURNING id, type, emp_id, ref_table, ref_id, details, status, created_at`,
     [empId, punch.id, details]
   );
@@ -138,17 +145,17 @@ async function raiseOddPunchException(empId, projectCode, date, punch, punchCoun
   return result.rows[0];
 }
 
-// The reverse of raiseOddPunchException — once the same group (identified
+// The reverse of raiseSinglePunchException — once the same group (identified
 // by its stable first punch, which never changes as later punches are
 // added) goes back to an even count, whatever open exception was raised
 // for it no longer applies. Runs unconditionally alongside the raise check
 // on every calculateAttendance call; matches 0 rows (and is a no-op) the
 // vast majority of the time, same pattern as ensureOtApproval's
 // ON CONFLICT DO NOTHING elsewhere in this app.
-async function resolveOddPunchException(punchId) {
+async function resolveSinglePunchException(punchId) {
   await pool.query(
     `UPDATE exceptions SET status = 'resolved'
-     WHERE type = 'odd_punch_count' AND ref_table = 'punches' AND ref_id = $1 AND status = 'open'`,
+     WHERE type = 'single_punch_only' AND ref_table = 'punches' AND ref_id = $1 AND status = 'open'`,
     [punchId]
   );
 }
@@ -281,12 +288,12 @@ async function calculateAttendance(empId, date) {
 
     if (date !== today) {
       if (incomplete) {
-        const raised = await raiseOddPunchException(groupEmpId, projectCode, date, punchIn, punchCount);
+        const raised = await raiseSinglePunchException(groupEmpId, projectCode, date, punchIn, punchCount);
         if (raised) {
           exceptionsRaised.push(raised);
         }
       } else {
-        await resolveOddPunchException(punchIn.id);
+        await resolveSinglePunchException(punchIn.id);
       }
     }
 

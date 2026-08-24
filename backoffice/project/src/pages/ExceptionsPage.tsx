@@ -18,11 +18,11 @@ import { AddPunchModal } from '@/components/AddPunchModal';
 import { cn, formatDateTime, initials } from '@/lib/utils';
 
 const TYPE_VARIANTS: Record<string, 'error' | 'warning' | 'info' | 'accent' | 'neutral'> = {
-  odd_punch_count: 'error',
+  single_punch_only: 'error',
 };
 
 const TYPE_LABELS: Record<string, string> = {
-  odd_punch_count: 'Odd Punch Count',
+  single_punch_only: 'Single Punch Only',
 };
 
 function typeBadgeVariant(type: string): 'error' | 'warning' | 'info' | 'accent' | 'neutral' {
@@ -237,7 +237,7 @@ export function ExceptionsPage() {
                   </div>
                   {isOpen && (
                     <div className="flex shrink-0 gap-2">
-                      {e.type === 'odd_punch_count' && e.emp_id && (
+                      {e.type === 'single_punch_only' && e.emp_id && (
                         <Button size="sm" variant="secondary" onClick={() => setAddPunchFor(e)}>
                           <Plus className="h-4 w-4" /> Add Punch
                         </Button>

@@ -94,6 +94,31 @@ function describeKey({ task_id, project_code }) {
 }
 
 /**
+ * A real task can never accumulate more than 2 punches — its one open and
+ * one close — so once it has 2, it's Completed and permanently locked to
+ * further punching, admin corrections included. Only applies when punching
+ * against a real task (task_id); the department-default fallback (bare
+ * project_code, task_id null) has no such cap. excludePunchId lets an edit
+ * that keeps the same task_id check "would this leave >2" without the punch
+ * being edited counting against itself.
+ */
+async function checkTaskPunchCap({ task_id, excludePunchId }) {
+  if (task_id === null || task_id === undefined) return;
+
+  const params = [task_id];
+  let sql = `SELECT count(*)::int AS cnt FROM punches WHERE task_id = $1 AND approval_status <> 'rejected'`;
+  if (excludePunchId) {
+    params.push(excludePunchId);
+    sql += ` AND id != $${params.length}`;
+  }
+
+  const result = await pool.query(sql, params);
+  if (result.rows[0].cnt >= 2) {
+    throw new PunchValidationError(409, `task ${task_id} already has its 2 punches (open + close) and is Completed — it can no longer be punched.`);
+  }
+}
+
+/**
  * Two different tasks/projects sharing the exact same instant is ambiguous:
  * the even/odd open check and First-In-Last-Out session logic both depend
  * on every punch having a genuine chronological order, and two punches at
@@ -163,6 +188,7 @@ module.exports = {
   PunchValidationError,
   resolvePunchTarget,
   checkOpenConflict,
+  checkTaskPunchCap,
   checkCrossKeyTimestampClash,
   checkNearDuplicate,
   describeKey,

@@ -63,6 +63,13 @@ router.post('/', async (req, res, next) => {
  * and re-create instead (same reasoning as punch edit's emp_id lock).
  * display_id is also never regenerated on edit — it's a permanent
  * reference id fixed at creation, even if task_date is later corrected.
+ *
+ * Blocked outright (409) once the task is Completed — has reached its
+ * 2-punch cap (see checkTaskPunchCap in punchValidation.js). Not Started
+ * (0 punches) and Pending (1 punch) tasks stay editable; only Completed
+ * ones are locked, since a task with a real open+close pair recorded
+ * against it shouldn't have its project/description rewritten out from
+ * under that attendance data.
  */
 router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
   try {
@@ -74,6 +81,14 @@ router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
       return res.status(404).json({ error: `task ${id} not found` });
     }
     const empId = existingResult.rows[0].emp_id;
+
+    const punchCountResult = await pool.query(
+      `SELECT count(*)::int AS cnt FROM punches WHERE task_id = $1 AND approval_status <> 'rejected'`,
+      [id]
+    );
+    if (punchCountResult.rows[0].cnt >= 2) {
+      return res.status(409).json({ error: 'This task is Completed (already has its 2 punches) and can no longer be edited.' });
+    }
 
     if (!project_code) {
       return res.status(400).json({ error: 'project_code is required' });
@@ -120,6 +135,13 @@ router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
 // under it would either fail on the FK or (if it didn't) silently orphan
 // that punch data. The frontend gates this behind an explicit confirmation
 // dialog before ever calling it.
+//
+// This also happens to already be a superset of the "only Not Started or
+// Pending tasks are deletable" rule (a Completed task always has 2 punches,
+// which trips this block on its own) — a Pending task's single punch trips
+// it too, deliberately: allowing that deletion would either violate the FK
+// or silently orphan real attendance data, so unlike editing, a Pending
+// task must have its punch removed first, same as always.
 router.delete('/:id', requireBackofficeAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -291,7 +313,7 @@ router.get('/me/:emp_id', async (req, res, next) => {
     const { emp_id } = req.params;
 
     const employeeResult = await pool.query(
-      'SELECT emp_id FROM employees WHERE emp_id = $1',
+      'SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1',
       [emp_id]
     );
     if (employeeResult.rows.length === 0) {

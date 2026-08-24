@@ -6,6 +6,7 @@ const {
   PunchValidationError,
   resolvePunchTarget,
   checkOpenConflict,
+  checkTaskPunchCap,
   checkCrossKeyTimestampClash,
   checkNearDuplicate,
 } = require('../services/punchValidation');
@@ -260,6 +261,10 @@ router.post('/', async (req, res, next) => {
     // fallback, unchanged from before task-tracking existed).
     const target = await resolvePunchTarget({ emp_id, task_id, project_code });
 
+    // A task already at its 2-punch cap (Completed) can never be punched
+    // again, even a genuine third attempt from the employee's own device.
+    await checkTaskPunchCap({ task_id: target.task_id });
+
     if (target.project_code) {
       // Only one task (or, for the fallback, one project) can be genuinely
       // "in progress" at a time — globally, across every project — punching
@@ -337,7 +342,7 @@ router.post('/', async (req, res, next) => {
 
 /**
  * Admin-only manual punch correction — for backfilling a punch an employee
- * never actually recorded (most commonly to resolve an odd_punch_count
+ * never actually recorded (most commonly to resolve a single_punch_only
  * exception), or any other missing entry. Deliberately a separate endpoint
  * from POST / rather than a variant of it: this accepts an explicit
  * admin-supplied punch_time instead of trusting the server clock, skips the
@@ -379,6 +384,7 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
     const target = await resolvePunchTarget({ emp_id, task_id, project_code });
     const punchDate = dateKey(parsedPunchTime);
 
+    await checkTaskPunchCap({ task_id: target.task_id });
     await checkOpenConflict({ emp_id, task_id: target.task_id, project_code: target.project_code, date: punchDate });
     await checkCrossKeyTimestampClash({ emp_id, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime });
     await checkNearDuplicate({ emp_id, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime, force });
@@ -437,6 +443,7 @@ router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
     const punchDate = dateKey(parsedPunchTime);
     const punchId = Number(id);
 
+    await checkTaskPunchCap({ task_id: target.task_id, excludePunchId: punchId });
     await checkOpenConflict({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, date: punchDate, excludePunchId: punchId });
     await checkCrossKeyTimestampClash({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime, excludePunchId: punchId });
     await checkNearDuplicate({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime, excludePunchId: punchId, force });
