@@ -1,7 +1,14 @@
 const express = require('express');
 const pool = require('../db');
 const { reverseGeocode } = require('../services/reverseGeocode');
-const { getOpenPunchForToday, getOpenPunchForDate, dateKey, punchKey } = require('../services/attendance');
+const {
+  getOpenPunchForToday,
+  getOpenPunchForDate,
+  dateKey,
+  punchKey,
+  syncTaskSinglePunchException,
+  resolveSinglePunchException,
+} = require('../services/attendance');
 const {
   PunchValidationError,
   resolvePunchTarget,
@@ -331,6 +338,10 @@ router.post('/', async (req, res, next) => {
       [emp_id, target.project_code, target.task_id, punchTime, lat ?? null, lng ?? null, device_ref || null, enteredBy, entryMethod, approvalStatus, resolvedAddress]
     );
 
+    if (target.task_id) {
+      await syncTaskSinglePunchException(target.task_id);
+    }
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     if (err instanceof PunchValidationError) {
@@ -397,6 +408,10 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
       [emp_id, target.project_code, target.task_id, parsedPunchTime, enteredBy]
     );
 
+    if (target.task_id) {
+      await syncTaskSinglePunchException(target.task_id);
+    }
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     if (err instanceof PunchValidationError) {
@@ -422,11 +437,12 @@ router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
     const { task_id, project_code, punch_time, force } = req.body;
     const enteredBy = req.backofficeEmpId;
 
-    const existingResult = await pool.query('SELECT id, emp_id FROM punches WHERE id = $1', [id]);
+    const existingResult = await pool.query('SELECT id, emp_id, task_id FROM punches WHERE id = $1', [id]);
     if (existingResult.rows.length === 0) {
       return res.status(404).json({ error: `punch ${id} not found` });
     }
     const empId = existingResult.rows[0].emp_id;
+    const oldTaskId = existingResult.rows[0].task_id;
 
     if (!task_id && !project_code) {
       return res.status(400).json({ error: 'task_id or project_code is required' });
@@ -457,6 +473,19 @@ router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
       [target.project_code, target.task_id, parsedPunchTime, enteredBy, punchId]
     );
 
+    // Resolve first in case this punch's own id was the ref for an open
+    // exception that no longer applies to it now (task/time changed) —
+    // then re-evaluate both the task it left (if any, and different) and
+    // whatever task it now belongs to, since either side's Pending/
+    // Completed state may have just flipped.
+    await resolveSinglePunchException(punchId);
+    if (oldTaskId && oldTaskId !== target.task_id) {
+      await syncTaskSinglePunchException(oldTaskId);
+    }
+    if (target.task_id) {
+      await syncTaskSinglePunchException(target.task_id);
+    }
+
     res.json(result.rows[0]);
   } catch (err) {
     if (err instanceof PunchValidationError) {
@@ -475,9 +504,19 @@ router.delete('/:id', requireBackofficeAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const result = await pool.query('DELETE FROM punches WHERE id = $1 RETURNING id', [id]);
+    const result = await pool.query('DELETE FROM punches WHERE id = $1 RETURNING id, task_id', [id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: `punch ${id} not found` });
+    }
+    const taskId = result.rows[0].task_id;
+
+    // This punch no longer exists, so any open exception still referencing
+    // its id no longer applies — resolve it, then re-evaluate whatever's
+    // left on the task (a no-op if none, a fresh raise if exactly one
+    // punch now remains).
+    await resolveSinglePunchException(Number(id));
+    if (taskId) {
+      await syncTaskSinglePunchException(taskId);
     }
 
     res.status(204).end();

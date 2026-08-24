@@ -161,6 +161,48 @@ async function resolveSinglePunchException(punchId) {
 }
 
 /**
+ * Keeps a real task's single_punch_only exception in sync IMMEDIATELY at
+ * punch write time, called directly from routes/punches.js — unlike the
+ * department-default fallback (bare project_code, no task_id), which stays
+ * on the older lazy path (only evaluated whenever calculateAttendance
+ * happens to run for that employee/day, e.g. from the Reports page, and
+ * only for days other than today — "employee's probably still mid-shift"
+ * is a real ambiguity there), a real task's Pending/Completed state is now
+ * a stable, well-defined thing the moment it's written: the 2-punch cap
+ * (checkTaskPunchCap in punchValidation.js) makes "exactly 1 punch" a
+ * genuine, permanent incomplete state for that task, not something that
+ * might still resolve itself later today. So there's no reason to gate it
+ * on the day rolling over or on an admin happening to open a report for
+ * that date — the Exceptions page should reflect it the instant it's true.
+ *
+ * No-ops silently if the task has zero non-rejected punches (nothing to
+ * flag). Callers are expected to also call resolveSinglePunchException with
+ * a punch's own id first when that specific punch is being edited away from
+ * or deleted out from under a task — this function only evaluates the
+ * task's CURRENT punches, so it can't clean up an exception still
+ * referencing a punch that no longer belongs to (or no longer exists on)
+ * this task.
+ */
+async function syncTaskSinglePunchException(taskId) {
+  const { rows } = await pool.query(
+    `SELECT id, emp_id, project_code, task_id, punch_time
+     FROM punches
+     WHERE task_id = $1 AND approval_status <> 'rejected'`,
+    [taskId]
+  );
+  if (rows.length === 0) return;
+
+  const { punchIn, incomplete, punchCount } = buildSessionFromPunches(rows);
+  const date = dateKey(punchIn.punch_time);
+
+  if (incomplete) {
+    await raiseSinglePunchException(punchIn.emp_id, punchIn.project_code, date, punchIn, punchCount);
+  } else {
+    await resolveSinglePunchException(punchIn.id);
+  }
+}
+
+/**
  * Nested time, within one employee's one day: if one task/project's entire
  * punch span (its own first-to-last) falls chronologically inside another's
  * wider span, that inner one's counted time is subtracted from the outer
@@ -397,4 +439,6 @@ module.exports = {
   getEffectiveThreshold,
   applyNestedSubtraction,
   buildSessionFromPunches,
+  syncTaskSinglePunchException,
+  resolveSinglePunchException,
 };
