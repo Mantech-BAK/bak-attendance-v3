@@ -147,20 +147,27 @@ function deriveTaskStatus(punchCount) {
   return punchCount >= 2 ? 'completed' : 'pending';
 }
 
-// Powers mobile's "My Tasks" list (item 2) — unlike getTodaysTasks above,
-// this is a read-only display, not a punch-selection source, so it
-// deliberately does NOT drop Completed tasks or synthesize the
-// department-default fallback (there's no real task behind that one to show
-// a lifecycle for). task_status is computed server-side (not_started /
-// pending / completed, the same even/odd-punch-count convention as
-// everywhere else) so the mobile app doesn't need to re-derive it from
-// punch_count itself.
+// Powers mobile's "My Tasks" list — unlike getTodaysTasks above, this is a
+// read-only display, not a punch-selection source, so it deliberately does
+// NOT drop Completed tasks or synthesize the department-default fallback
+// (there's no real task behind that one to show a lifecycle for).
+// task_status is computed server-side (not_started/pending/completed, the
+// same even/odd-punch-count convention as everywhere else) so the mobile
+// app doesn't need to re-derive it from punch_count itself.
+//
+// employee_self tasks are deliberately excluded — an emergency self-created
+// task is meant to feel like just another punchable option in the normal
+// Punch flow (getTodaysTasks/getTasksForDate above still include it there,
+// unfiltered), not a distinct thing the employee manages in a list. It's
+// still a completely ordinary task underneath — same punches, same 2-punch
+// cap, same approval routing — this filter only affects which list a
+// mobile screen renders it in.
 async function getTodaysTaskList(empId) {
   const result = await pool.query(
     `SELECT t.id, t.display_id, t.project_code, t.priority, t.description, t.location_site, t.task_date::text AS task_date,
             (SELECT count(*)::int FROM punches pu WHERE pu.task_id = t.id AND pu.approval_status <> 'rejected') AS punch_count
      FROM tasks t
-     WHERE t.emp_id = $1 AND t.task_date = CURRENT_DATE
+     WHERE t.emp_id = $1 AND t.task_date = CURRENT_DATE AND t.source <> 'employee_self'
      ORDER BY t.id`,
     [empId]
   );
