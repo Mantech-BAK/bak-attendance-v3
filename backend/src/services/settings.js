@@ -59,6 +59,71 @@ async function getDuplicatePunchWindowMinutes() {
   return Number.isFinite(minutes) && minutes > 0 ? minutes : DEFAULT_DUPLICATE_WINDOW_MINUTES;
 }
 
+// Matches confirmationSheetExcel.js/dailyConfirmation.js's own
+// REPORT_TIME_ZONE — BAK's real operating timezone, already established
+// there for the same reason: a human (here, the admin setting this window)
+// thinks in local wall-clock time, not UTC-instant. Storage and the actual
+// window comparison stay UTC (see isWithinEmergencyWindow below) — only
+// entry/display convert.
+const BUSINESS_TIME_ZONE = 'Asia/Riyadh';
+
+// The business timezone's UTC offset, in minutes, at the given instant
+// (positive = ahead of UTC) — derived via Intl rather than hardcoded +3, so
+// this keeps working correctly even though Asia/Riyadh currently has no DST
+// to account for.
+function getBusinessTimeZoneOffsetMinutes(instant) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: BUSINESS_TIME_ZONE,
+    hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(instant).reduce((acc, p) => {
+    if (p.type !== 'literal') acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const asIfUtc = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour), Number(parts.minute), Number(parts.second)
+  );
+  return Math.round((asIfUtc - instant.getTime()) / 60000);
+}
+
+// Converts a "HH:MM" wall-clock reading in Asia/Riyadh (what an admin
+// actually types into the Settings UI) into the equivalent "HH:MM" in UTC,
+// for storage. The offset is derived from the naive (uncorrected) instant
+// rather than iterated to convergence — exact here specifically because
+// Asia/Riyadh's offset is constant (no DST), so there's no transition
+// boundary where the naive and corrected instant could disagree; this
+// would need a second pass for a zone that does observe DST.
+function localHHMMToUtcHHMM(hhmm) {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  const now = new Date();
+  const naiveUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, m);
+  const offsetMinutes = getBusinessTimeZoneOffsetMinutes(new Date(naiveUtc));
+  const actualUtc = new Date(naiveUtc - offsetMinutes * 60000);
+  return `${String(actualUtc.getUTCHours()).padStart(2, '0')}:${String(actualUtc.getUTCMinutes()).padStart(2, '0')}`;
+}
+
+// Converts a stored "HH:MM" UTC value into the equivalent "HH:MM" wall-clock
+// reading in Asia/Riyadh, for display — the reverse of localHHMMToUtcHHMM.
+// Same toLocaleTimeString-with-timeZone technique already established in
+// confirmationSheetExcel.js/dailyConfirmation.js; only the hour/minute are
+// read back out, so a midnight-crossing offset (e.g. 23:30 UTC -> 02:30
+// Riyadh, technically the next day) still comes out correct — there's no
+// caller here that cares which calendar day it falls on, only the
+// time-of-day.
+function utcHHMMToLocalHHMM(hhmm) {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  const now = new Date();
+  const utcInstant = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, m));
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: BUSINESS_TIME_ZONE,
+    hourCycle: 'h23',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(utcInstant);
+}
+
 const DEFAULT_EMERGENCY_START = '22:00';
 const DEFAULT_EMERGENCY_END = '06:00';
 
@@ -116,4 +181,7 @@ module.exports = {
   isWithinEmergencyWindow,
   DEFAULT_EMERGENCY_START,
   DEFAULT_EMERGENCY_END,
+  BUSINESS_TIME_ZONE,
+  localHHMMToUtcHHMM,
+  utcHHMMToLocalHHMM,
 };

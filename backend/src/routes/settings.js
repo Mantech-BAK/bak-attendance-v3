@@ -7,6 +7,8 @@ const {
   setSetting,
   DEFAULT_DUPLICATE_WINDOW_MINUTES,
   getEmergencyTimeAllowance,
+  localHHMMToUtcHHMM,
+  utcHHMMToLocalHHMM,
 } = require('../services/settings');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
@@ -138,15 +140,24 @@ router.post('/duplicate-punch-window', async (req, res, next) => {
 // createTask for where. Always returns real values (defaults to 22:00-06:00
 // when unset), same "never a blank/undefined state" reasoning as
 // duplicate-punch-window above.
+// Stored in UTC (see isWithinEmergencyWindow in services/settings.js — the
+// actual window check stays UTC, unchanged); this endpoint converts to
+// Asia/Riyadh (BAK's real operating timezone) before responding, since an
+// admin reading this in the Settings UI thinks in local wall-clock time,
+// not UTC-instant — same reasoning as confirmationSheetExcel.js's own
+// REPORT_TIME_ZONE conversion.
 router.get('/emergency-time-allowance', async (req, res, next) => {
   try {
-    const allowance = await getEmergencyTimeAllowance();
-    res.json(allowance);
+    const { start, end } = await getEmergencyTimeAllowance();
+    res.json({ start: utcHHMMToLocalHHMM(start), end: utcHHMMToLocalHHMM(end) });
   } catch (err) {
     next(err);
   }
 });
 
+// Accepts start/end as Asia/Riyadh wall-clock time (what the Settings UI's
+// plain <input type="time"> fields actually collect) and converts to UTC
+// before storing — the reverse of the GET route above.
 router.post('/emergency-time-allowance', async (req, res, next) => {
   try {
     const { start, end } = req.body;
@@ -159,8 +170,8 @@ router.post('/emergency-time-allowance', async (req, res, next) => {
     }
 
     await Promise.all([
-      setSetting('emergency_time_allowance_start', start),
-      setSetting('emergency_time_allowance_end', end),
+      setSetting('emergency_time_allowance_start', localHHMMToUtcHHMM(start)),
+      setSetting('emergency_time_allowance_end', localHHMMToUtcHHMM(end)),
     ]);
 
     res.json({ start, end });

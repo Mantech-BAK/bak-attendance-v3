@@ -1,7 +1,7 @@
 const express = require('express');
 const { getTodaysTasks } = require('../services/tasks');
 const { verifyEmployeeCredentials } = require('../services/identify');
-const { getEmergencyTimeAllowance, isWithinEmergencyWindow } = require('../services/settings');
+const { getEmergencyTimeAllowance, isWithinEmergencyWindow, utcHHMMToLocalHHMM } = require('../services/settings');
 
 const router = express.Router();
 
@@ -11,14 +11,17 @@ const router = express.Router();
 // POST /api/tasks just to discover the window is closed. is_open is
 // computed here (server clock, UTC) rather than left for the client to
 // derive from start/end + its own device clock, which could be wrong or in
-// a different timezone.
+// a different timezone — that part is unchanged. start/end are converted to
+// Asia/Riyadh before being sent, though: an employee reading "opens
+// 22:00–06:00" needs their own real local wall-clock hours, not the raw
+// UTC storage value, same reasoning as the Settings UI's own conversion.
 router.get('/emergency-window', async (req, res, next) => {
   try {
     const [{ start, end }, isOpen] = await Promise.all([
       getEmergencyTimeAllowance(),
       isWithinEmergencyWindow(),
     ]);
-    res.json({ start, end, is_open: isOpen });
+    res.json({ start: utcHHMMToLocalHHMM(start), end: utcHHMMToLocalHHMM(end), is_open: isOpen });
   } catch (err) {
     next(err);
   }

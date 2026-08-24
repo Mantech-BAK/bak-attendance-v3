@@ -55,16 +55,6 @@ export function SettingsPage() {
 
   const [emergencyStart, setEmergencyStart] = useState('');
   const [emergencyEnd, setEmergencyEnd] = useState('');
-  // Ticks once a minute so the "your local time right now" cross-check next
-  // to the UTC fields stays current for as long as the admin has this page
-  // open, without needing a full page reload.
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const interval = setInterval(() => setNow(new Date()), 60000);
-    return () => clearInterval(interval);
-  }, []);
-  const nowLocalTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const nowUtcTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
   const [emergencySubmitting, setEmergencySubmitting] = useState(false);
   const [emergencyError, setEmergencyError] = useState<string | null>(null);
   const [emergencySuccess, setEmergencySuccess] = useState(false);
@@ -466,20 +456,19 @@ export function SettingsPage() {
           </p>
 
           <form onSubmit={handleEmergencySubmit} className="space-y-4">
-            {/* Stored and compared in UTC on the server (same convention as
-                punch_time and every other clock-sensitive check in this
-                app) — the plain <input type="time"> gives no timezone cue
-                on its own, so both fields are explicitly labeled UTC and a
-                live "your local time right now" readout is shown alongside
-                it, to stop an admin from unknowingly entering their own
-                local wall-clock time here. */}
+            {/* Entered and displayed as Asia/Riyadh wall-clock time (BAK's
+                real operating timezone, same REPORT_TIME_ZONE the
+                Confirmation Sheet already uses) — the backend converts to
+                UTC for storage and back for display, so this plain
+                <input type="time"> genuinely holds local time throughout,
+                no separate cross-check needed. Storage and the actual
+                window comparison stay UTC internally, unchanged. */}
             <div className="grid grid-cols-2 gap-3">
-              <Input value={emergencyStart} onChange={setEmergencyStart} label="Start time (UTC)" id="emergency-start" type="time" lang="en-US" />
-              <Input value={emergencyEnd} onChange={setEmergencyEnd} label="End time (UTC)" id="emergency-end" type="time" lang="en-US" />
+              <Input value={emergencyStart} onChange={setEmergencyStart} label="Start time (Asia/Riyadh)" id="emergency-start" type="time" lang="en-US" />
+              <Input value={emergencyEnd} onChange={setEmergencyEnd} label="End time (Asia/Riyadh)" id="emergency-end" type="time" lang="en-US" />
             </div>
             <p className="text-xs text-slate-400">
-              Currently {emergencyStart}–{emergencyEnd} UTC (crosses midnight if the end time is earlier than the start).
-              Your local time right now is {nowLocalTime} ({nowUtcTime} UTC) — enter the window in UTC, not local time.
+              Currently {emergencyStart}–{emergencyEnd} Asia/Riyadh time (crosses midnight if the end time is earlier than the start).
             </p>
 
             {emergencyError && (

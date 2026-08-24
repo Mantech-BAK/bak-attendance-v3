@@ -1,5 +1,5 @@
 const pool = require('../db');
-const { isWithinEmergencyWindow, getEmergencyTimeAllowance } = require('./settings');
+const { isWithinEmergencyWindow, getEmergencyTimeAllowance, utcHHMMToLocalHHMM } = require('./settings');
 
 // employee_self: an employee creating a task for themselves, mobile, no
 // supervisor/backoffice involved — only allowed inside the configured
@@ -238,8 +238,11 @@ async function createTask({ emp_id, project_code, priority, description, locatio
       throw new TaskValidationError(403, 'employee_self tasks can only be self-created — emp_id must match created_by');
     }
     if (!(await isWithinEmergencyWindow())) {
+      // Stored/compared in UTC, converted to Asia/Riyadh only for this
+      // message — an employee reading the rejection reason needs their own
+      // real local hours, not the raw UTC storage value.
       const { start, end } = await getEmergencyTimeAllowance();
-      throw new TaskValidationError(403, `Self-service task creation is only allowed between ${start} and ${end}`);
+      throw new TaskValidationError(403, `Self-service task creation is only allowed between ${utcHHMMToLocalHHMM(start)} and ${utcHHMMToLocalHHMM(end)}`);
     }
   }
 
