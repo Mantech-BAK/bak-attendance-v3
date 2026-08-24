@@ -11,12 +11,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import IdentifyCodeForm from '../components/IdentifyCodeForm';
 import EmployeeCard from '../components/EmployeeCard';
 import TabBar from '../components/TabBar';
 import PunchProjectList from '../components/PunchProjectList';
 import TaskAssignmentForm from '../components/TaskAssignmentForm';
+import MyTasksTab from '../components/MyTasksTab';
 import ReviewAttendanceTab from '../components/ReviewAttendanceTab';
 import TeamPunchHistoryTab from '../components/TeamPunchHistoryTab';
 import ProfileOverlay from '../components/ProfileOverlay';
@@ -41,12 +43,14 @@ import { SUPERVISOR_DESIGNATION } from '../config';
 
 const EMPLOYEE_TABS = [
   { key: 'punch', label: 'Punch' },
+  { key: 'my-tasks', label: 'My Tasks' },
   { key: 'scan-another', label: 'Scan Another Employee' },
 ];
 
 const SUPERVISOR_TABS = [
   { key: 'punch', label: 'Punch' },
-  { key: 'task-assignment', label: 'Task Assignment' },
+  { key: 'my-tasks', label: 'My Tasks' },
+  { key: 'task-assignment', label: 'Create Task' },
   { key: 'scan-team-member', label: 'Scan Team Member' },
   { key: 'review-attendance', label: 'Review Attendance' },
   { key: 'punch-history', label: 'Punch History' },
@@ -192,6 +196,11 @@ export default function PunchScreen() {
     loadProfile(result.emp_id);
     if (result.designation === SUPERVISOR_DESIGNATION) {
       loadSupervisorData(result.emp_id);
+    } else {
+      // Needed for My Tasks' self-service "Create Task" form (item 4) —
+      // every employee can potentially use it, not just supervisors.
+      // loadSupervisorData above already covers this for a supervisor.
+      fetchProjects().then(setProjects).catch(() => {});
     }
   }
 
@@ -345,6 +354,21 @@ export default function PunchScreen() {
     await createTask({ assignedEmpId, projectCode, priority, description, locationSite, createdBy: employee.emp_id });
   }
 
+  // Item 4 — self-service: assignedEmpId is always this same employee
+  // (enforced again server-side regardless), source 'employee_self' is what
+  // the backend actually gates on the Emergency Time Allowance window.
+  async function handleCreateSelfTask({ assignedEmpId, projectCode, priority, description, locationSite }) {
+    await createTask({
+      assignedEmpId,
+      projectCode,
+      priority,
+      description,
+      locationSite,
+      createdBy: employee.emp_id,
+      source: 'employee_self',
+    });
+  }
+
   function renderTabContent() {
     if (activeTab === 'punch') {
       return (
@@ -357,11 +381,19 @@ export default function PunchScreen() {
       );
     }
 
+    if (activeTab === 'my-tasks') {
+      return (
+        <MyTasksTab empId={employee.emp_id} projects={projects} onTaskCreated={handleCreateSelfTask} />
+      );
+    }
+
     if (activeTab === 'scan-another') {
       return (
         <View style={styles.scanAnotherContainer}>
+          <Ionicons name="people-circle-outline" size={48} color="#93c5fd" style={styles.idleIcon} />
           <Text style={styles.scanAnotherHint}>Hand the device to the next person.</Text>
           <TouchableOpacity style={styles.scanButton} onPress={handleScanSelf}>
+            <Ionicons name="keypad-outline" size={18} color="#fff" />
             <Text style={styles.scanButtonText}>Enter Code</Text>
           </TouchableOpacity>
         </View>
@@ -387,7 +419,9 @@ export default function PunchScreen() {
       if (!teamMemberTarget) {
         return (
           <View style={styles.scanAnotherContainer}>
+            <Ionicons name="people-outline" size={48} color="#93c5fd" style={styles.idleIcon} />
             <TouchableOpacity style={styles.scanButton} onPress={handleScanTeamMember}>
+              <Ionicons name="keypad-outline" size={18} color="#fff" />
               <Text style={styles.scanButtonText}>Enter Team Member Code</Text>
             </TouchableOpacity>
           </View>
@@ -396,7 +430,10 @@ export default function PunchScreen() {
 
       return (
         <View style={styles.teamMemberContainer}>
-          <Text style={styles.onBehalfBanner}>Punching on behalf of {teamMemberTarget.name}</Text>
+          <View style={styles.onBehalfBannerRow}>
+            <Ionicons name="swap-horizontal-outline" size={14} color="#6b7280" />
+            <Text style={styles.onBehalfBanner}>Punching on behalf of {teamMemberTarget.name}</Text>
+          </View>
           <EmployeeCard employee={teamMemberTarget} />
           <PunchProjectList
             tasks={teamMemberTarget.tasks}
@@ -405,6 +442,7 @@ export default function PunchScreen() {
             onPunch={handlePunchTeamMember}
           />
           <TouchableOpacity style={styles.resetButton} onPress={handleScanDifferentTeamMember}>
+            <Ionicons name="refresh-outline" size={16} color="#2563eb" />
             <Text style={styles.resetButtonText}>Scan a different team member</Text>
           </TouchableOpacity>
         </View>
@@ -447,13 +485,14 @@ export default function PunchScreen() {
                 onPress={() => setShowProfileOverlay(true)}
                 accessibilityLabel="My Profile"
               >
-                <Text style={styles.profileIconText}>👤</Text>
+                <Ionicons name="person-circle" size={26} color="#2563eb" />
               </TouchableOpacity>
             )}
             <Text style={[styles.title, employee && styles.titleWithLogout]}>BAK Attendance</Text>
           </View>
           {employee && (
             <TouchableOpacity style={styles.topLogoutButton} onPress={resetToIdle}>
+              <Ionicons name="log-out-outline" size={16} color="#dc2626" />
               <Text style={styles.topLogoutText}>Log out</Text>
             </TouchableOpacity>
           )}
@@ -461,8 +500,10 @@ export default function PunchScreen() {
 
         {!employee && !identifying && (
           <View style={styles.idleContainer}>
+            <Ionicons name="finger-print" size={64} color="#2563eb" style={styles.idleIcon} />
             <Text style={styles.subtitle}>Tap Punch and enter your Employee ID and code</Text>
             <TouchableOpacity style={styles.punchButton} onPress={handleScanSelf}>
+              <Ionicons name="finger-print-outline" size={20} color="#fff" />
               <Text style={styles.punchButtonText}>Punch</Text>
             </TouchableOpacity>
           </View>
@@ -531,23 +572,23 @@ const styles = StyleSheet.create({
   profileIconButton: {
     width: 34,
     height: 34,
-    borderRadius: 17,
-    backgroundColor: '#e5e7eb',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  profileIconText: { fontSize: 16 },
-  topLogoutButton: { paddingVertical: 6, paddingHorizontal: 10 },
-  topLogoutText: { color: '#2563eb', fontSize: 14, fontWeight: '600' },
+  topLogoutButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 10 },
+  topLogoutText: { color: '#dc2626', fontSize: 14, fontWeight: '600' },
   idleContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 60 },
-  subtitle: { fontSize: 15, color: '#6b7280', marginBottom: 24, marginTop: 12 },
+  idleIcon: { marginBottom: 4 },
+  subtitle: { fontSize: 15, color: '#6b7280', marginBottom: 24, marginTop: 12, textAlign: 'center' },
   punchButton: {
     width: 160,
     height: 160,
     borderRadius: 80,
     backgroundColor: '#2563eb',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
     shadowColor: '#2563eb',
     shadowOpacity: 0.3,
     shadowRadius: 12,
@@ -556,16 +597,24 @@ const styles = StyleSheet.create({
   },
   punchButtonText: { color: '#fff', fontSize: 22, fontWeight: '800' },
   identifiedContainer: { width: '100%' },
+  onBehalfBannerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
   onBehalfBanner: {
-    textAlign: 'center',
     fontSize: 13,
     fontWeight: '600',
     color: '#2563eb',
-    marginBottom: 8,
   },
   scanAnotherContainer: { alignItems: 'center', paddingVertical: 24 },
   scanAnotherHint: { fontSize: 14, color: '#6b7280', marginBottom: 20, textAlign: 'center' },
   scanButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     backgroundColor: '#2563eb',
     paddingVertical: 16,
     paddingHorizontal: 32,
@@ -581,6 +630,6 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   teamIdentifyingText: { color: '#2563eb', fontSize: 13, fontWeight: '600' },
-  resetButton: { marginTop: 20, alignItems: 'center', paddingVertical: 10 },
+  resetButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 20, paddingVertical: 10 },
   resetButtonText: { color: '#2563eb', fontSize: 14, fontWeight: '600' },
 });

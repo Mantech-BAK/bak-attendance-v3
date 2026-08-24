@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const ExcelJS = require('exceljs');
 const pool = require('../db');
-const { getTodaysTasks, getTasksForDate, createTask, TaskValidationError } = require('../services/tasks');
+const { getTodaysTasks, getTasksForDate, getTodaysTaskList, createTask, TaskValidationError } = require('../services/tasks');
 const { buildTaskTemplateWorkbook, processBulkUpload } = require('../services/taskBulkUpload');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 const { resolveBackofficeEmpId } = requireBackofficeAuth;
@@ -321,6 +321,29 @@ router.get('/me/:emp_id', async (req, res, next) => {
     }
 
     const tasks = await getTodaysTasks(emp_id);
+    res.json({ emp_id, tasks });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Mobile's "My Tasks" list (item 2) — a read-only view of everything the
+// employee has today, Completed included (unlike /me/:emp_id above, which
+// backs the punch-selection picker and deliberately drops Completed tasks).
+// Same unauthenticated, mobile-facing shape as /me/:emp_id.
+router.get('/my-list/:emp_id', async (req, res, next) => {
+  try {
+    const { emp_id } = req.params;
+
+    const employeeResult = await pool.query(
+      'SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1',
+      [emp_id]
+    );
+    if (employeeResult.rows.length === 0) {
+      return res.status(404).json({ error: `employee ${emp_id} not found` });
+    }
+
+    const tasks = await getTodaysTaskList(emp_id);
     res.json({ emp_id, tasks });
   } catch (err) {
     next(err);

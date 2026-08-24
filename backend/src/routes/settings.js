@@ -1,7 +1,13 @@
 const express = require('express');
 const crypto = require('crypto');
 const pool = require('../db');
-const { getSetting, getRamzanPeriods, setSetting, DEFAULT_DUPLICATE_WINDOW_MINUTES } = require('../services/settings');
+const {
+  getSetting,
+  getRamzanPeriods,
+  setSetting,
+  DEFAULT_DUPLICATE_WINDOW_MINUTES,
+  getEmergencyTimeAllowance,
+} = require('../services/settings');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
@@ -17,6 +23,7 @@ const MAX_RAMZAN_SPAN_DAYS = 30;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MIN_DUPLICATE_WINDOW_MINUTES = 1;
 const MAX_DUPLICATE_WINDOW_MINUTES = 120;
+const HHMM_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 async function getServerToday() {
   const { rows } = await pool.query("SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today");
@@ -119,6 +126,44 @@ router.post('/duplicate-punch-window', async (req, res, next) => {
     await setSetting('duplicate_punch_window_minutes', String(minutes));
 
     res.json({ minutes });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// The nightly window an employee can create a task for themselves from
+// mobile with no supervisor/backoffice involvement — see
+// isWithinEmergencyWindow in services/settings.js for how it's enforced
+// (compared in UTC, not local device/server time) and routes/tasks.js's
+// createTask for where. Always returns real values (defaults to 22:00-06:00
+// when unset), same "never a blank/undefined state" reasoning as
+// duplicate-punch-window above.
+router.get('/emergency-time-allowance', async (req, res, next) => {
+  try {
+    const allowance = await getEmergencyTimeAllowance();
+    res.json(allowance);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/emergency-time-allowance', async (req, res, next) => {
+  try {
+    const { start, end } = req.body;
+
+    if (!start || !HHMM_PATTERN.test(start)) {
+      return res.status(400).json({ error: 'start is required in HH:MM (24-hour) format' });
+    }
+    if (!end || !HHMM_PATTERN.test(end)) {
+      return res.status(400).json({ error: 'end is required in HH:MM (24-hour) format' });
+    }
+
+    await Promise.all([
+      setSetting('emergency_time_allowance_start', start),
+      setSetting('emergency_time_allowance_end', end),
+    ]);
+
+    res.json({ start, end });
   } catch (err) {
     next(err);
   }

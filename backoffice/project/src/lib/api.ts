@@ -417,6 +417,62 @@ export function fetchAllPendingOtApprovals(): Promise<OtApproval[]> {
   return request('/api/ot-approvals/pending');
 }
 
+// Item 3 — backoffice approval, reusing the exact same mobile-supervisor
+// endpoints (GET /pending, PATCH .../approve, PATCH .../reject) rather than
+// separate ones: request() already attaches this session's Bearer token to
+// every call, and the backend resolves that into a company-wide scope
+// (GET /pending with no supervisor_emp_id) or a bypass of the
+// reporting-manager check (approve/reject) whenever a valid backoffice
+// session is present — see routes/punches.js and routes/otApprovals.js.
+export type PendingPunch = {
+  id: number;
+  emp_id: string;
+  employee_name: string | null;
+  project_code: string | null;
+  project_name: string | null;
+  task_id: number | null;
+  task_display_id: string | null;
+  punch_time: string;
+  entry_method: string;
+  entered_by: string;
+};
+
+export function fetchAllPendingPunches(): Promise<PendingPunch[]> {
+  return request('/api/punches/pending');
+}
+
+export function approvePunchAdmin(id: number): Promise<Punch> {
+  return request(`/api/punches/${encodeURIComponent(id)}/approve`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+}
+
+export function rejectPunchAdmin(id: number, reason: string): Promise<Punch> {
+  return request(`/api/punches/${encodeURIComponent(id)}/reject`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function approveOtApprovalAdmin(id: number): Promise<OtApproval> {
+  return request(`/api/ot-approvals/${encodeURIComponent(id)}/approve`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+}
+
+export function rejectOtApprovalAdmin(id: number, reason: string): Promise<OtApproval> {
+  return request(`/api/ot-approvals/${encodeURIComponent(id)}/reject`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
+}
+
 export function confirmationSheetUrl(date: string): string {
   return `${API_BASE_URL}/api/reports/confirmation-sheet?date=${encodeURIComponent(date)}`;
 }
@@ -507,6 +563,27 @@ export function saveDuplicatePunchWindow(minutes: number): Promise<DuplicatePunc
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ minutes }),
+  });
+}
+
+// Item 4 — the nightly window an employee can create a task for themselves
+// from mobile with no supervisor/backoffice involved. Times are plain
+// 24-hour "HH:MM" strings, compared server-side in UTC (see
+// isWithinEmergencyWindow in the backend's settings service).
+export type EmergencyTimeAllowance = {
+  start: string;
+  end: string;
+};
+
+export function fetchEmergencyTimeAllowance(): Promise<EmergencyTimeAllowance> {
+  return request('/api/settings/emergency-time-allowance');
+}
+
+export function saveEmergencyTimeAllowance(start: string, end: string): Promise<EmergencyTimeAllowance> {
+  return request('/api/settings/emergency-time-allowance', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ start, end }),
   });
 }
 

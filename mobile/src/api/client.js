@@ -169,8 +169,10 @@ export function fetchEmployee(empId) {
   return request(`/api/employees/${encodeURIComponent(empId)}`);
 }
 
-// CONFIRMED
-export function createTask({ assignedEmpId, projectCode, priority, description, locationSite, createdBy }) {
+// CONFIRMED — source defaults to 'supervisor_app' (a supervisor assigning
+// to a direct report, unchanged); item 4's self-service emergency flow
+// passes 'employee_self' instead, with assignedEmpId === createdBy.
+export function createTask({ assignedEmpId, projectCode, priority, description, locationSite, createdBy, source }) {
   return request('/api/tasks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -180,7 +182,7 @@ export function createTask({ assignedEmpId, projectCode, priority, description, 
       priority,
       description,
       location_site: locationSite,
-      source: 'supervisor_app',
+      source: source || 'supervisor_app',
       created_by: createdBy,
     }),
   });
@@ -189,6 +191,20 @@ export function createTask({ assignedEmpId, projectCode, priority, description, 
 // CONFIRMED
 export function fetchProjects() {
   return request('/api/projects?status=OPEN');
+}
+
+// Item 2 — the full "My Tasks" list (Completed included, unlike the
+// picker's tasks). Unauthenticated, same shape as identifyPunch's own
+// tasks field.
+export function fetchMyTaskList(empId) {
+  return request(`/api/tasks/my-list/${encodeURIComponent(empId)}`);
+}
+
+// Item 4 — lets the "Create Task" button on My Tasks show/hide itself
+// without a wasted round trip to POST /api/tasks just to discover the
+// window is closed.
+export function fetchEmergencyWindow() {
+  return request('/api/punch/emergency-window');
 }
 
 // CONFIRMED

@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import { Ionicons } from '@expo/vector-icons';
 
 // TEMPORARY TESTING MEASURE — typed { empId, loginCode } identification
 // standing in for real face capture. See backend/src/routes/punch.js for
@@ -62,7 +63,10 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
-          <Text style={styles.heading}>{title}</Text>
+          <View style={styles.headingRow}>
+            <Ionicons name="key-outline" size={20} color="#111827" />
+            <Text style={styles.heading}>{title}</Text>
+          </View>
 
           <Text style={styles.label}>Employee</Text>
           {hasDirectReportsPicker ? (
@@ -96,7 +100,12 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
             maxLength={5}
           />
 
-          {error && <Text style={styles.error}>{error}</Text>}
+          {error && (
+            <View style={styles.errorRow}>
+              <Ionicons name="alert-circle" size={16} color="#dc2626" />
+              <Text style={styles.error}>{error}</Text>
+            </View>
+          )}
 
           <View style={styles.actions}>
             <TouchableOpacity style={styles.cancelButton} onPress={onCancel} disabled={submitting}>
@@ -107,7 +116,14 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
               onPress={handleSubmit}
               disabled={submitting}
             >
-              {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Submit</Text>}
+              {submitting ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle-outline" size={16} color="#fff" />
+                  <Text style={styles.submitButtonText}>Submit</Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -119,7 +135,8 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20 },
-  heading: { fontSize: 18, fontWeight: '700', marginBottom: 16, color: '#111827' },
+  headingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
+  heading: { fontSize: 18, fontWeight: '700', color: '#111827' },
   label: { fontSize: 13, fontWeight: '600', color: '#6b7280', marginBottom: 6, marginTop: 10 },
   input: {
     borderWidth: 1,
@@ -130,11 +147,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   pickerWrapper: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8 },
-  error: { color: '#dc2626', marginTop: 10, fontSize: 13 },
+  errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
+  error: { color: '#dc2626', fontSize: 13 },
   actions: { flexDirection: 'row', gap: 12, marginTop: 20 },
   cancelButton: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', backgroundColor: '#f3f4f6' },
   cancelButtonText: { color: '#374151', fontWeight: '600' },
-  submitButton: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', backgroundColor: '#2563eb' },
+  submitButton: { flex: 1, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#2563eb' },
   submitButtonText: { color: '#fff', fontWeight: '700' },
   disabled: { opacity: 0.6 },
 });

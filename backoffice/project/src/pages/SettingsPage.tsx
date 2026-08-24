@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Clock, Moon, Copy, CheckCircle2, XCircle, Loader2, CalendarRange, Trash2, AlertTriangle, Pencil, Power, PowerOff } from 'lucide-react';
+import { Clock, Moon, Copy, CheckCircle2, XCircle, Loader2, CalendarRange, Trash2, AlertTriangle, Pencil, Power, PowerOff, Siren } from 'lucide-react';
 import {
   fetchDailyWorkingHours,
   saveDailyWorkingHours,
@@ -11,6 +11,8 @@ import {
   saveRamzanWorkingHours,
   fetchDuplicatePunchWindow,
   saveDuplicatePunchWindow,
+  fetchEmergencyTimeAllowance,
+  saveEmergencyTimeAllowance,
   fetchEmployees,
   resetTestData,
   ApiError,
@@ -51,6 +53,12 @@ export function SettingsPage() {
   const [duplicateWindowError, setDuplicateWindowError] = useState<string | null>(null);
   const [duplicateWindowSuccess, setDuplicateWindowSuccess] = useState(false);
 
+  const [emergencyStart, setEmergencyStart] = useState('');
+  const [emergencyEnd, setEmergencyEnd] = useState('');
+  const [emergencySubmitting, setEmergencySubmitting] = useState(false);
+  const [emergencyError, setEmergencyError] = useState<string | null>(null);
+  const [emergencySuccess, setEmergencySuccess] = useState(false);
+
   const [editingPeriod, setEditingPeriod] = useState<RamzanPeriod | null>(null);
   const [editStartDate, setEditStartDate] = useState('');
   const [editEndDate, setEditEndDate] = useState('');
@@ -75,11 +83,12 @@ export function SettingsPage() {
 
   async function load() {
     setLoading(true);
-    const [dwh, rp, rwh, dpw, emp] = await Promise.all([
+    const [dwh, rp, rwh, dpw, eta, emp] = await Promise.all([
       fetchDailyWorkingHours(),
       fetchRamzanPeriods(),
       fetchRamzanWorkingHours(),
       fetchDuplicatePunchWindow(),
+      fetchEmergencyTimeAllowance(),
       fetchEmployees(),
     ]);
     setCurrentHours(dwh.hours);
@@ -89,6 +98,8 @@ export function SettingsPage() {
     setRamzanHours(rwh.hours !== null ? String(rwh.hours) : '');
     setCurrentDuplicateWindow(dpw.minutes);
     setDuplicateWindow(String(dpw.minutes));
+    setEmergencyStart(eta.start);
+    setEmergencyEnd(eta.end);
     setEmployees(emp);
     setLoading(false);
   }
@@ -232,6 +243,30 @@ export function SettingsPage() {
       setDuplicateWindowError(err instanceof Error ? err.message : 'Could not save. Please try again.');
     } finally {
       setDuplicateWindowSubmitting(false);
+    }
+  }
+
+  async function handleEmergencySubmit(e: FormEvent) {
+    e.preventDefault();
+    setEmergencyError(null);
+    setEmergencySuccess(false);
+
+    if (!emergencyStart || !emergencyEnd) {
+      setEmergencyError('Both a start and an end time are required.');
+      return;
+    }
+
+    setEmergencySubmitting(true);
+    try {
+      const result = await saveEmergencyTimeAllowance(emergencyStart, emergencyEnd);
+      setEmergencyStart(result.start);
+      setEmergencyEnd(result.end);
+      setEmergencySuccess(true);
+      setTimeout(() => setEmergencySuccess(false), 3000);
+    } catch (err) {
+      setEmergencyError(err instanceof Error ? err.message : 'Could not save. Please try again.');
+    } finally {
+      setEmergencySubmitting(false);
     }
   }
 
@@ -405,6 +440,41 @@ export function SettingsPage() {
 
             <Button type="submit" disabled={duplicateWindowSubmitting} className="w-full">
               {duplicateWindowSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>) : 'Save'}
+            </Button>
+          </form>
+        </Card>
+
+        <Card className="p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Siren className="h-5 w-5 text-slate-400" />
+            <h2 className="text-base font-semibold text-slate-900">Emergency Time Allowance</h2>
+          </div>
+          <p className="mb-4 text-sm text-slate-500">
+            The nightly window an employee can create a task for themselves directly from mobile, with no
+            supervisor or backoffice involved. Outside this window, only a supervisor or backoffice can assign
+            them work, as normal.
+          </p>
+
+          <form onSubmit={handleEmergencySubmit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Input value={emergencyStart} onChange={setEmergencyStart} label="Start time" id="emergency-start" type="time" lang="en-US" />
+              <Input value={emergencyEnd} onChange={setEmergencyEnd} label="End time" id="emergency-end" type="time" lang="en-US" />
+            </div>
+            <p className="text-xs text-slate-400">Currently {emergencyStart}–{emergencyEnd} (crosses midnight if the end time is earlier than the start).</p>
+
+            {emergencyError && (
+              <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+                <XCircle className="h-4 w-4 shrink-0" />{emergencyError}
+              </div>
+            )}
+            {emergencySuccess && (
+              <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />Saved.
+              </div>
+            )}
+
+            <Button type="submit" disabled={emergencySubmitting} className="w-full">
+              {emergencySubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>) : 'Save'}
             </Button>
           </form>
         </Card>

@@ -9,6 +9,7 @@ import {
   LogOut,
   AlertTriangle,
   Settings,
+  CheckSquare,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { useRouter, type RouteName } from '@/lib/router';
@@ -19,6 +20,7 @@ const NAV: { name: RouteName; label: string; icon: typeof LayoutDashboard }[] = 
   { name: 'employees', label: 'Employees', icon: Users },
   { name: 'tasks', label: 'Tasks', icon: ClipboardList },
   { name: 'punches', label: 'Punches', icon: Clock },
+  { name: 'approvals', label: 'Approvals', icon: CheckSquare },
   { name: 'projects', label: 'Projects', icon: Building2 },
   { name: 'exceptions', label: 'Exceptions', icon: AlertTriangle },
   { name: 'reports', label: 'Reports', icon: BarChart3 },

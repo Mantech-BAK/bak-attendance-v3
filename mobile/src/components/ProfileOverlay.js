@@ -1,9 +1,24 @@
 import { ActivityIndicator, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+
+const ROW_ICONS = {
+  'Employee ID': 'id-card-outline',
+  Name: 'person-outline',
+  Designation: 'briefcase-outline',
+  Department: 'business-outline',
+  Company: 'storefront-outline',
+  Status: 'pulse-outline',
+  'OT Eligible': 'timer-outline',
+  'Login Code': 'key-outline',
+};
 
 function Row({ label, value }) {
   return (
     <View style={styles.row}>
-      <Text style={styles.label}>{label}</Text>
+      <View style={styles.labelRow}>
+        <Ionicons name={ROW_ICONS[label] || 'ellipse-outline'} size={15} color="#9ca3af" />
+        <Text style={styles.label}>{label}</Text>
+      </View>
       <Text style={styles.value}>{value ?? '—'}</Text>
     </View>
   );
@@ -20,8 +35,12 @@ export default function ProfileOverlay({ visible, profile, loading, onClose }) {
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <View style={styles.headerRow}>
-            <Text style={styles.heading}>My Profile</Text>
+            <View style={styles.headingRow}>
+              <Ionicons name="person-circle-outline" size={22} color="#111827" />
+              <Text style={styles.heading}>My Profile</Text>
+            </View>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Ionicons name="close" size={16} color="#2563eb" />
               <Text style={styles.closeButtonText}>Close</Text>
             </TouchableOpacity>
           </View>
@@ -50,17 +69,20 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, paddingBottom: 32 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  headingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   heading: { fontSize: 18, fontWeight: '700', color: '#111827' },
-  closeButton: { paddingVertical: 6, paddingHorizontal: 10 },
+  closeButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 10 },
   closeButtonText: { color: '#2563eb', fontSize: 14, fontWeight: '600' },
   spinner: { marginVertical: 24 },
   row: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#f3f4f6',
   },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   label: { fontSize: 14, color: '#6b7280' },
   value: { fontSize: 14, fontWeight: '600', color: '#111827' },
 });

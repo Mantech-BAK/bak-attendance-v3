@@ -18,6 +18,7 @@ const {
   checkNearDuplicate,
 } = require('../services/punchValidation');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
+const { resolveBackofficeEmpId } = requireBackofficeAuth;
 
 const router = express.Router();
 
@@ -72,27 +73,37 @@ router.get('/', requireBackofficeAuth, async (req, res, next) => {
   }
 });
 
+// supervisor_emp_id is optional here, same shape as ot-approvals' /pending
+// below: given, scoped to that supervisor's own team (mobile Review
+// Attendance usage); omitted, requires a valid backoffice session and
+// returns every pending punch company-wide (backoffice Approvals page —
+// item 3 — an admin isn't literally anyone's reporting manager, so it can't
+// use the manager-scoped path at all).
 router.get('/pending', async (req, res, next) => {
   try {
     const { supervisor_emp_id } = req.query;
+    let scopeEmpId = null;
 
-    if (!supervisor_emp_id) {
+    if (supervisor_emp_id) {
+      const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
+      if (supervisorResult.rows.length === 0) {
+        return res.status(404).json({ error: `employee ${supervisor_emp_id} not found` });
+      }
+      scopeEmpId = supervisor_emp_id;
+    } else if (!(await resolveBackofficeEmpId(req))) {
       return res.status(400).json({ error: 'supervisor_emp_id is required' });
     }
 
-    const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
-    if (supervisorResult.rows.length === 0) {
-      return res.status(404).json({ error: `employee ${supervisor_emp_id} not found` });
-    }
-
     const pendingResult = await pool.query(
-      `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, p.project_code, p.task_id,
+      `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, p.project_code, pr.project_name, p.task_id, t.display_id AS task_display_id,
               p.punch_time, p.lat, p.lng, p.entry_method, p.entered_by
        FROM punches p
        JOIN employees e ON e."EmpId" = p.emp_id
-       WHERE e."EmpReportMgrId" = $1 AND p.approval_status = 'pending'
+       LEFT JOIN projects pr ON pr.project_code = p.project_code
+       LEFT JOIN tasks t ON t.id = p.task_id
+       WHERE p.approval_status = 'pending' ${scopeEmpId ? 'AND e."EmpReportMgrId" = $1' : ''}
        ORDER BY p.punch_time ASC`,
-      [supervisor_emp_id]
+      scopeEmpId ? [scopeEmpId] : []
     );
 
     res.json(pendingResult.rows);
@@ -136,7 +147,12 @@ router.get('/team-history', async (req, res, next) => {
   }
 });
 
-async function loadPunchForApproval(punchId, supervisorEmpId) {
+// bypassManagerCheck is only ever true for an authenticated backoffice
+// session (item 3) — an admin isn't literally anyone's reporting manager,
+// so the normal EmpReportMgrId match can never pass for them, the same way
+// GET /pending above treats "no supervisor_emp_id + valid backoffice
+// session" as its company-wide path.
+async function loadPunchForApproval(punchId, actingEmpId, { bypassManagerCheck } = {}) {
   const punchResult = await pool.query(
     `SELECT p.id, p.approval_status, e."EmpReportMgrId" AS reporting_manager_emp_id
      FROM punches p
@@ -151,8 +167,8 @@ async function loadPunchForApproval(punchId, supervisorEmpId) {
 
   const punch = punchResult.rows[0];
 
-  if (punch.reporting_manager_emp_id !== supervisorEmpId) {
-    return { error: { status: 403, message: `${supervisorEmpId} is not the reporting manager for this punch` } };
+  if (!bypassManagerCheck && punch.reporting_manager_emp_id !== actingEmpId) {
+    return { error: { status: 403, message: `${actingEmpId} is not the reporting manager for this punch` } };
   }
 
   if (punch.approval_status !== 'pending') {
@@ -166,17 +182,20 @@ router.patch('/:id/approve', async (req, res, next) => {
   try {
     const { id } = req.params;
     const { supervisor_emp_id } = req.body;
+    const backofficeEmpId = await resolveBackofficeEmpId(req);
+    const actingEmpId = backofficeEmpId || supervisor_emp_id;
 
-    if (!supervisor_emp_id) {
+    if (!actingEmpId) {
       return res.status(400).json({ error: 'supervisor_emp_id is required' });
     }
-
-    const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
-    if (supervisorResult.rows.length === 0) {
-      return res.status(400).json({ error: `supervisor_emp_id ${supervisor_emp_id} not found` });
+    if (!backofficeEmpId) {
+      const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
+      if (supervisorResult.rows.length === 0) {
+        return res.status(400).json({ error: `supervisor_emp_id ${supervisor_emp_id} not found` });
+      }
     }
 
-    const { punch, error } = await loadPunchForApproval(id, supervisor_emp_id);
+    const { punch, error } = await loadPunchForApproval(id, actingEmpId, { bypassManagerCheck: !!backofficeEmpId });
     if (error) {
       return res.status(error.status).json({ error: error.message });
     }
@@ -186,7 +205,7 @@ router.patch('/:id/approve', async (req, res, next) => {
        SET approval_status = 'approved', approved_by = $1, approved_at = now()
        WHERE id = $2
        RETURNING ${PUNCH_SELECT_RETURNING}, rejection_reason`,
-      [supervisor_emp_id, punch.id]
+      [actingEmpId, punch.id]
     );
 
     res.json(result.rows[0]);
@@ -199,20 +218,23 @@ router.patch('/:id/reject', async (req, res, next) => {
   try {
     const { id } = req.params;
     const { supervisor_emp_id, reason } = req.body;
+    const backofficeEmpId = await resolveBackofficeEmpId(req);
+    const actingEmpId = backofficeEmpId || supervisor_emp_id;
 
-    if (!supervisor_emp_id) {
+    if (!actingEmpId) {
       return res.status(400).json({ error: 'supervisor_emp_id is required' });
     }
     if (!reason || !String(reason).trim()) {
       return res.status(400).json({ error: 'reason is required' });
     }
-
-    const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
-    if (supervisorResult.rows.length === 0) {
-      return res.status(400).json({ error: `supervisor_emp_id ${supervisor_emp_id} not found` });
+    if (!backofficeEmpId) {
+      const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
+      if (supervisorResult.rows.length === 0) {
+        return res.status(400).json({ error: `supervisor_emp_id ${supervisor_emp_id} not found` });
+      }
     }
 
-    const { punch, error } = await loadPunchForApproval(id, supervisor_emp_id);
+    const { punch, error } = await loadPunchForApproval(id, actingEmpId, { bypassManagerCheck: !!backofficeEmpId });
     if (error) {
       return res.status(error.status).json({ error: error.message });
     }
@@ -222,7 +244,7 @@ router.patch('/:id/reject', async (req, res, next) => {
        SET approval_status = 'rejected', rejection_reason = $1, approved_by = $2, approved_at = now()
        WHERE id = $3
        RETURNING ${PUNCH_SELECT_RETURNING}, rejection_reason`,
-      [String(reason).trim(), supervisor_emp_id, punch.id]
+      [String(reason).trim(), actingEmpId, punch.id]
     );
 
     res.json(result.rows[0]);

@@ -8,13 +8,20 @@ import {
   View,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import { Ionicons } from '@expo/vector-icons';
 
 const PRIORITIES = ['low', 'medium', 'high'];
 
-// Inline tab content, not a modal popup — Task Assignment is now its own
-// persistent tab rather than a secondary action layered over the punch flow.
-export default function TaskAssignmentForm({ directReports, projects, onSubmit }) {
-  const [assignedEmpId, setAssignedEmpId] = useState(null);
+// Inline tab content, not a modal popup — Create Task is its own persistent
+// tab rather than a secondary action layered over the punch flow.
+//
+// selfEmpId (item 4) switches this into self-service mode: the "Assign To"
+// picker disappears (the task is always for selfEmpId, never chosen), used
+// by MyTasksTab's emergency-window Create Task flow. Omitted, this behaves
+// exactly as before — a supervisor assigning to one of directReports.
+export default function TaskAssignmentForm({ directReports, projects, onSubmit, selfEmpId, heading, submitLabel }) {
+  const isSelfMode = !!selfEmpId;
+  const [assignedEmpId, setAssignedEmpId] = useState(selfEmpId ?? null);
   const [projectCode, setProjectCode] = useState(null);
   const [priority, setPriority] = useState('medium');
   const [description, setDescription] = useState('');
@@ -24,8 +31,11 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit }
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    setAssignedEmpId((prev) => prev ?? directReports?.[0]?.emp_id ?? null);
+    if (!isSelfMode) {
+      setAssignedEmpId((prev) => prev ?? directReports?.[0]?.emp_id ?? null);
+    }
     setProjectCode((prev) => prev ?? projects?.[0]?.project_code ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [directReports, projects]);
 
   async function handleSubmit() {
@@ -66,16 +76,23 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.heading}>Assign a Task</Text>
-
-      <Text style={styles.label}>Assign To</Text>
-      <View style={styles.pickerWrapper}>
-        <Picker selectedValue={assignedEmpId} onValueChange={setAssignedEmpId}>
-          {(directReports || []).map((report) => (
-            <Picker.Item key={report.emp_id} label={report.name} value={report.emp_id} />
-          ))}
-        </Picker>
+      <View style={styles.headingRow}>
+        <Ionicons name="clipboard-outline" size={18} color="#111827" />
+        <Text style={styles.heading}>{heading || 'Assign a Task'}</Text>
       </View>
+
+      {!isSelfMode && (
+        <>
+          <Text style={styles.label}>Assign To</Text>
+          <View style={styles.pickerWrapper}>
+            <Picker selectedValue={assignedEmpId} onValueChange={setAssignedEmpId}>
+              {(directReports || []).map((report) => (
+                <Picker.Item key={report.emp_id} label={report.name} value={report.emp_id} />
+              ))}
+            </Picker>
+          </View>
+        </>
+      )}
 
       <Text style={styles.label}>Project</Text>
       <View style={styles.pickerWrapper}>
@@ -116,15 +133,32 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit }
         placeholder="e.g. Lagos HQ"
       />
 
-      {error && <Text style={styles.error}>{error}</Text>}
-      {success && <Text style={styles.success}>Task assigned successfully.</Text>}
+      {error && (
+        <View style={styles.errorRow}>
+          <Ionicons name="alert-circle" size={16} color="#dc2626" />
+          <Text style={styles.error}>{error}</Text>
+        </View>
+      )}
+      {success && (
+        <View style={styles.successRow}>
+          <Ionicons name="checkmark-circle" size={16} color="#16a34a" />
+          <Text style={styles.success}>{isSelfMode ? 'Task created successfully.' : 'Task assigned successfully.'}</Text>
+        </View>
+      )}
 
       <TouchableOpacity
         style={[styles.submitButton, submitting && styles.disabled]}
         onPress={handleSubmit}
         disabled={submitting}
       >
-        {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Create Task</Text>}
+        {submitting ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <>
+            <Ionicons name="add-circle-outline" size={18} color="#fff" />
+            <Text style={styles.submitButtonText}>{submitLabel || 'Create Task'}</Text>
+          </>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -132,7 +166,8 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit }
 
 const styles = StyleSheet.create({
   container: { width: '100%', backgroundColor: '#fff', borderRadius: 12, padding: 16, marginTop: 16 },
-  heading: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 14 },
+  headingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
+  heading: { fontSize: 16, fontWeight: '700', color: '#111827' },
   label: { fontSize: 13, fontWeight: '600', color: '#6b7280', marginBottom: 6, marginTop: 10 },
   input: {
     borderWidth: 1,
@@ -144,13 +179,18 @@ const styles = StyleSheet.create({
   },
   textArea: { minHeight: 70, textAlignVertical: 'top' },
   pickerWrapper: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8 },
-  error: { color: '#dc2626', marginTop: 10, fontSize: 13 },
-  success: { color: '#16a34a', marginTop: 10, fontSize: 13, fontWeight: '600' },
+  errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
+  successRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
+  error: { color: '#dc2626', fontSize: 13 },
+  success: { color: '#16a34a', fontSize: 13, fontWeight: '600' },
   submitButton: {
     marginTop: 20,
     paddingVertical: 14,
     borderRadius: 8,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
     backgroundColor: '#2563eb',
   },
   submitButtonText: { color: '#fff', fontSize: 15, fontWeight: '700' },

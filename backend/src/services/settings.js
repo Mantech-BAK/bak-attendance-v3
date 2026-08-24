@@ -59,6 +59,51 @@ async function getDuplicatePunchWindowMinutes() {
   return Number.isFinite(minutes) && minutes > 0 ? minutes : DEFAULT_DUPLICATE_WINDOW_MINUTES;
 }
 
+const DEFAULT_EMERGENCY_START = '22:00';
+const DEFAULT_EMERGENCY_END = '06:00';
+
+// The nightly window an employee is allowed to create a task for themselves
+// (mobile, no supervisor/backoffice involved) — outside it, only a
+// supervisor or backoffice can assign them work, same as before this
+// feature existed. Falls back to the documented default (10pm-6am) whenever
+// unset, same "never a hard failure just because nobody's touched the
+// setting yet" reasoning as getDuplicatePunchWindowMinutes above.
+async function getEmergencyTimeAllowance() {
+  const [start, end] = await Promise.all([
+    getSetting('emergency_time_allowance_start'),
+    getSetting('emergency_time_allowance_end'),
+  ]);
+  return {
+    start: start || DEFAULT_EMERGENCY_START,
+    end: end || DEFAULT_EMERGENCY_END,
+  };
+}
+
+function parseHHMM(value) {
+  const [h, m] = String(value).split(':').map(Number);
+  return h * 60 + m;
+}
+
+// Compared in UTC, not the server process's local timezone or the caller's
+// device time — same "never trust anything but the server's own clock"
+// principle punch_time itself already follows elsewhere in this app. A
+// window where start === end is treated as always-open rather than
+// always-closed (an admin who sets it that way almost certainly means "no
+// restriction", not "block everyone").
+async function isWithinEmergencyWindow(now = new Date()) {
+  const { start, end } = await getEmergencyTimeAllowance();
+  const startMinutes = parseHHMM(start);
+  const endMinutes = parseHHMM(end);
+  if (startMinutes === endMinutes) return true;
+
+  const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  if (startMinutes < endMinutes) {
+    return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+  }
+  // Overnight window (e.g. the 22:00-06:00 default) wraps past midnight.
+  return nowMinutes >= startMinutes || nowMinutes < endMinutes;
+}
+
 module.exports = {
   getSetting,
   setSetting,
@@ -67,4 +112,8 @@ module.exports = {
   getRamzanPeriods,
   getDuplicatePunchWindowMinutes,
   DEFAULT_DUPLICATE_WINDOW_MINUTES,
+  getEmergencyTimeAllowance,
+  isWithinEmergencyWindow,
+  DEFAULT_EMERGENCY_START,
+  DEFAULT_EMERGENCY_END,
 };

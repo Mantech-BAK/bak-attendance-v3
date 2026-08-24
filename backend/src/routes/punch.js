@@ -1,8 +1,28 @@
 const express = require('express');
 const { getTodaysTasks } = require('../services/tasks');
 const { verifyEmployeeCredentials } = require('../services/identify');
+const { getEmergencyTimeAllowance, isWithinEmergencyWindow } = require('../services/settings');
 
 const router = express.Router();
+
+// Read-only, unauthenticated (same reasoning as everything else in this
+// file — mobile has no session/JWT concept) — lets the mobile app show/hide
+// its self-service "Create Task" entry point without a wasted round trip to
+// POST /api/tasks just to discover the window is closed. is_open is
+// computed here (server clock, UTC) rather than left for the client to
+// derive from start/end + its own device clock, which could be wrong or in
+// a different timezone.
+router.get('/emergency-window', async (req, res, next) => {
+  try {
+    const [{ start, end }, isOpen] = await Promise.all([
+      getEmergencyTimeAllowance(),
+      isWithinEmergencyWindow(),
+    ]);
+    res.json({ start, end, is_open: isOpen });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
  * TEMPORARY TESTING MEASURE — identification is currently a typed

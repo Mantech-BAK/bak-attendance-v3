@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
 
 /**
  * One button per task — no longer deduped by project_code (2026-08-23:
@@ -86,14 +87,20 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
   if (list.length === 0) {
     return (
       <View style={styles.container}>
-        <Text style={styles.empty}>No tasks assigned today</Text>
+        <View style={styles.emptyRow}>
+          <Ionicons name="file-tray-outline" size={16} color="#9ca3af" />
+          <Text style={styles.empty}>No tasks assigned today</Text>
+        </View>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>Tap a task to punch</Text>
+      <View style={styles.labelRow}>
+        <Ionicons name="finger-print-outline" size={14} color="#6b7280" />
+        <Text style={styles.label}>Tap a task to punch</Text>
+      </View>
       {list.map((task) => {
         const open = isOpen(task);
         const blocked = !!blockedBy(task);
@@ -106,6 +113,12 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
             onPress={() => handlePress(task)}
             disabled={!!submittingKey}
           >
+            <Ionicons
+              name={open ? 'radio-button-on' : 'radio-button-off-outline'}
+              size={22}
+              color={open ? '#fff' : '#2563eb'}
+              style={styles.taskLeadingIcon}
+            />
             <View style={styles.textWrap}>
               <View style={styles.nameRow}>
                 <Text style={[styles.projectName, open && styles.openText]}>{task.name}</Text>
@@ -116,6 +129,7 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
                 )}
                 {task.is_default && (
                   <View style={styles.defaultBadge}>
+                    <Ionicons name="business-outline" size={11} color="#4338ca" />
                     <Text style={styles.defaultBadgeText}>DEFAULT</Text>
                   </View>
                 )}
@@ -126,8 +140,18 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
               {task.is_default && (
                 <Text style={[styles.defaultHint, open && styles.openText]}>No task assigned — department default project</Text>
               )}
-              {open && <Text style={styles.openHint}>Open — tap to close</Text>}
-              {blocked && <Text style={styles.blockedHint}>Close what's open first</Text>}
+              {open && (
+                <View style={styles.hintRow}>
+                  <Ionicons name="checkmark-circle" size={12} color="#dbeafe" />
+                  <Text style={styles.openHint}>Open — tap to close</Text>
+                </View>
+              )}
+              {blocked && (
+                <View style={styles.hintRow}>
+                  <Ionicons name="lock-closed" size={12} color="#dc2626" />
+                  <Text style={styles.blockedHint}>Close what's open first</Text>
+                </View>
+              )}
             </View>
             {isSubmitting && <ActivityIndicator color={open ? '#fff' : '#2563eb'} />}
           </TouchableOpacity>
@@ -139,7 +163,9 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
 
 const styles = StyleSheet.create({
   container: { marginTop: 16, width: '100%' },
-  label: { fontSize: 13, fontWeight: '600', color: '#6b7280', marginBottom: 8 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  label: { fontSize: 13, fontWeight: '600', color: '#6b7280' },
+  emptyRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   empty: { fontSize: 14, color: '#9ca3af', fontStyle: 'italic' },
   projectButton: {
     flexDirection: 'row',
@@ -155,19 +181,29 @@ const styles = StyleSheet.create({
   },
   openButton: { backgroundColor: '#2563eb', borderColor: '#2563eb' },
   blockedButton: { opacity: 0.5 },
+  taskLeadingIcon: { marginRight: 12 },
   textWrap: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   projectName: { fontSize: 16, fontWeight: '600', color: '#111827' },
   openText: { color: '#fff' },
-  openHint: { fontSize: 12, color: '#dbeafe', marginTop: 2 },
-  blockedHint: { fontSize: 12, color: '#dc2626', marginTop: 2 },
+  hintRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  openHint: { fontSize: 12, color: '#dbeafe' },
+  blockedHint: { fontSize: 12, color: '#dc2626' },
   taskIdHint: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
   priorityBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
   priority_high: { backgroundColor: '#fee2e2' },
   priority_medium: { backgroundColor: '#fef3c7' },
   priority_low: { backgroundColor: '#f3f4f6' },
   priorityText: { fontSize: 11, fontWeight: '700', color: '#374151', textTransform: 'uppercase' },
-  defaultBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: '#e0e7ff' },
+  defaultBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: '#e0e7ff',
+  },
   defaultBadgeText: { fontSize: 11, fontWeight: '700', color: '#4338ca', textTransform: 'uppercase' },
   defaultHint: { fontSize: 12, color: '#6b7280', marginTop: 2 },
 });

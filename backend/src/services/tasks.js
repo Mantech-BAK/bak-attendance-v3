@@ -1,6 +1,10 @@
 const pool = require('../db');
+const { isWithinEmergencyWindow, getEmergencyTimeAllowance } = require('./settings');
 
-const VALID_SOURCES = ['supervisor_app', 'backoffice', 'teams'];
+// employee_self: an employee creating a task for themselves, mobile, no
+// supervisor/backoffice involved — only allowed inside the configured
+// Emergency Time Allowance window (see createTask below).
+const VALID_SOURCES = ['supervisor_app', 'backoffice', 'teams', 'employee_self'];
 
 class TaskValidationError extends Error {
   constructor(status, message) {
@@ -138,6 +142,40 @@ async function getTodaysTasks(empId) {
   }];
 }
 
+function deriveTaskStatus(punchCount) {
+  if (punchCount === 0) return 'not_started';
+  return punchCount >= 2 ? 'completed' : 'pending';
+}
+
+// Powers mobile's "My Tasks" list (item 2) — unlike getTodaysTasks above,
+// this is a read-only display, not a punch-selection source, so it
+// deliberately does NOT drop Completed tasks or synthesize the
+// department-default fallback (there's no real task behind that one to show
+// a lifecycle for). task_status is computed server-side (not_started /
+// pending / completed, the same even/odd-punch-count convention as
+// everywhere else) so the mobile app doesn't need to re-derive it from
+// punch_count itself.
+async function getTodaysTaskList(empId) {
+  const result = await pool.query(
+    `SELECT t.id, t.display_id, t.project_code, t.priority, t.description, t.location_site, t.task_date::text AS task_date,
+            (SELECT count(*)::int FROM punches pu WHERE pu.task_id = t.id AND pu.approval_status <> 'rejected') AS punch_count
+     FROM tasks t
+     WHERE t.emp_id = $1 AND t.task_date = CURRENT_DATE
+     ORDER BY t.id`,
+    [empId]
+  );
+
+  return result.rows.map((task) => ({
+    id: task.id,
+    display_id: task.display_id,
+    project_code: task.project_code,
+    name: task.description || task.location_site || task.project_code,
+    priority: task.priority,
+    punch_count: task.punch_count,
+    task_status: deriveTaskStatus(task.punch_count),
+  }));
+}
+
 async function resolveTaskDate(taskDate) {
   if (taskDate) return taskDate;
   const { rows } = await pool.query("SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today");
@@ -189,6 +227,22 @@ async function createTask({ emp_id, project_code, priority, description, locatio
   }
   if (!created_by) throw new TaskValidationError(400, 'created_by is required');
 
+  // employee_self is the one source where the creator and the assignee must
+  // be the same person — an employee can only self-create a task for
+  // themselves, never attribute one to someone else this way (that's what
+  // supervisor_app/backoffice are for) — and only inside the configured
+  // night-time window; outside it, only a supervisor or backoffice can
+  // assign them work, same as always.
+  if (source === 'employee_self') {
+    if (emp_id !== created_by) {
+      throw new TaskValidationError(403, 'employee_self tasks can only be self-created — emp_id must match created_by');
+    }
+    if (!(await isWithinEmergencyWindow())) {
+      const { start, end } = await getEmergencyTimeAllowance();
+      throw new TaskValidationError(403, `Self-service task creation is only allowed between ${start} and ${end}`);
+    }
+  }
+
   const employeeResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
   if (employeeResult.rows.length === 0) throw new TaskValidationError(404, `employee ${emp_id} not found`);
 
@@ -227,4 +281,4 @@ async function createTask({ emp_id, project_code, priority, description, locatio
   return result.rows[0];
 }
 
-module.exports = { getTodaysTasks, getTasksForDate, createTask, TaskValidationError, VALID_SOURCES };
+module.exports = { getTodaysTasks, getTasksForDate, getTodaysTaskList, createTask, TaskValidationError, VALID_SOURCES };

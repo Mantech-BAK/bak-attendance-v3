@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db');
 const { runDailyOtJob } = require('../services/otApprovals');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
+const { resolveBackofficeEmpId } = requireBackofficeAuth;
 
 const router = express.Router();
 
@@ -58,7 +59,10 @@ router.get('/pending', async (req, res, next) => {
   }
 });
 
-async function loadOtApprovalForAction(id, supervisorEmpId) {
+// bypassManagerCheck mirrors punches.js's loadPunchForApproval — only ever
+// true for an authenticated backoffice session (item 3), since an admin
+// isn't literally anyone's reporting manager.
+async function loadOtApprovalForAction(id, actingEmpId, { bypassManagerCheck } = {}) {
   const result = await pool.query(
     `SELECT o.id, o.status, e."EmpReportMgrId" AS reporting_manager_emp_id
      FROM ot_approvals o
@@ -73,8 +77,8 @@ async function loadOtApprovalForAction(id, supervisorEmpId) {
 
   const approval = result.rows[0];
 
-  if (approval.reporting_manager_emp_id !== supervisorEmpId) {
-    return { error: { status: 403, message: `${supervisorEmpId} is not the reporting manager for this employee` } };
+  if (!bypassManagerCheck && approval.reporting_manager_emp_id !== actingEmpId) {
+    return { error: { status: 403, message: `${actingEmpId} is not the reporting manager for this employee` } };
   }
 
   if (approval.status !== 'pending') {
@@ -88,12 +92,14 @@ router.patch('/:id/approve', async (req, res, next) => {
   try {
     const { id } = req.params;
     const { supervisor_emp_id } = req.body;
+    const backofficeEmpId = await resolveBackofficeEmpId(req);
+    const actingEmpId = backofficeEmpId || supervisor_emp_id;
 
-    if (!supervisor_emp_id) {
+    if (!actingEmpId) {
       return res.status(400).json({ error: 'supervisor_emp_id is required' });
     }
 
-    const { approval, error } = await loadOtApprovalForAction(id, supervisor_emp_id);
+    const { approval, error } = await loadOtApprovalForAction(id, actingEmpId, { bypassManagerCheck: !!backofficeEmpId });
     if (error) {
       return res.status(error.status).json({ error: error.message });
     }
@@ -103,7 +109,7 @@ router.patch('/:id/approve', async (req, res, next) => {
        SET status = 'approved', approved_by = $1, approved_at = now()
        WHERE id = $2
        RETURNING id, emp_id, work_date::text AS work_date, worked_minutes, threshold_minutes, ot_minutes, status, approved_by, approved_at`,
-      [supervisor_emp_id, approval.id]
+      [actingEmpId, approval.id]
     );
 
     res.json(result.rows[0]);
@@ -116,15 +122,17 @@ router.patch('/:id/reject', async (req, res, next) => {
   try {
     const { id } = req.params;
     const { supervisor_emp_id, reason } = req.body;
+    const backofficeEmpId = await resolveBackofficeEmpId(req);
+    const actingEmpId = backofficeEmpId || supervisor_emp_id;
 
-    if (!supervisor_emp_id) {
+    if (!actingEmpId) {
       return res.status(400).json({ error: 'supervisor_emp_id is required' });
     }
     if (!reason || !String(reason).trim()) {
       return res.status(400).json({ error: 'reason is required' });
     }
 
-    const { approval, error } = await loadOtApprovalForAction(id, supervisor_emp_id);
+    const { approval, error } = await loadOtApprovalForAction(id, actingEmpId, { bypassManagerCheck: !!backofficeEmpId });
     if (error) {
       return res.status(error.status).json({ error: error.message });
     }
@@ -134,7 +142,7 @@ router.patch('/:id/reject', async (req, res, next) => {
        SET status = 'rejected', rejection_reason = $1, approved_by = $2, approved_at = now()
        WHERE id = $3
        RETURNING id, emp_id, work_date::text AS work_date, worked_minutes, threshold_minutes, ot_minutes, status, rejection_reason, approved_by, approved_at`,
-      [String(reason).trim(), supervisor_emp_id, approval.id]
+      [String(reason).trim(), actingEmpId, approval.id]
     );
 
     res.json(result.rows[0]);
