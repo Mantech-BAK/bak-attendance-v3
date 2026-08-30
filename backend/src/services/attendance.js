@@ -303,13 +303,19 @@ async function calculateAttendance(empId, date) {
   const [settingsMap, religionRows] = await Promise.all([
     getAllSettings(),
     pool.query(
-      `SELECT e."EmpId" AS emp_id, r.religion_name AS religion
+      `SELECT e."EmpId" AS emp_id, r.religion_name AS religion, e."EmpOtStatus" AS ot_eligible
        FROM employees e
        LEFT JOIN religions r ON e."EmpReligionId" = r.religion_code`
     ),
   ]);
   const ramzanPeriods = parseRamzanPeriods(settingsMap);
   const religionByEmpId = new Map(religionRows.rows.map((row) => [row.emp_id, row.religion]));
+  // is_overtime/overtime_minutes below must never surface for a
+  // non-OT-eligible employee, however many minutes over threshold they
+  // worked — this was missing entirely (every session got flagged purely
+  // on minutes, regardless of EmpOtStatus), the same class of bug as the
+  // day-level ot_approvals eligibility check this mirrors.
+  const otEligibleByEmpId = new Map(religionRows.rows.map((row) => [row.emp_id, row.ot_eligible === true]));
   const today = dateKey(new Date());
 
   const groups = new Map();
@@ -371,8 +377,9 @@ async function calculateAttendance(empId, date) {
     });
     session.threshold_minutes = threshold.minutes;
     session.threshold_source = threshold.source;
-    session.is_overtime = session.incomplete ? null : session.counted_minutes > threshold.minutes;
-    session.overtime_minutes = session.incomplete ? null : Math.max(0, session.counted_minutes - threshold.minutes);
+    const otEligible = otEligibleByEmpId.get(session.emp_id) ?? false;
+    session.is_overtime = session.incomplete || !otEligible ? null : session.counted_minutes > threshold.minutes;
+    session.overtime_minutes = session.incomplete || !otEligible ? null : Math.max(0, session.counted_minutes - threshold.minutes);
   }
 
   sessions.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));

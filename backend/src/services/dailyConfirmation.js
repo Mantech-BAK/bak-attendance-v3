@@ -11,6 +11,18 @@ const { getEffectiveThreshold, applyNestedSubtraction, getUtcDayBounds, punchKey
 const SMALL_GAP_THRESHOLD_MINUTES = 60;
 const DEFAULT_MAX_OT_MINUTES = 600; // 10 hours, used only if max_ot_minutes is somehow missing
 
+// Every OT display surface (mobile OvertimeApprovalsCard, backoffice
+// Dashboard Overtime Alerts, backoffice ApprovalsPage) rounds ot hours to
+// one decimal place, so any excess under 3 minutes (0.05h) renders as a
+// misleading "+0.0h overtime"/"0h OT" — a real but practically-invisible
+// amount that still shows up as something a supervisor has to act on.
+// Confirmed in production: E1001 on 2026-08-20 worked 511 minutes against a
+// 510-minute threshold — a genuine 1-minute excess that both the mobile and
+// backoffice cards displayed as "0.0h"/"0h". Below this floor, OT is
+// treated as punch-timing noise, not real overtime — no OT row, no
+// ot_approvals record, ever created for it.
+const MIN_OT_MINUTES = 3;
+
 // Matches confirmationSheetExcel.js's own REPORT_TIME_ZONE — REMARKS is
 // human-readable business text (e.g. "OT: 5:00 PM - 7:00 PM"), so it needs
 // the same timezone-aware formatting the rest of the sheet uses, not the
@@ -193,7 +205,7 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
   // padding row — the report now shows only real punch-backed rows,
   // whatever they add up to. Nothing else to do here in that case: no row,
   // no OT (trueExcessMinutes is 0 whenever there's a shortfall).
-  if (trueExcessMinutes > 0 && employee.ot_eligible === 'Y') {
+  if (trueExcessMinutes >= MIN_OT_MINUTES && employee.ot_eligible === 'Y') {
     otMinutes = Math.min(trueExcessMinutes, maxOtMinutes);
     const cappedNote = trueExcessMinutes > maxOtMinutes
       ? ` (true excess ${formatDurationShort(trueExcessMinutes)}, capped at ${formatDurationShort(maxOtMinutes)} for approval)`
