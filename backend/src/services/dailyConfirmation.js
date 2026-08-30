@@ -2,13 +2,6 @@ const pool = require('../db');
 const { getAllSettings, parseRamzanPeriods } = require('./settings');
 const { getEffectiveThreshold, applyNestedSubtraction, getUtcDayBounds, punchKey, buildSessionFromPunches } = require('./attendance');
 
-// Gaps under this many minutes between two sequential top-level sessions fold
-// into the preceding one's counted time (as part of that real row); gaps
-// at or above it still count toward the day's worked total (same as ever —
-// this feeds threshold/OT math shared with the nightly OT cron, see
-// otApprovals.js), they just no longer get their own report row — see
-// computeEmployeeDay's docstring for why.
-const SMALL_GAP_THRESHOLD_MINUTES = 60;
 const DEFAULT_MAX_OT_MINUTES = 600; // 10 hours, used only if max_ot_minutes is somehow missing
 
 // Every OT display surface (mobile OvertimeApprovalsCard, backoffice
@@ -88,27 +81,31 @@ function buildSessionsForDay(punchRows, empId, date) {
 /**
  * Computes one employee's one-day confirmation-sheet rows: real per-task
  * rows only (nested-subtraction already applied — two tasks sharing a
- * project are two separate rows with independently calculated real time),
- * small gaps folded into the preceding session with a REMARKS note, and —
- * for OT-eligible employees whose true worked time exceeds the day's
- * threshold — an OT row (on their last real session) capped at
- * max_ot_minutes, carrying the actual clock time range the overtime
- * occurred in (the tail end of the last session, working backward by
- * otMinutes) rather than just a total, with the true uncapped excess noted
- * in REMARKS for transparency even though only the capped amount is ever
- * presented as approvable OT.
+ * project are two separate rows with independently calculated real time).
  *
- * Deliberately does NOT synthesize an absentee row, a shortfall row, or a
- * large-gap "attributed to default project" row — those were removed from
- * the report by design (2026-08-20): the sheet should only ever show real
- * punch-backed activity, never fabricated padding. Callers must pre-filter
- * out employees with zero punches (see generateConfirmationSheetRows and
- * otApprovals.js) rather than rely on this function to represent absence.
+ * Every gap between two sequential top-level sessions — regardless of
+ * magnitude, 5 minutes or 5 hours — folds entirely into the PRECEDING
+ * task's row with a REMARKS note (2026-08-30: the earlier <1hr-folds/
+ * >=1hr-becomes-separate-time distinction was removed; there is no longer
+ * any gap-length threshold at all, every gap always folds into the task
+ * before it, never becomes separate/default-project time).
  *
- * The large-gap minutes still count toward totalWorkedMinutes exactly as
- * before, though — that arithmetic feeds threshold/OT detection shared with
- * the nightly OT cron (otApprovals.js), which this report-display change
- * must not affect.
+ * For OT-eligible employees whose true worked time exceeds the day's
+ * threshold, OT is shown directly on the day's last real row — its own OT
+ * column populated with however many minutes (capped at max_ot_minutes)
+ * were worked beyond the threshold, carrying the actual clock time range
+ * the overtime occurred in (the tail end of that row's own session,
+ * working backward by otMinutes) in REMARKS, with the true uncapped excess
+ * also noted there for transparency. This is the SAME row as the task's
+ * normal entry, never a second synthetic row for the same task/time
+ * (2026-08-30 fix — it used to push a duplicate row purely to carry OT).
+ *
+ * Deliberately does NOT synthesize an absentee row or a shortfall row —
+ * those were removed from the report by design (2026-08-20): the sheet
+ * should only ever show real punch-backed activity, never fabricated
+ * padding. Callers must pre-filter out employees with zero punches (see
+ * generateConfirmationSheetRows and otApprovals.js) rather than rely on
+ * this function to represent absence.
  */
 function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeriods }) {
   const threshold = getEffectiveThreshold({
@@ -141,15 +138,13 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
       const next = topLevel[i + 1];
       const gapMinutes = Math.round((next.punch_in.punch_time - session.punch_out.punch_time) / 60000);
 
-      if (gapMinutes > 0 && gapMinutes < SMALL_GAP_THRESHOLD_MINUTES) {
+      // Every gap, any length, folds into the preceding task's row — no
+      // gap-length threshold anymore (2026-08-30 — see computeEmployeeDay's
+      // docstring). A non-positive gap (overlapping/adjacent punches) adds
+      // nothing.
+      if (gapMinutes > 0) {
         extraMinutes = gapMinutes;
-        remarks = `Includes ${formatDurationShort(gapMinutes)} transition gap before the next project`;
-      } else if (gapMinutes >= SMALL_GAP_THRESHOLD_MINUTES) {
-        // No longer emits its own "attributed to default project" row (see
-        // computeEmployeeDay's docstring) — but the gap still counts toward
-        // totalWorkedMinutes, unchanged, since OT/threshold detection here
-        // is shared with the nightly OT cron.
-        totalWorkedMinutes += gapMinutes;
+        remarks = `Includes ${formatDurationShort(gapMinutes)} transition gap before the next task`;
       }
     }
 
@@ -166,6 +161,7 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
       working_minutes: rowMinutes,
       remarks,
       is_ot_row: false,
+      ot_minutes: 0,
     });
   }
 
@@ -181,6 +177,7 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
       working_minutes: session.counted_minutes,
       remarks: '',
       is_ot_row: false,
+      ot_minutes: 0,
     });
   }
 
@@ -195,6 +192,7 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
       working_minutes: 0,
       remarks: 'Incomplete session — only one punch recorded',
       is_ot_row: false,
+      ot_minutes: 0,
     });
   }
 
@@ -219,17 +217,15 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
     const otStart = new Date(otEnd.getTime() - otMinutes * 60000);
     const timeRangeNote = `OT: ${formatClockTime(otStart)} - ${formatClockTime(otEnd)}`;
 
-    rows.push({
-      project_code: lastSession.project_code,
-      project_name: null,
-      task_id: lastSession.task_id,
-      cost_center: null,
-      start_time: otStart,
-      end_time: otEnd,
-      working_minutes: otMinutes,
-      remarks: `${timeRangeNote}${cappedNote}`,
-      is_ot_row: true,
-    });
+    // Populates the LAST TASK'S OWN ROW (already pushed above, topLevel's
+    // final entry is always rows[topLevel.length - 1] since top-level rows
+    // are pushed in topLevel order before any nested/incomplete rows) —
+    // never a second row for the same task/time (2026-08-30 fix; see
+    // computeEmployeeDay's docstring).
+    const lastRow = rows[topLevel.length - 1];
+    lastRow.ot_minutes = otMinutes;
+    lastRow.is_ot_row = true;
+    lastRow.remarks = lastRow.remarks ? `${lastRow.remarks} ${timeRangeNote}${cappedNote}` : `${timeRangeNote}${cappedNote}`;
   }
 
   return { rows, totalWorkedMinutes, thresholdMinutes: threshold.minutes, otMinutes, trueExcessMinutes };
@@ -242,10 +238,9 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
  * re-generating the report for an already-persisted date updates existing
  * records instead of duplicating them. Postgres treats NULL as never equal
  * to NULL in a unique constraint, so an untimed row would never actually
- * conflict on a true NULL StartTime — every row now carries a real
- * start_time (even the OT row, since item 8 gave it a real clock-time
- * range), so this fallback is now only a defensive backstop, not something
- * any current row shape actually relies on.
+ * conflict on a true NULL StartTime — every real (non-incomplete) row
+ * carries a real start_time, so this fallback is only a defensive
+ * backstop, not something any current row shape actually relies on.
  */
 async function persistConfirmationSheetRecord(row) {
   const startTimeForKey = row.start_time || new Date(`${row.attendance_date}T00:00:00.000Z`);
@@ -401,7 +396,7 @@ async function generateConfirmationSheetRows(date) {
         project_name: row.project_name,
         remarks: row.remarks,
         ot_eligible: employee.ot_eligible,
-        ot: row.is_ot_row ? formatHours(row.working_minutes) : '',
+        ot: row.is_ot_row ? formatHours(row.ot_minutes) : '',
         approval_required: approvalRequired ? 'Y' : 'N',
         approved_by: approvedBy,
       };
