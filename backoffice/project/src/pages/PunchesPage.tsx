@@ -200,6 +200,7 @@ export function PunchesPage() {
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Task / Project</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Punch Time</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Entry Method</th>
+                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Location</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500"></th>
                 </tr>
@@ -233,6 +234,15 @@ export function PunchesPage() {
                             ? `Supervisor (${p.entered_by})`
                             : 'Self'}
                       </Badge>
+                    </td>
+                    <td className="px-6 py-4 max-w-xs">
+                      {p.resolved_address ? (
+                        <p className="text-sm text-slate-700">{p.resolved_address}</p>
+                      ) : p.lat !== null && p.lng !== null ? (
+                        <p className="text-sm text-slate-500">{p.lat.toFixed(5)}, {p.lng.toFixed(5)}</p>
+                      ) : (
+                        <span className="text-sm text-slate-400">—</span>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <Badge variant={p.approval_status === 'approved' ? 'success' : p.approval_status === 'rejected' ? 'error' : 'warning'}>

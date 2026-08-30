@@ -111,8 +111,11 @@ export type Punch = {
   task_display_id: string | null;
   task_description: string | null;
   punch_time: string;
-  lat: number;
-  lng: number;
+  // Required for mobile/supervisor-app punches (2026-08-30) — but a
+  // backoffice admin-added punch (entry_method 'admin_correction') never
+  // has real device GPS behind it, so still genuinely null there.
+  lat: number | null;
+  lng: number | null;
   entry_method: string;
   entered_by: string;
   approval_status: string;

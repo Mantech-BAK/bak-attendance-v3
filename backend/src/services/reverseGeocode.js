@@ -8,7 +8,14 @@ const USER_AGENT = 'bak-attendance-v3 (contact: mcs.sw01@bakgroup.net)';
  * Real reverse geocoding via OpenStreetMap's Nominatim (free, no API key).
  * Called synchronously at punch-creation time. Must never block or fail the
  * punch itself — any error, timeout, or non-2xx response resolves to null
- * (logged server-side only) rather than throwing.
+ * (logged server-side only) rather than throwing. This is a display-only
+ * lookup — unlike lat/lng capture itself (now required for mobile/
+ * supervisor-app punches, enforced in routes/punches.js), a failed address
+ * resolution never blocks anything; the punch just shows without a
+ * human-readable address. Occasional misses from Nominatim's strict public
+ * rate limit are accepted for now — revisit with LocationIQ (a real API
+ * key, more generous free tier) once real usage volume makes that limit
+ * matter more; not swapped yet (2026-08-30 decision).
  */
 async function reverseGeocode(lat, lng) {
   // No coordinates (location disabled/unavailable on the device) — nothing

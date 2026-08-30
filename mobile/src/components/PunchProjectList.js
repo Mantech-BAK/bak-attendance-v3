@@ -23,6 +23,8 @@ import { Ionicons } from '@expo/vector-icons';
  * 409 on POST /api/punches, which this still falls back on for any race
  * (e.g. the hint went stale because another device punched in between).
  */
+const LOCATION_TIMEOUT_MS = 15000;
+
 export default function PunchProjectList({ tasks, openTaskId, openProjectCode, onPunch }) {
   const [submittingKey, setSubmittingKey] = useState(null);
   const list = tasks || [];
@@ -59,21 +61,28 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
 
     setSubmittingKey(taskKey(task));
     try {
-      // Location is best-effort only — permission denial, a disabled
-      // location service, or a failed/timed-out fix must never block the
-      // punch itself. Any of those simply mean lat/lng go through as null;
-      // the backend accepts that and leaves resolved_address null too.
-      let lat = null;
-      let lng = null;
+      // Location is now REQUIRED to punch (reversed 2026-08-30 — previously
+      // best-effort/never-blocking). Permission denial, a disabled location
+      // service, or a fix that never arrives all block the punch with a
+      // clear message rather than silently proceeding with null lat/lng.
+      let lat;
+      let lng;
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const location = await Location.getCurrentPositionAsync({});
-          lat = location.coords.latitude;
-          lng = location.coords.longitude;
+        if (status !== 'granted') {
+          Alert.alert('Location required', 'Location access is required to punch. Please enable location permission for this app and try again.');
+          return;
         }
+
+        const location = await Promise.race([
+          Location.getCurrentPositionAsync({}),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), LOCATION_TIMEOUT_MS)),
+        ]);
+        lat = location.coords.latitude;
+        lng = location.coords.longitude;
       } catch {
-        // Swallow — lat/lng stay null, punch proceeds regardless.
+        Alert.alert('Location required', 'Could not get your current location. Please enable location services and try again.');
+        return;
       }
 
       await onPunch(task, { lat, lng });

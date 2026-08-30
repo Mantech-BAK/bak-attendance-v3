@@ -260,18 +260,20 @@ router.post('/', async (req, res, next) => {
     if (!emp_id) {
       return res.status(400).json({ error: 'emp_id is required' });
     }
-    // Location is best-effort, not required — a device with GPS/location
-    // disabled or a failed lookup must still be able to punch. lat/lng are
-    // only rejected if the client sent something that isn't actually a
-    // valid coordinate; omitting them entirely (null/undefined) is fine and
-    // stores as NULL, same as admin-correction already does.
+    // Location is now REQUIRED for every real-device punch through this
+    // route (mobile self-punch and supervisor-on-behalf, both driven by the
+    // mobile app's own GPS) — reversed from the earlier best-effort/
+    // never-block design (2026-08-30 decision). A backoffice admin adding a
+    // punch on someone's behalf never has real device GPS behind it at
+    // all, so that flow stays on the separate /admin-correction route
+    // below, untouched by this requirement.
     const hasLat = lat !== null && lat !== undefined;
     const hasLng = lng !== null && lng !== undefined;
-    if (hasLat !== hasLng) {
-      return res.status(400).json({ error: 'lat and lng must both be provided or both be omitted' });
+    if (!hasLat || !hasLng) {
+      return res.status(400).json({ error: 'Location is required to punch. Please enable location services and try again.' });
     }
-    if (hasLat && (typeof lat !== 'number' || typeof lng !== 'number')) {
-      return res.status(400).json({ error: 'lat and lng must be numbers when provided' });
+    if (typeof lat !== 'number' || typeof lng !== 'number') {
+      return res.status(400).json({ error: 'lat and lng must be numbers' });
     }
 
     const enteredBy = entered_by || emp_id;
