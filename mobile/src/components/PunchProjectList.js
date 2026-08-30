@@ -24,6 +24,7 @@ import { Ionicons } from '@expo/vector-icons';
  * (e.g. the hint went stale because another device punched in between).
  */
 const LOCATION_TIMEOUT_MS = 15000;
+const LAST_KNOWN_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
 
 export default function PunchProjectList({ tasks, openTaskId, openProjectCode, onPunch }) {
   const [submittingKey, setSubmittingKey] = useState(null);
@@ -74,10 +75,24 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
           return;
         }
 
-        const location = await Promise.race([
-          Location.getCurrentPositionAsync({}),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), LOCATION_TIMEOUT_MS)),
-        ]);
+        let location;
+        try {
+          location = await Promise.race([
+            Location.getCurrentPositionAsync({}),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), LOCATION_TIMEOUT_MS)),
+          ]);
+        } catch {
+          // A live fix can be slow (weak signal, cold GPS start) or never
+          // arrive at all — confirmed live: getCurrentPositionAsync hung
+          // past LOCATION_TIMEOUT_MS even with permission granted and
+          // location services genuinely on. Fall back to the device's own
+          // last-known fix (expo-location's documented recommendation for
+          // a fast response) rather than failing outright — but only if
+          // it's recent enough to actually reflect where the employee is
+          // now, not a stale fix from an unrelated time.
+          location = await Location.getLastKnownPositionAsync({ maxAge: LAST_KNOWN_MAX_AGE_MS });
+          if (!location) throw new Error('no location available');
+        }
         lat = location.coords.latitude;
         lng = location.coords.longitude;
       } catch {
