@@ -4,16 +4,22 @@
   "main": "index.js",
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
+    "@infinitered/react-native-mlkit-core": "^5.0.0",
+    "@infinitered/react-native-mlkit-face-detection": "^5.0.0",
     "@react-native-picker/picker": "2.11.4",
+    "@shopify/react-native-skia": "2.6.2",
     "expo": "~57.0.8",
     "expo-camera": "~57.0.3",
     "expo-constants": "~57.0.7",
     "expo-file-system": "~57.0.1",
     "expo-font": "~57.0.1",
+    "expo-image-manipulator": "~57.0.13",
     "expo-location": "~57.0.6",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
-    "react-native": "0.86.0"
+    "react-native": "0.86.0",
+    "react-native-fast-tflite": "^3.0.1",
+    "react-native-reanimated": "4.5.1"
   },
   "scripts": {
     "start": "expo start",

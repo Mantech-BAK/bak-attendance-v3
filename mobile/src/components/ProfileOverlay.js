@@ -29,7 +29,7 @@ function Row({ label, value }) {
 // a navigation to a separate tab. Fetched separately from the minimal
 // identify() response, which deliberately doesn't include
 // department/status/login_code.
-export default function ProfileOverlay({ visible, profile, loading, onClose }) {
+export default function ProfileOverlay({ visible, profile, loading, onClose, onRegisterFace }) {
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -57,6 +57,13 @@ export default function ProfileOverlay({ visible, profile, loading, onClose }) {
               <Row label="Status" value={profile.status} />
               <Row label="OT Eligible" value={profile.ot_eligible} />
               <Row label="Login Code" value={profile.login_code} />
+
+              {profile.has_face_registered === false && (
+                <TouchableOpacity style={styles.registerFaceButton} onPress={onRegisterFace}>
+                  <Ionicons name="scan-outline" size={16} color="#2563eb" />
+                  <Text style={styles.registerFaceButtonText}>Register Your Face</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>
@@ -85,4 +92,16 @@ const styles = StyleSheet.create({
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   label: { fontSize: 14, color: '#6b7280' },
   value: { fontSize: 14, fontWeight: '600', color: '#111827' },
+  registerFaceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2563eb',
+  },
+  registerFaceButtonText: { color: '#2563eb', fontSize: 14, fontWeight: '700' },
 });

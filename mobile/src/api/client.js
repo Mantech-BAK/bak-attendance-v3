@@ -4,12 +4,18 @@ import { API_BASE_URL } from '../config';
  * Endpoint contract status:
  *
  * CONFIRMED (built on backend, response shapes verified against it):
- *   POST /api/punch/identify   — TEMPORARY TESTING MEASURE: identification is a typed
- *                                 { emp_id, login_code } pair, not real face capture/recognition
- *                                 (see backend/src/routes/punch.js for full rationale — open item,
- *                                 tracked the same way as the Teams pending items).
+ *   POST /api/punch/identify   — typed { emp_id, login_code } identification — the fallback
+ *                                 path, always available alongside identify-face below.
  *                                 response: { emp_id, name, designation, tasks: [{ id, project_code, name, priority, status }] }
  *                                 401 with a generic "Invalid employee ID or code." on any mismatch.
+ *   POST /api/punch/identify-face   — 1:N open face identification, no emp_id submitted.
+ *                                 body: { embedding: number[192] } (on-device MobileFaceNet embedding)
+ *                                 same response shape as /identify; 401 { error: 'Face not recognized.' }
+ *                                 on no match — UI falls back to typed code, same as any other failure.
+ *   POST /api/employees/:emp_id/face-embeddings   — self-service face registration (only
+ *                                 callable once per employee; 409 if EmpFaceId is already set).
+ *                                 body: { embeddings: number[][] } (3-4 on-device embeddings, one per angle)
+ *                                 response: { emp_id, registered_by, registered_at }
  *   POST /api/punches          — records a punch. Body keys the backend actually reads:
  *                                 { emp_id, task_id, project_code, lat, lng, entered_by? }
  *                                 There is no "type" (IN/OUT) at capture time — it's derived later,
@@ -167,6 +173,24 @@ export function fetchTeamPunchHistory(supervisorEmpId) {
 // CONFIRMED
 export function fetchEmployee(empId) {
   return request(`/api/employees/${encodeURIComponent(empId)}`);
+}
+
+// Face ID — same response shape as identifyPunch, so callers can feed the
+// result straight into the same apply-functions either path uses.
+export function identifyByFace(embedding) {
+  return request('/api/punch/identify-face', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ embedding }),
+  });
+}
+
+export function registerFaceEmbeddings(empId, embeddings) {
+  return request(`/api/employees/${encodeURIComponent(empId)}/face-embeddings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ embeddings }),
+  });
 }
 
 // CONFIRMED — source defaults to 'supervisor_app' (a supervisor assigning

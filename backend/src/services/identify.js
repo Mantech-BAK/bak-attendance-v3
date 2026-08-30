@@ -32,4 +32,21 @@ async function verifyEmployeeCredentials(empId, loginCode) {
   return employee;
 }
 
-module.exports = { verifyEmployeeCredentials };
+/**
+ * Same employee lookup as verifyEmployeeCredentials, minus the login_code
+ * check — used by the face-identify route, which has already established
+ * identity via faceMatch.identifyByFace and just needs the display fields.
+ */
+async function getEmployeeById(empId) {
+  const result = await pool.query(
+    `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, g.designation_name AS designation,
+            e."EmpStatus" AS status
+     FROM employees e
+     LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
+     WHERE e."EmpId" = $1`,
+    [String(empId).trim()]
+  );
+  return result.rows[0] || null;
+}
+
+module.exports = { verifyEmployeeCredentials, getEmployeeById };

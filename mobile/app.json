@@ -42,7 +42,8 @@
           "locationWhenInUsePermission": "Location access is needed to record where you punched in/out."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "react-native-fast-tflite"
     ]
   }
 }

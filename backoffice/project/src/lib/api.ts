@@ -57,11 +57,12 @@ export type Employee = {
   reporting_manager_emp_id: string | null;
   status: string;
   ot_eligible: string | null;
-  // TEMPORARY TESTING MEASURE — typed-code identification standing in for
-  // face capture (see backend/src/routes/punch.js). Testers need to see an
-  // employee's code to log in as them from the mobile app.
+  // Fallback identification alongside Face ID (see backend/src/routes/punch.js).
+  // Testers/admins need to see an employee's code to log in as them from the
+  // mobile app when Face ID isn't registered or available.
   login_code: string | null;
   created_at: string;
+  has_face_registered: boolean;
 };
 
 export type Project = {
@@ -169,6 +170,14 @@ export function fetchEmployees(): Promise<Employee[]> {
 
 export function regenerateLoginCode(empId: string): Promise<{ emp_id: string; login_code: string }> {
   return request(`/api/employees/${encodeURIComponent(empId)}/login-code/regenerate`, {
+    method: 'POST',
+  });
+}
+
+// Clears an employee's registered Face ID, re-enabling "Register Your Face"
+// for them on mobile. See backend/src/routes/employees.js's /:emp_id/face/reset.
+export function resetFaceId(empId: string): Promise<{ emp_id: string }> {
+  return request(`/api/employees/${encodeURIComponent(empId)}/face/reset`, {
     method: 'POST',
   });
 }

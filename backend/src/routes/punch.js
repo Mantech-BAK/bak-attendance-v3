@@ -1,6 +1,7 @@
 const express = require('express');
 const { getTodaysTasks } = require('../services/tasks');
-const { verifyEmployeeCredentials } = require('../services/identify');
+const { verifyEmployeeCredentials, getEmployeeById } = require('../services/identify');
+const { identifyByFace } = require('../services/faceMatch');
 const { getEmergencyTimeAllowance, isWithinEmergencyWindow, utcHHMMToLocalHHMM } = require('../services/settings');
 
 const router = express.Router();
@@ -28,21 +29,13 @@ router.get('/emergency-window', async (req, res, next) => {
 });
 
 /**
- * TEMPORARY TESTING MEASURE — identification is currently a typed
- * { emp_id, login_code } pair instead of real face capture/recognition.
- * employees.login_code is a random 5-letter code (see ../services/loginCode,
- * assigned to every new employee on creation), viewable/regeneratable by an
- * admin from the backoffice Employees page. This replaces both the old
- * camera-capture flow and the DEV identify-bypass route
- * (routes/devBypass.js, now removed) — it's the practical way to exercise
- * the full punch/approval/OT flow without biometric hardware.
+ * Typed { emp_id, login_code } identification — the fallback path,
+ * always available alongside /identify-face below. employees.login_code is
+ * a random 5-letter code (see ../services/loginCode, assigned to every new
+ * employee on creation), viewable/regeneratable by an admin from the
+ * backoffice Employees page.
  *
- * face_template/fingerprint_template and services/faceMatch.js are left
- * completely untouched and unused. Swap this back to real face capture once
- * biometric hardware/data is available — open item, tracked the same way as
- * the Teams pending items.
- *
- * Credential lookup itself lives in services/identify.js, shared with the
+ * Credential lookup lives in services/identify.js, shared with the
  * backoffice login flow (routes/auth.js) — this route is otherwise
  * unchanged: no auth is required to call it, and it never sees the
  * backoffice's authorization rule.
@@ -65,6 +58,46 @@ router.post('/identify', async (req, res, next) => {
 
     if (employee.status !== 'active') {
       return res.status(403).json({ error: `Employee ${employee.emp_id} is inactive and cannot punch.` });
+    }
+
+    const tasks = await getTodaysTasks(employee.emp_id);
+
+    res.json({
+      emp_id: employee.emp_id,
+      name: employee.name,
+      designation: employee.designation,
+      tasks,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Face-capture identification — 1:N open identification (confirmed
+ * design): no emp_id is submitted at all. The mobile app computes a
+ * 192-dim face embedding on-device (MobileFaceNet via
+ * react-native-fast-tflite) from a single live capture and posts just the
+ * embedding; faceMatch.identifyByFace searches every active,
+ * face-registered employee's stored embeddings for the closest cosine-
+ * similarity match at or above its threshold. Same generic-rejection
+ * shape as /identify below (a non-match here just means "fall back to
+ * Employee ID + code" — no distinction between "no face close enough" and
+ * "matched employee happens to be inactive", since inactive employees are
+ * excluded from the candidate pool entirely).
+ */
+router.post('/identify-face', async (req, res, next) => {
+  try {
+    const { embedding } = req.body || {};
+
+    const empId = await identifyByFace(embedding);
+    if (!empId) {
+      return res.status(401).json({ error: 'Face not recognized.' });
+    }
+
+    const employee = await getEmployeeById(empId);
+    if (!employee || employee.status !== 'active') {
+      return res.status(401).json({ error: 'Face not recognized.' });
     }
 
     const tasks = await getTodaysTasks(employee.emp_id);

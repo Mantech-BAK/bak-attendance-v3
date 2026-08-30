@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Users, Search, Briefcase, Building2, Eye, EyeOff, RefreshCw, Pencil } from 'lucide-react';
-import { fetchEmployees, regenerateLoginCode } from '@/lib/api';
+import { Users, Search, Briefcase, Building2, Eye, EyeOff, RefreshCw, Pencil, ScanFace } from 'lucide-react';
+import { fetchEmployees, regenerateLoginCode, resetFaceId } from '@/lib/api';
 import type { Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Spinner, EmptyState, Select, Button } from '@/components/ui';
@@ -15,6 +15,7 @@ export function EmployeesPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [resettingFaceId, setResettingFaceId] = useState<string | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
 
   function toggleRevealed(empId: string) {
@@ -39,6 +40,21 @@ export function EmployeesPage() {
       window.alert(err instanceof Error ? err.message : 'Could not regenerate login code.');
     } finally {
       setRegeneratingId(null);
+    }
+  }
+
+  async function handleResetFace(empId: string) {
+    if (!window.confirm(`Reset ${empId}'s Face ID? They will need to register their face again before Face ID can be used.`)) {
+      return;
+    }
+    setResettingFaceId(empId);
+    try {
+      await resetFaceId(empId);
+      setEmployees((prev) => prev.map((e) => (e.emp_id === empId ? { ...e, has_face_registered: false } : e)));
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not reset Face ID.');
+    } finally {
+      setResettingFaceId(null);
     }
   }
 
@@ -127,6 +143,7 @@ export function EmployeesPage() {
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Reports To</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Login Code</th>
+                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Face ID</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500"></th>
                 </tr>
               </thead>
@@ -186,6 +203,24 @@ export function EmployeesPage() {
                           <RefreshCw className={`h-3.5 w-3.5 ${regeneratingId === e.emp_id ? 'animate-spin' : ''}`} />
                         </Button>
                       </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      {e.has_face_registered ? (
+                        <div className="flex items-center gap-2">
+                          <Badge variant="success">Registered</Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleResetFace(e.emp_id)}
+                            disabled={resettingFaceId === e.emp_id}
+                            className="!px-2 !py-1"
+                          >
+                            <ScanFace className={`h-3.5 w-3.5 ${resettingFaceId === e.emp_id ? 'animate-pulse' : ''}`} />
+                          </Button>
+                        </div>
+                      ) : (
+                        <Badge variant="neutral">Not registered</Badge>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <Button

@@ -14,6 +14,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import IdentifyCodeForm from '../components/IdentifyCodeForm';
+import IdentifyMethodChooser from '../components/IdentifyMethodChooser';
+import FaceCaptureModal from '../components/FaceCaptureModal';
+import FaceRegistrationModal from '../components/FaceRegistrationModal';
 import EmployeeCard from '../components/EmployeeCard';
 import TabBar from '../components/TabBar';
 import PunchProjectList from '../components/PunchProjectList';
@@ -57,7 +60,10 @@ const SUPERVISOR_TABS = [
 ];
 
 export default function PunchScreen() {
+  const [showIdentifyChooser, setShowIdentifyChooser] = useState(false);
   const [showIdentifyForm, setShowIdentifyForm] = useState(false);
+  const [showFaceCapture, setShowFaceCapture] = useState(false);
+  const [showFaceRegistration, setShowFaceRegistration] = useState(false);
   const [identifyMode, setIdentifyMode] = useState('self'); // 'self' | 'team'
   const [identifying, setIdentifying] = useState(false);
   const [identifyingTeamMember, setIdentifyingTeamMember] = useState(false);
@@ -241,12 +247,31 @@ export default function PunchScreen() {
 
   function handleScanTeamMember() {
     setIdentifyMode('team');
-    setShowIdentifyForm(true);
+    setShowIdentifyChooser(true);
   }
 
   function handleScanSelf() {
     setIdentifyMode('self');
+    setShowIdentifyChooser(true);
+  }
+
+  function handleChooseCodeIdentify() {
+    setShowIdentifyChooser(false);
     setShowIdentifyForm(true);
+  }
+
+  function handleChooseFaceIdentify() {
+    setShowIdentifyChooser(false);
+    setShowFaceCapture(true);
+  }
+
+  async function handleFaceIdentified(result) {
+    setShowFaceCapture(false);
+    if (identifyMode === 'team') {
+      await applyTeamMemberResult(result);
+    } else {
+      await applySelfIdentifyResult(result);
+    }
   }
 
   async function handlePunchSelf(task, { lat, lng }) {
@@ -393,8 +418,8 @@ export default function PunchScreen() {
           <Ionicons name="people-circle-outline" size={48} color="#93c5fd" style={styles.idleIcon} />
           <Text style={styles.scanAnotherHint}>Hand the device to the next person.</Text>
           <TouchableOpacity style={styles.scanButton} onPress={handleScanSelf}>
-            <Ionicons name="keypad-outline" size={18} color="#fff" />
-            <Text style={styles.scanButtonText}>Enter Code</Text>
+            <Ionicons name="finger-print-outline" size={18} color="#fff" />
+            <Text style={styles.scanButtonText}>Identify</Text>
           </TouchableOpacity>
         </View>
       );
@@ -421,8 +446,8 @@ export default function PunchScreen() {
           <View style={styles.scanAnotherContainer}>
             <Ionicons name="people-outline" size={48} color="#93c5fd" style={styles.idleIcon} />
             <TouchableOpacity style={styles.scanButton} onPress={handleScanTeamMember}>
-              <Ionicons name="keypad-outline" size={18} color="#fff" />
-              <Text style={styles.scanButtonText}>Enter Team Member Code</Text>
+              <Ionicons name="finger-print-outline" size={18} color="#fff" />
+              <Text style={styles.scanButtonText}>Identify Team Member</Text>
             </TouchableOpacity>
           </View>
         );
@@ -501,7 +526,7 @@ export default function PunchScreen() {
         {!employee && !identifying && (
           <View style={styles.idleContainer}>
             <Ionicons name="finger-print" size={64} color="#2563eb" style={styles.idleIcon} />
-            <Text style={styles.subtitle}>Tap Punch and enter your Employee ID and code</Text>
+            <Text style={styles.subtitle}>Tap Punch to identify yourself with Face ID or your code</Text>
             <TouchableOpacity style={styles.punchButton} onPress={handleScanSelf}>
               <Ionicons name="finger-print-outline" size={20} color="#fff" />
               <Text style={styles.punchButtonText}>Punch</Text>
@@ -525,6 +550,13 @@ export default function PunchScreen() {
         )}
       </ScrollView>
 
+      <IdentifyMethodChooser
+        visible={showIdentifyChooser}
+        onChooseFace={handleChooseFaceIdentify}
+        onChooseCode={handleChooseCodeIdentify}
+        onCancel={() => setShowIdentifyChooser(false)}
+      />
+
       <IdentifyCodeForm
         visible={showIdentifyForm}
         onSubmit={handleIdentifySubmit}
@@ -533,11 +565,31 @@ export default function PunchScreen() {
         directReports={identifyMode === 'team' ? directReports : undefined}
       />
 
+      <FaceCaptureModal
+        visible={showFaceCapture}
+        onIdentified={handleFaceIdentified}
+        onCancel={() => setShowFaceCapture(false)}
+      />
+
+      <FaceRegistrationModal
+        visible={showFaceRegistration}
+        empId={employee?.emp_id}
+        onComplete={() => {
+          setShowFaceRegistration(false);
+          loadProfile(employee.emp_id);
+        }}
+        onCancel={() => setShowFaceRegistration(false)}
+      />
+
       <ProfileOverlay
         visible={showProfileOverlay}
         profile={profile}
         loading={loadingProfile}
         onClose={() => setShowProfileOverlay(false)}
+        onRegisterFace={() => {
+          setShowProfileOverlay(false);
+          setShowFaceRegistration(true);
+        }}
       />
 
       <RejectReasonModal

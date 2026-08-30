@@ -1,24 +1,10 @@
 const express = require('express');
-const multer = require('multer');
 const pool = require('../db');
 const { generateUniqueLoginCode } = require('../services/loginCode');
+const { isValidEmbedding, EMBEDDING_LENGTH } = require('../services/faceMatch');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
 const router = express.Router();
-
-const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter(req, file, cb) {
-    if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-      cb(new Error('Unsupported image type. Use JPEG, PNG, or WEBP.'));
-      return;
-    }
-    cb(null, true);
-  },
-});
 
 // company/designation are now FK-constrained into divisions/designations
 // (schema-rename revision) — joined and aliased back to their original
@@ -32,7 +18,8 @@ router.get('/', requireBackofficeAuth, async (req, res, next) => {
               e."EmpDeptId" AS department, g.designation_name AS designation,
               e."EmpReportMgrId" AS reporting_manager_emp_id, e."EmpStatus" AS status,
               CASE WHEN e."EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
-              e.login_code, e."EmpCreatedOn" AS created_at
+              e.login_code, e."EmpCreatedOn" AS created_at,
+              e."EmpFaceId" IS NOT NULL AS has_face_registered
        FROM employees e
        LEFT JOIN divisions d ON e."EmpDivision" = d.division_code
        LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
@@ -86,7 +73,8 @@ router.get('/:emp_id', async (req, res, next) => {
               e."EmpDeptId" AS department, g.designation_name AS designation,
               e."EmpReportMgrId" AS reporting_manager_emp_id, e."EmpStatus" AS status,
               CASE WHEN e."EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
-              e.login_code, e."EmpCreatedOn" AS created_at
+              e.login_code, e."EmpCreatedOn" AS created_at,
+              e."EmpFaceId" IS NOT NULL AS has_face_registered
        FROM employees e
        LEFT JOIN divisions d ON e."EmpDivision" = d.division_code
        LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
@@ -105,40 +93,81 @@ router.get('/:emp_id', async (req, res, next) => {
 });
 
 /**
- * Admin-only, onboarding-time face registration — not self-enrollment.
- * registered_by is always the authenticated admin (req.backofficeEmpId),
- * never a client-supplied value — same reasoning as admin-correction's
- * entered_by / ramzan's declared_by / tasks' created_by. Not currently
- * wired to any frontend (face-based identification was superseded by typed
- * emp_id+login_code — see routes/punch.js), but kept consistent with the
- * rest of the codebase's session-derived-identity convention rather than
- * left as a dormant gap that resurfaces if this ever gets a UI.
+ * Self-service face registration — an employee registers their own face
+ * after already identifying via the typed emp_id+login_code flow (the same
+ * trust level as every other mobile self-service action in this app, e.g.
+ * employee_self task creation: no backoffice auth, no session token,
+ * reaching this screen state is the only "proof" mobile ever has). Rejects
+ * if EmpFaceId is already set — re-registration requires an admin reset
+ * (POST /:emp_id/face/reset below) first, enforced here server-side too,
+ * not just via the mobile UI's has_face_registered gate.
+ *
+ * embeddings are 192-dim MobileFaceNet vectors computed on-device (see
+ * services/faceMatch.js) from 3-4 guided-angle captures; stored as JSON
+ * text in EmpFaceId (still a `text` column — no schema change), replacing
+ * the old single-base64-image format this route used to write.
  */
-router.post('/:emp_id/register-face', requireBackofficeAuth, upload.single('face'), async (req, res, next) => {
+router.post('/:emp_id/face-embeddings', async (req, res, next) => {
   try {
     const { emp_id } = req.params;
-    const registeredBy = req.backofficeEmpId;
+    const { embeddings } = req.body || {};
 
-    if (!req.file) {
-      return res.status(400).json({ error: 'face image file is required (field name: "face")' });
+    if (!Array.isArray(embeddings) || embeddings.length === 0) {
+      return res.status(400).json({ error: 'embeddings is required and must be a non-empty array' });
+    }
+    if (!embeddings.every(isValidEmbedding)) {
+      return res.status(400).json({ error: `each embedding must be an array of ${EMBEDDING_LENGTH} numbers` });
     }
 
-    const employee = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
+    const employee = await pool.query(
+      'SELECT "EmpId" AS emp_id, "EmpStatus" AS status, "EmpFaceId" AS face_id FROM employees WHERE "EmpId" = $1',
+      [emp_id]
+    );
     if (employee.rows.length === 0) {
       return res.status(404).json({ error: `employee ${emp_id} not found` });
     }
-
-    const faceTemplate = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+    if (employee.rows[0].status !== 'active') {
+      return res.status(403).json({ error: `employee ${emp_id} is inactive` });
+    }
+    if (employee.rows[0].face_id !== null) {
+      return res.status(409).json({ error: 'Face already registered. Ask an admin to reset it first.' });
+    }
 
     const result = await pool.query(
       `UPDATE employees
        SET "EmpFaceId" = $1, "EmpRegistredBy" = $2, "EmpRegisteredAt" = now()
        WHERE "EmpId" = $3
        RETURNING "EmpId" AS emp_id, "EmpRegistredBy" AS registered_by, "EmpRegisteredAt" AS registered_at`,
-      [faceTemplate, registeredBy, emp_id]
+      [JSON.stringify({ v: 1, embeddings }), emp_id, emp_id]
     );
 
     res.status(200).json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin-only: clear an employee's registered face data, letting them
+// register again. Same shape as login-code regenerate below (confirm ->
+// per-row action -> plain update), just nulling instead of rotating.
+router.post('/:emp_id/face/reset', requireBackofficeAuth, async (req, res, next) => {
+  try {
+    const { emp_id } = req.params;
+
+    const existing = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: `employee ${emp_id} not found` });
+    }
+
+    const result = await pool.query(
+      `UPDATE employees
+       SET "EmpFaceId" = NULL, "EmpRegistredBy" = NULL, "EmpRegisteredAt" = NULL
+       WHERE "EmpId" = $1
+       RETURNING "EmpId" AS emp_id`,
+      [emp_id]
+    );
+
+    res.json(result.rows[0]);
   } catch (err) {
     next(err);
   }
@@ -250,15 +279,6 @@ router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-});
-
-// Handles Multer errors (bad mime type, file too large) with a clean 400
-// instead of falling through to the default Express error page.
-router.use((err, req, res, next) => {
-  if (err instanceof multer.MulterError || err.message.startsWith('Unsupported image type')) {
-    return res.status(400).json({ error: err.message });
-  }
-  next(err);
 });
 
 module.exports = router;
