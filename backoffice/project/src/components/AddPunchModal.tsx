@@ -336,6 +336,15 @@ export function AddPunchModal({
           </div>
         </div>
 
+        {isEditing && (editingPunch!.resolved_address || (editingPunch!.lat !== null && editingPunch!.lng !== null)) && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-slate-700">Location</span>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+              {editingPunch!.resolved_address ?? `${editingPunch!.lat!.toFixed(5)}, ${editingPunch!.lng!.toFixed(5)}`}
+            </div>
+          </div>
+        )}
+
         <p className="text-xs text-slate-400">
           This punch is {isEditing ? 'saved' : 'added'} exactly at the date/time set above and is auto-approved immediately — no separate review.
         </p>

@@ -259,8 +259,14 @@ async function createTask({ emp_id, project_code, priority, description, locatio
   const creatorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [created_by]);
   if (creatorResult.rows.length === 0) throw new TaskValidationError(400, `created_by ${created_by} not found`);
 
-  const projectResult = await pool.query('SELECT project_code FROM projects WHERE project_code = $1', [project_code]);
+  const projectResult = await pool.query('SELECT project_code, status FROM projects WHERE project_code = $1', [project_code]);
   if (projectResult.rows.length === 0) throw new TaskValidationError(400, `project ${project_code} not found`);
+  // Applies regardless of source (backoffice, supervisor_app, employee_self,
+  // teams) — createTask is the single shared entry point every task-creation
+  // path funnels through, so this can't be bypassed by any client.
+  if (projectResult.rows[0].status !== 'OPEN') {
+    throw new TaskValidationError(400, `project ${project_code} is closed and cannot accept new tasks`);
+  }
 
   const resolvedTaskDate = await resolveTaskDate(taskDate);
 

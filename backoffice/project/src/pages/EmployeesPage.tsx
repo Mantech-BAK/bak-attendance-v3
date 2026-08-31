@@ -213,12 +213,16 @@ export function EmployeesPage() {
                 className="cursor-pointer p-4 transition hover:shadow-md"
                 onClick={() => setTasksEmployee(e)}
               >
-                <div className="flex items-center gap-3">
+                <div
+                  className="flex items-center gap-3"
+                  onClick={(ev) => { ev.stopPropagation(); setEditingEmployee(e); }}
+                  title="View employee details"
+                >
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-100 text-sm font-semibold text-teal-700">
                     {initials(e.name)}
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-900">{e.name}</p>
+                    <p className="truncate text-sm font-semibold text-slate-900 hover:text-teal-700 hover:underline">{e.name}</p>
                     <p className="truncate text-xs text-slate-500">{e.designation ?? e.emp_id}</p>
                   </div>
                 </div>
@@ -269,12 +273,16 @@ export function EmployeesPage() {
                 {filtered.map((e) => (
                   <tr key={e.emp_id} className="transition hover:bg-slate-50">
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
+                      <div
+                        className="flex cursor-pointer items-center gap-3"
+                        onClick={() => setEditingEmployee(e)}
+                        title="View employee details"
+                      >
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-100 text-sm font-semibold text-teal-700">
                           {initials(e.name)}
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-slate-900">{e.name}</p>
+                          <p className="text-sm font-semibold text-slate-900 hover:text-teal-700 hover:underline">{e.name}</p>
                           <p className="text-xs text-slate-500">{e.emp_id}</p>
                         </div>
                       </div>
