@@ -77,7 +77,7 @@ export function DashboardPage() {
 
     const dayPunches = data.punches.filter((p) => dateKeyOf(p.punch_time) === selectedDate);
     const dayTasks = data.tasks.filter((t) => dateKeyOf(t.task_date) === selectedDate);
-    const dayExceptions = data.exceptions.filter((e) => dateKeyOf(e.created_at) === selectedDate);
+    const dayExceptions = data.exceptions.filter((e) => e.status !== 'resolved' && dateKeyOf(e.created_at) === selectedDate);
 
     const presentEmpIds = new Set(dayPunches.map((p) => p.emp_id));
     const presentEmployees = data.employees.filter((e) => presentEmpIds.has(e.emp_id));

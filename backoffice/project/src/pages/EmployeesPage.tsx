@@ -1,18 +1,32 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Users, Search, Briefcase, Building2, Eye, EyeOff, RefreshCw, Pencil, ScanFace } from 'lucide-react';
-import { fetchEmployees, regenerateLoginCode, resetFaceId } from '@/lib/api';
-import type { Employee } from '@/lib/api';
+import { Users, Search, Briefcase, Building2, Eye, EyeOff, RefreshCw, Pencil, ScanFace, List, LayoutGrid } from 'lucide-react';
+import { fetchEmployees, fetchTasks, regenerateLoginCode, resetFaceId } from '@/lib/api';
+import type { Employee, Task } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Spinner, EmptyState, Select, Button } from '@/components/ui';
 import { EditEmployeeModal } from '@/components/EditEmployeeModal';
-import { initials } from '@/lib/utils';
+import { EmployeeTasksModal } from '@/components/EmployeeTasksModal';
+import { punchStatus } from '@/pages/TasksPage';
+import { initials, cn } from '@/lib/utils';
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+type TaskCounts = { total: number; completed: number; pending: number; notStarted: number };
+
+const EMPTY_COUNTS: TaskCounts = { total: 0, completed: 0, pending: 0, notStarted: 0 };
 
 export function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [view, setView] = useState<'list' | 'bar'>('list');
+  const [taskDate, setTaskDate] = useState(today());
+  const [tasksEmployee, setTasksEmployee] = useState<Employee | null>(null);
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [resettingFaceId, setResettingFaceId] = useState<string | null>(null);
@@ -60,12 +74,36 @@ export function EmployeesPage() {
 
   useEffect(() => {
     async function load() {
-      const emp = await fetchEmployees();
+      const [emp, tsk] = await Promise.all([fetchEmployees(), fetchTasks()]);
       setEmployees(emp);
+      setTasks(tsk);
       setLoading(false);
     }
     load();
   }, []);
+
+  // Grouped by employee for the selected date only — recomputed from the
+  // already-loaded full task list, same "filter client-side from one fetch"
+  // approach TasksPage already uses, rather than a new date-scoped endpoint.
+  const countsByEmpId = useMemo(() => {
+    const map = new Map<string, TaskCounts>();
+    for (const t of tasks) {
+      if (t.task_date !== taskDate) continue;
+      const counts = map.get(t.emp_id) ?? { ...EMPTY_COUNTS };
+      counts.total += 1;
+      const status = punchStatus(t);
+      if (status === 'completed') counts.completed += 1;
+      else if (status === 'pending') counts.pending += 1;
+      else counts.notStarted += 1;
+      map.set(t.emp_id, counts);
+    }
+    return map;
+  }, [tasks, taskDate]);
+
+  const tasksForModal = useMemo(() => {
+    if (!tasksEmployee) return [];
+    return tasks.filter((t) => t.emp_id === tasksEmployee.emp_id && t.task_date === taskDate);
+  }, [tasks, tasksEmployee, taskDate]);
 
   const departments = useMemo(
     () => Array.from(new Set(employees.map((e) => e.department).filter(Boolean))) as string[],
@@ -124,12 +162,91 @@ export function EmployeesPage() {
             <option value="inactive">Inactive</option>
           </Select>
         </div>
+
+        <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
+          <div className="w-44">
+            <label htmlFor="employees-task-date" className="text-sm font-medium text-slate-700">Tasks for date</label>
+            <input
+              id="employees-task-date"
+              type="date"
+              value={taskDate}
+              onChange={(e) => setTaskDate(e.target.value)}
+              className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+            />
+          </div>
+          <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setView('list')}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition',
+                view === 'list' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-600 hover:text-slate-900',
+              )}
+            >
+              <List className="h-4 w-4" /> List
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('bar')}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition',
+                view === 'bar' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-600 hover:text-slate-900',
+              )}
+            >
+              <LayoutGrid className="h-4 w-4" /> Bar view
+            </button>
+          </div>
+        </div>
       </Card>
 
       {filtered.length === 0 ? (
         <Card className="p-6">
           <EmptyState icon={<Users className="h-6 w-6" />} title="No employees found" message="Try adjusting your search or filters." />
         </Card>
+      ) : view === 'bar' ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((e) => {
+            const counts = countsByEmpId.get(e.emp_id) ?? EMPTY_COUNTS;
+            return (
+              <Card
+                key={e.emp_id}
+                className="cursor-pointer p-4 transition hover:shadow-md"
+                onClick={() => setTasksEmployee(e)}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-100 text-sm font-semibold text-teal-700">
+                    {initials(e.name)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{e.name}</p>
+                    <p className="truncate text-xs text-slate-500">{e.designation ?? e.emp_id}</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
+                  {counts.total === 0 ? (
+                    <div className="h-full w-full bg-slate-200" />
+                  ) : (
+                    <>
+                      <div className="h-full bg-emerald-500" style={{ width: `${(counts.completed / counts.total) * 100}%` }} />
+                      <div className="h-full bg-amber-400" style={{ width: `${(counts.pending / counts.total) * 100}%` }} />
+                      <div className="h-full bg-slate-300" style={{ width: `${(counts.notStarted / counts.total) * 100}%` }} />
+                    </>
+                  )}
+                </div>
+
+                <div className="mt-2.5 flex items-center justify-between text-xs text-slate-500">
+                  <span className="font-medium text-slate-700">{counts.total} total</span>
+                  <span className="flex items-center gap-2.5">
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" />{counts.completed}</span>
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" />{counts.pending}</span>
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-slate-300" />{counts.notStarted}</span>
+                  </span>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
@@ -141,6 +258,7 @@ export function EmployeesPage() {
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Designation</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Reports To</th>
+                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Tasks</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Login Code</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Face ID</th>
@@ -173,6 +291,25 @@ export function EmployeesPage() {
                     </td>
                     <td className="px-6 py-4"><span className="text-sm text-slate-600">{e.company ?? '—'}</span></td>
                     <td className="px-6 py-4"><span className="text-sm text-slate-600">{e.reporting_manager_emp_id ?? '—'}</span></td>
+                    <td className="px-6 py-4">
+                      {(() => {
+                        const counts = countsByEmpId.get(e.emp_id) ?? EMPTY_COUNTS;
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => setTasksEmployee(e)}
+                            className="text-left text-sm text-slate-700 hover:text-teal-700 hover:underline"
+                            title="View this employee's tasks for the selected date"
+                          >
+                            <span className="font-medium">{counts.total}</span> total
+                            <span className="text-slate-400"> · </span>
+                            <span className="text-amber-600">{counts.pending} pending</span>
+                            <span className="text-slate-400"> · </span>
+                            <span className="text-emerald-600">{counts.completed} done</span>
+                          </button>
+                        );
+                      })()}
+                    </td>
                     <td className="px-6 py-4">
                       <Badge variant={e.status === 'active' ? 'success' : 'neutral'}>
                         {e.status}
@@ -247,6 +384,13 @@ export function EmployeesPage() {
         onSuccess={(updated) => {
           setEmployees((prev) => prev.map((emp) => (emp.emp_id === editingEmployee?.emp_id ? updated : emp)));
         }}
+      />
+
+      <EmployeeTasksModal
+        employee={tasksEmployee}
+        date={taskDate}
+        tasks={tasksForModal}
+        onClose={() => setTasksEmployee(null)}
       />
     </>
   );

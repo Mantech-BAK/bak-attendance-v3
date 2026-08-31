@@ -301,6 +301,34 @@ export function createTask(input: {
   });
 }
 
+export type BulkAssignTaskError = { emp_id: string; reason: string };
+export type BulkAssignTaskResult = { created: Task[]; errors: BulkAssignTaskError[]; totalRequested: number };
+
+// One identical task assigned to multiple employees at once from the Create
+// Task form's multi-select picker — creates one row per empId, partial
+// success (a duplicate/validation failure for one employee never blocks the
+// others). created_by is never sent — the backend derives it from the
+// session token, same as createTask above.
+export function assignTaskBulk(input: {
+  empIds: string[];
+  projectCode: string;
+  priority: string;
+  description: string;
+  locationSite: string | null;
+}): Promise<BulkAssignTaskResult> {
+  return request('/api/tasks/bulk-assign', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      emp_ids: input.empIds,
+      project_code: input.projectCode,
+      priority: input.priority,
+      description: input.description,
+      location_site: input.locationSite,
+    }),
+  });
+}
+
 // Admin-only task edit — same validation as creating one (project must
 // exist, description required, the emp_id+day+project+description
 // duplicate rule). emp_id is never editable — reassigning to a different

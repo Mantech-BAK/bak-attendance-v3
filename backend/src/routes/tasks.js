@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const ExcelJS = require('exceljs');
 const pool = require('../db');
-const { getTodaysTasks, getTasksForDate, getTodaysTaskList, createTask, TaskValidationError } = require('../services/tasks');
+const { getTodaysTasks, getTasksForDate, getTodaysTaskList, createTask, createTasksBulk, TaskValidationError } = require('../services/tasks');
 const { buildTaskTemplateWorkbook, processBulkUpload } = require('../services/taskBulkUpload');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 const { resolveBackofficeEmpId } = requireBackofficeAuth;
@@ -271,6 +271,29 @@ router.post('/bulk-upload', requireBackofficeAuth, uploadExcel.single('file'), a
     }
 
     const result = await processBulkUpload(req.file.buffer, req.backofficeEmpId);
+    res.status(200).json(result);
+  } catch (err) {
+    if (err instanceof TaskValidationError) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
+// Assigns one identical task (same project/priority/description/location)
+// to multiple employees at once from the Create Task form's multi-select
+// picker — one row per emp_id, partial-success like bulk-upload above: a
+// duplicate or validation failure for one employee never blocks the others
+// in the same batch. Backoffice-only; created_by is always the
+// authenticated admin, never read from the request body.
+router.post('/bulk-assign', requireBackofficeAuth, async (req, res, next) => {
+  try {
+    const { emp_ids, project_code, priority, description, location_site } = req.body;
+    const result = await createTasksBulk({
+      emp_ids, project_code, priority, description, location_site,
+      source: 'backoffice',
+      created_by: req.backofficeEmpId,
+    });
     res.status(200).json(result);
   } catch (err) {
     if (err instanceof TaskValidationError) {

@@ -6,10 +6,6 @@ import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Spinner, Input, EmptyState } from '@/components/ui';
 import { cn, initials, formatDateTime } from '@/lib/utils';
 
-function yesterday(): string {
-  return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -42,7 +38,7 @@ export function ReportsPage() {
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [dateQuery, setDateQuery] = useState(yesterday());
+  const [dateQuery, setDateQuery] = useState(today());
   const [dateSessions, setDateSessions] = useState<AttendanceSession[] | null>(null);
   const [dateLoading, setDateLoading] = useState(false);
   const [dateError, setDateError] = useState<string | null>(null);

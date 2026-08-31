@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { ClipboardList, Plus, CheckCircle2, XCircle, Loader2, MapPin, Calendar, Download, Upload, Filter, X, Pencil, Trash2 } from 'lucide-react';
-import { fetchTasks, fetchEmployees, fetchProjects, createTask, deleteTask, tasksExportUrl, authHeaders, ApiError } from '@/lib/api';
-import type { Task, Employee, Project } from '@/lib/api';
+import { ClipboardList, Plus, CheckCircle2, XCircle, AlertTriangle, Loader2, MapPin, Calendar, Download, Upload, Filter, X, Pencil, Trash2 } from 'lucide-react';
+import { fetchTasks, fetchEmployees, fetchProjects, assignTaskBulk, deleteTask, tasksExportUrl, authHeaders, ApiError } from '@/lib/api';
+import type { Task, Employee, Project, BulkAssignTaskResult } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Select, Textarea, Input, Spinner, EmptyState, Modal } from '@/components/ui';
+import { EmployeeMultiSelect } from '@/components/EmployeeMultiSelect';
 import { BulkUploadTasksModal } from '@/components/BulkUploadTasksModal';
 import { EditTaskModal } from '@/components/EditTaskModal';
 import { formatDate, initials, cn } from '@/lib/utils';
@@ -14,7 +15,7 @@ function todayDate(): string {
 }
 
 type FormState = {
-  empId: string;
+  empIds: string[];
   projectCode: string;
   priority: string;
   description: string;
@@ -22,7 +23,7 @@ type FormState = {
 };
 
 const EMPTY_FORM: FormState = {
-  empId: '',
+  empIds: [],
   projectCode: '',
   priority: 'medium',
   description: '',
@@ -35,9 +36,9 @@ const EMPTY_FORM: FormState = {
 // employee hasn't started it, an odd count means it's currently open
 // (in progress), an even non-zero count means every session against it has
 // been opened and closed.
-type PunchStatus = 'not_started' | 'pending' | 'completed';
+export type PunchStatus = 'not_started' | 'pending' | 'completed';
 
-function punchStatus(task: Task): PunchStatus {
+export function punchStatus(task: Task): PunchStatus {
   if (task.punch_count === 0) return 'not_started';
   return task.punch_count % 2 === 0 ? 'completed' : 'pending';
 }
@@ -58,7 +59,7 @@ export function TasksPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [bulkResult, setBulkResult] = useState<BulkAssignTaskResult | null>(null);
   const [activeTab, setActiveTab] = useState<PunchStatus | 'all'>('all');
   const [exportDate, setExportDate] = useState(todayDate());
   const [exporting, setExporting] = useState(false);
@@ -115,26 +116,31 @@ export function TasksPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitError(null);
-    setSubmitSuccess(false);
+    setBulkResult(null);
 
-    if (!form.empId || !form.projectCode || !form.description.trim()) {
-      setSubmitError('Employee, project, and description are required.');
+    if (form.empIds.length === 0 || !form.projectCode || !form.description.trim()) {
+      setSubmitError('At least one employee, a project, and a description are required.');
       return;
     }
 
     setSubmitting(true);
     try {
-      await createTask({
-        empId: form.empId,
+      const result = await assignTaskBulk({
+        empIds: form.empIds,
         projectCode: form.projectCode,
         priority: form.priority,
         description: form.description.trim(),
         locationSite: form.locationSite.trim() || null,
       });
-      setSubmitSuccess(true);
-      setForm(EMPTY_FORM);
+      setBulkResult(result);
+      // Only clear the form fully once every selected employee succeeded —
+      // if some were rejected (e.g. duplicates), leave the picker as-is so
+      // the admin can see who failed and adjust, same spirit as
+      // BulkUploadTasksModal keeping its result visible after a partial run.
+      if (result.errors.length === 0) {
+        setForm(EMPTY_FORM);
+      }
       await load();
-      setTimeout(() => setSubmitSuccess(false), 3000);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Could not create the task. Please try again.');
     } finally {
@@ -228,10 +234,7 @@ export function TasksPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              <Select value={form.empId} onChange={(v) => setForm({ ...form, empId: v })} label="Employee" id="task-employee">
-                <option value="">Select employee…</option>
-                {employees.map((e) => (<option key={e.emp_id} value={e.emp_id}>{e.name}</option>))}
-              </Select>
+              <EmployeeMultiSelect employees={employees} selected={form.empIds} onChange={(empIds) => setForm({ ...form, empIds })} label="Employees" id="task-employees" />
 
               <Select value={form.projectCode} onChange={(v) => setForm({ ...form, projectCode: v })} label="Project" id="task-project">
                 <option value="">Select project…</option>
@@ -260,14 +263,32 @@ export function TasksPage() {
                   <XCircle className="h-4 w-4 shrink-0" />{submitError}
                 </div>
               )}
-              {submitSuccess && (
-                <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />Task created successfully.
+              {bulkResult && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    {bulkResult.created.length} of {bulkResult.totalRequested} task{bulkResult.totalRequested === 1 ? '' : 's'} created.
+                  </div>
+                  {bulkResult.errors.length > 0 && (
+                    <div className="rounded-lg bg-rose-50 p-3 ring-1 ring-inset ring-rose-200">
+                      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-rose-700">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        {bulkResult.errors.length} employee{bulkResult.errors.length === 1 ? '' : 's'} skipped
+                      </div>
+                      <div className="max-h-40 space-y-1.5 overflow-y-auto pr-1">
+                        {bulkResult.errors.map((e, i) => (
+                          <div key={i} className="rounded-md bg-white px-2.5 py-2 text-xs text-rose-700 ring-1 ring-inset ring-rose-100">
+                            <span className="font-semibold">{e.emp_id}</span>: {e.reason}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               <Button type="submit" disabled={submitting} className="w-full">
-                {submitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Creating…</>) : (<><Plus className="h-4 w-4" /> Create Task</>)}
+                {submitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Creating…</>) : (<><Plus className="h-4 w-4" /> {form.empIds.length > 1 ? `Create Task for ${form.empIds.length} Employees` : 'Create Task'}</>)}
               </Button>
             </form>
           </Card>

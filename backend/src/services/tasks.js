@@ -291,4 +291,33 @@ async function createTask({ emp_id, project_code, priority, description, locatio
   return result.rows[0];
 }
 
-module.exports = { getTodaysTasks, getTasksForDate, getTodaysTaskList, createTask, TaskValidationError, VALID_SOURCES };
+/**
+ * Assigns the same task (project/priority/description/location) to multiple
+ * employees at once, creating one row per emp_id — mirrors
+ * taskBulkUpload.processBulkUpload's partial-success loop, reusing the same
+ * createTask validation/duplicate-check for each employee independently, so
+ * a duplicate or validation failure for one employee never blocks the
+ * others in the same batch.
+ */
+async function createTasksBulk({ emp_ids, project_code, priority, description, location_site, source, created_by, taskDate }) {
+  if (!Array.isArray(emp_ids) || emp_ids.length === 0) {
+    throw new TaskValidationError(400, 'emp_ids must be a non-empty array');
+  }
+
+  const created = [];
+  const errors = [];
+
+  for (const emp_id of emp_ids) {
+    try {
+      const task = await createTask({ emp_id, project_code, priority, description, location_site, source, created_by, taskDate });
+      created.push(task);
+    } catch (err) {
+      const reason = err instanceof TaskValidationError ? err.message : 'unexpected error creating the task';
+      errors.push({ emp_id, reason });
+    }
+  }
+
+  return { created, errors, totalRequested: emp_ids.length };
+}
+
+module.exports = { getTodaysTasks, getTasksForDate, getTodaysTaskList, createTask, createTasksBulk, TaskValidationError, VALID_SOURCES };
