@@ -51,7 +51,7 @@ router.get('/today-status', async (req, res, next) => {
 });
 
 // Backoffice-only (full punch list, any employee) — mobile only ever reads
-// its own scoped views (today-status, pending, team-history below).
+// its own scoped views (today-status, pending, history below).
 router.get('/', requireBackofficeAuth, async (req, res, next) => {
   try {
     const result = await pool.query(
@@ -112,33 +112,39 @@ router.get('/pending', async (req, res, next) => {
   }
 });
 
-// Read-only punch history for a supervisor's own team — every punch
-// (any approval status) for their direct reports, most recent first. No
-// approve/reject action lives here; that's still /pending above. Capped at
-// 200 rows so a long-tenured team's history doesn't return unbounded data.
-router.get('/team-history', async (req, res, next) => {
+// Read-only punch history for this employee — every punch (any approval
+// status) for themselves, plus their direct reports' if they're a
+// supervisor, most recent first. No approve/reject action lives here;
+// that's still /pending above. Capped at 200 rows so a long-tenured team's
+// history doesn't return unbounded data. A regular employee (no direct
+// reports) naturally gets only their own punches back from the same query —
+// this one endpoint backs both the supervisor's combined Punch History tab
+// and the plain-employee Punch History tab; the client tells rows apart via
+// emp_id === the emp_id it queried with.
+router.get('/history', async (req, res, next) => {
   try {
-    const { supervisor_emp_id } = req.query;
+    const { emp_id } = req.query;
 
-    if (!supervisor_emp_id) {
-      return res.status(400).json({ error: 'supervisor_emp_id is required' });
+    if (!emp_id) {
+      return res.status(400).json({ error: 'emp_id is required' });
     }
 
-    const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
-    if (supervisorResult.rows.length === 0) {
-      return res.status(404).json({ error: `employee ${supervisor_emp_id} not found` });
+    const employeeResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
+    if (employeeResult.rows.length === 0) {
+      return res.status(404).json({ error: `employee ${emp_id} not found` });
     }
 
     const historyResult = await pool.query(
-      `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, p.project_code, pr.project_name, p.task_id,
+      `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, p.project_code, pr.project_name, p.task_id, t.display_id AS task_display_id,
               p.punch_time, p.entry_method, p.entered_by, p.approval_status, p.rejection_reason
        FROM punches p
        JOIN employees e ON e."EmpId" = p.emp_id
        LEFT JOIN projects pr ON pr.project_code = p.project_code
-       WHERE e."EmpReportMgrId" = $1
+       LEFT JOIN tasks t ON t.id = p.task_id
+       WHERE e."EmpReportMgrId" = $1 OR p.emp_id = $1
        ORDER BY p.punch_time DESC
        LIMIT 200`,
-      [supervisor_emp_id]
+      [emp_id]
     );
 
     res.json(historyResult.rows);

@@ -21,9 +21,9 @@ import EmployeeCard from '../components/EmployeeCard';
 import TabBar from '../components/TabBar';
 import PunchProjectList from '../components/PunchProjectList';
 import TaskAssignmentForm from '../components/TaskAssignmentForm';
-import MyTasksTab from '../components/MyTasksTab';
+import EmergencyTaskTab from '../components/EmergencyTaskTab';
 import ReviewAttendanceTab from '../components/ReviewAttendanceTab';
-import TeamPunchHistoryTab from '../components/TeamPunchHistoryTab';
+import PunchHistoryTab from '../components/PunchHistoryTab';
 import ProfileOverlay from '../components/ProfileOverlay';
 import RejectReasonModal from '../components/RejectReasonModal';
 import {
@@ -37,7 +37,8 @@ import {
   approveOt,
   rejectOt,
   fetchDirectReports,
-  fetchTeamPunchHistory,
+  fetchPunchHistory,
+  fetchMyPunchableTasks,
   fetchEmployee,
   fetchProjects,
   createTask,
@@ -46,14 +47,15 @@ import { SUPERVISOR_DESIGNATION } from '../config';
 
 const EMPLOYEE_TABS = [
   { key: 'punch', label: 'Punch' },
-  { key: 'my-tasks', label: 'My Tasks' },
+  { key: 'my-tasks', label: 'Emergency Tasks' },
+  { key: 'punch-history', label: 'Punch History' },
   { key: 'scan-another', label: 'Scan Another Employee' },
 ];
 
 const SUPERVISOR_TABS = [
   { key: 'punch', label: 'Punch' },
-  { key: 'my-tasks', label: 'My Tasks' },
-  { key: 'task-assignment', label: 'Create Task' },
+  { key: 'my-tasks', label: 'Emergency Tasks' },
+  { key: 'task-assignment', label: 'Create Team Task' },
   { key: 'scan-team-member', label: 'Scan Team Member' },
   { key: 'review-attendance', label: 'Review Attendance' },
   { key: 'punch-history', label: 'Punch History' },
@@ -69,10 +71,12 @@ export default function PunchScreen() {
   const [identifyingTeamMember, setIdentifyingTeamMember] = useState(false);
   const [employee, setEmployee] = useState(null);
   const [activeTab, setActiveTab] = useState('punch');
+  const [selfTasks, setSelfTasks] = useState([]);
   const [selfOpenTaskId, setSelfOpenTaskId] = useState(null);
   const [selfOpenProjectCode, setSelfOpenProjectCode] = useState(null);
 
   const [teamMemberTarget, setTeamMemberTarget] = useState(null);
+  const [teamMemberTasks, setTeamMemberTasks] = useState([]);
   const [teamOpenTaskId, setTeamOpenTaskId] = useState(null);
   const [teamOpenProjectCode, setTeamOpenProjectCode] = useState(null);
 
@@ -84,8 +88,8 @@ export default function PunchScreen() {
   const [processingOtId, setProcessingOtId] = useState(null);
   const [directReports, setDirectReports] = useState([]);
   const [projects, setProjects] = useState([]);
-  const [teamHistory, setTeamHistory] = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [punchHistory, setPunchHistory] = useState([]);
+  const [loadingPunchHistory, setLoadingPunchHistory] = useState(false);
   const [profile, setProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [showProfileOverlay, setShowProfileOverlay] = useState(false);
@@ -98,16 +102,18 @@ export default function PunchScreen() {
   function resetToIdle() {
     setEmployee(null);
     setActiveTab('punch');
+    setSelfTasks([]);
     setSelfOpenTaskId(null);
     setSelfOpenProjectCode(null);
     setTeamMemberTarget(null);
+    setTeamMemberTasks([]);
     setTeamOpenTaskId(null);
     setTeamOpenProjectCode(null);
     setPendingApprovals([]);
     setPendingOtApprovals([]);
     setDirectReports([]);
     setProjects([]);
-    setTeamHistory([]);
+    setPunchHistory([]);
     setProfile(null);
     setShowProfileOverlay(false);
   }
@@ -115,26 +121,52 @@ export default function PunchScreen() {
   const loadSupervisorData = useCallback(async (supervisorEmpId) => {
     setLoadingApprovals(true);
     setLoadingOt(true);
-    setLoadingHistory(true);
     try {
-      const [approvals, otApprovals, reports, projectList, history] = await Promise.all([
+      const [approvals, otApprovals, reports, projectList] = await Promise.all([
         fetchPendingApprovals(supervisorEmpId),
         fetchPendingOtApprovals(supervisorEmpId),
         fetchDirectReports(supervisorEmpId),
         fetchProjects(),
-        fetchTeamPunchHistory(supervisorEmpId),
       ]);
       setPendingApprovals(approvals || []);
       setPendingOtApprovals(otApprovals || []);
       setDirectReports(reports || []);
       setProjects(projectList || []);
-      setTeamHistory(history || []);
     } catch (err) {
       Alert.alert('Could not load team data', err.message);
     } finally {
       setLoadingApprovals(false);
       setLoadingOt(false);
-      setLoadingHistory(false);
+    }
+  }, []);
+
+  // Shared by both roles (item 8/9) — the backend already scopes rows
+  // correctly per viewer (self + team for a supervisor, self only for a
+  // regular employee), so there's nothing role-specific to do here.
+  const loadPunchHistory = useCallback(async (empId) => {
+    setLoadingPunchHistory(true);
+    try {
+      setPunchHistory((await fetchPunchHistory(empId)) || []);
+    } catch (err) {
+      Alert.alert('Could not load punch history', err.message);
+    } finally {
+      setLoadingPunchHistory(false);
+    }
+  }, []);
+
+  // Refreshes just the punch-selection task list for whichever employee is
+  // currently being punched for (self or, on the supervisor's on-behalf
+  // flow, the scanned team member) — used to pick up a task that was just
+  // created or just completed without waiting for a full re-identify
+  // (item 1's fix: employee.tasks/teamMemberTarget.tasks used to be a
+  // snapshot taken once at identify/scan time and never refreshed again).
+  const refreshTasksFor = useCallback(async (empId, setter) => {
+    try {
+      setter((await fetchMyPunchableTasks(empId)) || []);
+    } catch {
+      // Best-effort — the stale list just stays stale until the next
+      // successful refresh; not worth surfacing an alert for a background
+      // refresh the user didn't explicitly ask for.
     }
   }, []);
 
@@ -150,23 +182,33 @@ export default function PunchScreen() {
     }
   }, []);
 
-  // Kept in a ref so the AppState listener always calls the latest version
+  // Kept in refs so the AppState listener always calls the latest version
   // without needing to resubscribe on every render.
   const loadSupervisorDataRef = useRef(loadSupervisorData);
   loadSupervisorDataRef.current = loadSupervisorData;
+  const loadPunchHistoryRef = useRef(loadPunchHistory);
+  loadPunchHistoryRef.current = loadPunchHistory;
+  const refreshTasksForRef = useRef(refreshTasksFor);
+  refreshTasksForRef.current = refreshTasksFor;
 
   // There's no multi-screen navigator here (single always-mounted screen),
   // so AppState is the equivalent of a navigation focus listener: refresh
-  // the pending-approvals list whenever the app comes back to the
-  // foreground while a supervisor is identified, instead of only ever
-  // fetching once at identify-time.
-  const supervisorRef = useRef({ isSupervisor: false, empId: null });
-  supervisorRef.current = { isSupervisor, empId: employee?.emp_id ?? null };
+  // whenever the app comes back to the foreground while someone is
+  // identified, instead of only ever fetching once at identify-time (item
+  // 1's fix, applied here too — not just supervisor data, every identified
+  // employee's own punch-selection list and punch history refresh now).
+  const identifiedRef = useRef({ isSupervisor: false, empId: null });
+  identifiedRef.current = { isSupervisor, empId: employee?.emp_id ?? null };
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active' && supervisorRef.current.isSupervisor) {
-        loadSupervisorDataRef.current(supervisorRef.current.empId);
+      const { isSupervisor: sup, empId } = identifiedRef.current;
+      if (nextState === 'active' && empId) {
+        refreshTasksForRef.current(empId, setSelfTasks);
+        loadPunchHistoryRef.current(empId);
+        if (sup) {
+          loadSupervisorDataRef.current(empId);
+        }
       }
     });
     return () => subscription.remove();
@@ -190,8 +232,10 @@ export default function PunchScreen() {
 
   async function applySelfIdentifyResult(result) {
     setEmployee(result);
+    setSelfTasks(result.tasks || []);
     setActiveTab('punch');
     setTeamMemberTarget(null);
+    setTeamMemberTasks([]);
     setTeamOpenTaskId(null);
     setTeamOpenProjectCode(null);
 
@@ -200,10 +244,11 @@ export default function PunchScreen() {
     setSelfOpenProjectCode(status.open_project_code);
 
     loadProfile(result.emp_id);
+    loadPunchHistory(result.emp_id);
     if (result.designation === SUPERVISOR_DESIGNATION) {
       loadSupervisorData(result.emp_id);
     } else {
-      // Needed for My Tasks' self-service "Create Task" form (item 4) —
+      // Needed for the Emergency Tasks tab's self-service create form —
       // every employee can potentially use it, not just supervisors.
       // loadSupervisorData above already covers this for a supervisor.
       fetchProjects().then(setProjects).catch(() => {});
@@ -217,6 +262,7 @@ export default function PunchScreen() {
       return;
     }
     setTeamMemberTarget(result);
+    setTeamMemberTasks(result.tasks || []);
     const status = await fetchTodayPunchStatus(result.emp_id);
     setTeamOpenTaskId(status.open_task_id);
     setTeamOpenProjectCode(status.open_project_code);
@@ -281,6 +327,10 @@ export default function PunchScreen() {
     const status = await fetchTodayPunchStatus(employee.emp_id);
     setSelfOpenTaskId(status.open_task_id);
     setSelfOpenProjectCode(status.open_project_code);
+    // Picks up the task just going Pending->Completed (2nd punch) promptly,
+    // instead of it only showing Closed after a full logout/re-identify.
+    refreshTasksFor(employee.emp_id, setSelfTasks);
+    loadPunchHistory(employee.emp_id);
 
     Alert.alert('Punch recorded', wasOpen ? `${task.name} closed.` : `${task.name} is now open.`);
   }
@@ -299,6 +349,8 @@ export default function PunchScreen() {
     const status = await fetchTodayPunchStatus(teamMemberTarget.emp_id);
     setTeamOpenTaskId(status.open_task_id);
     setTeamOpenProjectCode(status.open_project_code);
+    refreshTasksFor(teamMemberTarget.emp_id, setTeamMemberTasks);
+    loadPunchHistory(employee.emp_id);
 
     Alert.alert(
       'Punch recorded',
@@ -377,11 +429,18 @@ export default function PunchScreen() {
 
   async function handleCreateTask({ assignedEmpId, projectCode, priority, description, locationSite }) {
     await createTask({ assignedEmpId, projectCode, priority, description, locationSite, createdBy: employee.emp_id });
+    // If the assignee is the team member currently scanned for on-behalf
+    // punching, refresh their list so the new task shows up immediately
+    // instead of only after a fresh scan (item 1's fix, extended to this
+    // path too).
+    if (teamMemberTarget?.emp_id === assignedEmpId) {
+      refreshTasksFor(assignedEmpId, setTeamMemberTasks);
+    }
   }
 
-  // Item 4 — self-service: assignedEmpId is always this same employee
-  // (enforced again server-side regardless), source 'employee_self' is what
-  // the backend actually gates on the Emergency Time Allowance window.
+  // Self-service: assignedEmpId is always this same employee (enforced
+  // again server-side regardless), source 'employee_self' is what the
+  // backend actually gates on the Emergency Time Allowance window.
   async function handleCreateSelfTask({ assignedEmpId, projectCode, priority, description, locationSite }) {
     await createTask({
       assignedEmpId,
@@ -392,13 +451,16 @@ export default function PunchScreen() {
       createdBy: employee.emp_id,
       source: 'employee_self',
     });
+    // The whole point of item 1's fix — the new emergency task must appear
+    // in the normal Punch tab right away, not after a logout/re-identify.
+    refreshTasksFor(employee.emp_id, setSelfTasks);
   }
 
   function renderTabContent() {
     if (activeTab === 'punch') {
       return (
         <PunchProjectList
-          tasks={employee.tasks}
+          tasks={selfTasks}
           openTaskId={selfOpenTaskId}
           openProjectCode={selfOpenProjectCode}
           onPunch={handlePunchSelf}
@@ -408,7 +470,19 @@ export default function PunchScreen() {
 
     if (activeTab === 'my-tasks') {
       return (
-        <MyTasksTab empId={employee.emp_id} projects={projects} onTaskCreated={handleCreateSelfTask} />
+        <EmergencyTaskTab empId={employee.emp_id} projects={projects} onTaskCreated={handleCreateSelfTask} />
+      );
+    }
+
+    if (activeTab === 'punch-history') {
+      return (
+        <PunchHistoryTab
+          history={punchHistory}
+          loading={loadingPunchHistory}
+          viewerEmpId={employee.emp_id}
+          heading={isSupervisor ? 'Team Punch History' : 'Punch History'}
+          showLegend={isSupervisor}
+        />
       );
     }
 
@@ -427,7 +501,12 @@ export default function PunchScreen() {
 
     if (activeTab === 'task-assignment') {
       return (
-        <TaskAssignmentForm directReports={directReports} projects={projects} onSubmit={handleCreateTask} />
+        <TaskAssignmentForm
+          directReports={directReports}
+          projects={projects}
+          onSubmit={handleCreateTask}
+          heading="Create a Team Task"
+        />
       );
     }
 
@@ -461,7 +540,7 @@ export default function PunchScreen() {
           </View>
           <EmployeeCard employee={teamMemberTarget} />
           <PunchProjectList
-            tasks={teamMemberTarget.tasks}
+            tasks={teamMemberTasks}
             openTaskId={teamOpenTaskId}
             openProjectCode={teamOpenProjectCode}
             onPunch={handlePunchTeamMember}
@@ -489,10 +568,6 @@ export default function PunchScreen() {
           processingOtId={processingOtId}
         />
       );
-    }
-
-    if (activeTab === 'punch-history') {
-      return <TeamPunchHistoryTab history={teamHistory} loading={loadingHistory} />;
     }
 
     return null;

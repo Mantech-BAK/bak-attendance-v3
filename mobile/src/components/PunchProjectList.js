@@ -38,6 +38,12 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
     return task.id ? task.id === openTaskId : task.project_code === openProjectCode && !openTaskId;
   }
 
+  // A task at its 2-punch cap — stays visible with a Closed badge (item 10),
+  // but can never be punched again, even a genuine third attempt.
+  function isClosed(task) {
+    return task.task_status === 'completed';
+  }
+
   // Anything open (a real task or the fallback project) blocks every other
   // task/fallback until it's closed — global, not scoped to one project.
   // Returns a human-readable name for whatever's open, for the alert/hint.
@@ -53,6 +59,11 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
 
   async function handlePress(task) {
     if (submittingKey) return;
+
+    if (isClosed(task)) {
+      Alert.alert('Task closed', `"${task.name}" already has both its punches and cannot be punched again.`);
+      return;
+    }
 
     const blockingName = blockedBy(task);
     if (blockingName) {
@@ -127,25 +138,26 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
       </View>
       {list.map((task) => {
         const open = isOpen(task);
-        const blocked = !!blockedBy(task);
+        const closed = isClosed(task);
+        const blocked = !closed && !!blockedBy(task);
         const isSubmitting = submittingKey === taskKey(task);
 
         return (
           <TouchableOpacity
             key={taskKey(task)}
-            style={[styles.projectButton, open && styles.openButton, blocked && styles.blockedButton]}
+            style={[styles.projectButton, open && styles.openButton, blocked && styles.blockedButton, closed && styles.closedButton]}
             onPress={() => handlePress(task)}
             disabled={!!submittingKey}
           >
             <Ionicons
-              name={open ? 'radio-button-on' : 'radio-button-off-outline'}
+              name={closed ? 'checkmark-circle' : open ? 'radio-button-on' : 'radio-button-off-outline'}
               size={22}
-              color={open ? '#fff' : '#2563eb'}
+              color={closed ? '#9ca3af' : open ? '#fff' : '#2563eb'}
               style={styles.taskLeadingIcon}
             />
             <View style={styles.textWrap}>
               <View style={styles.nameRow}>
-                <Text style={[styles.projectName, open && styles.openText]}>{task.name}</Text>
+                <Text style={[styles.projectName, open && styles.openText, closed && styles.closedText]}>{task.name}</Text>
                 {task.priority && (
                   <View style={[styles.priorityBadge, styles[`priority_${task.priority}`]]}>
                     <Text style={styles.priorityText}>{task.priority}</Text>
@@ -155,6 +167,11 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
                   <View style={styles.defaultBadge}>
                     <Ionicons name="business-outline" size={11} color="#4338ca" />
                     <Text style={styles.defaultBadgeText}>DEFAULT</Text>
+                  </View>
+                )}
+                {closed && (
+                  <View style={styles.closedBadge}>
+                    <Text style={styles.closedBadgeText}>CLOSED</Text>
                   </View>
                 )}
               </View>
@@ -205,6 +222,10 @@ const styles = StyleSheet.create({
   },
   openButton: { backgroundColor: '#2563eb', borderColor: '#2563eb' },
   blockedButton: { opacity: 0.5 },
+  closedButton: { backgroundColor: '#f9fafb' },
+  closedText: { color: '#9ca3af' },
+  closedBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: '#f3f4f6' },
+  closedBadgeText: { fontSize: 11, fontWeight: '700', color: '#6b7280' },
   taskLeadingIcon: { marginRight: 12 },
   textWrap: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

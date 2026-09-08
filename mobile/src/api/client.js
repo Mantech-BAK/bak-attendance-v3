@@ -6,7 +6,10 @@ import { API_BASE_URL } from '../config';
  * CONFIRMED (built on backend, response shapes verified against it):
  *   POST /api/punch/identify   — typed { emp_id, login_code } identification — the fallback
  *                                 path, always available alongside identify-face below.
- *                                 response: { emp_id, name, designation, tasks: [{ id, project_code, name, priority, status }] }
+ *                                 response: { emp_id, name, designation, tasks: [{ id, project_code, name,
+ *                                 priority, status, punch_count, task_status }] } — task_status is
+ *                                 not_started/pending/completed; a completed (2-punch) task stays in
+ *                                 this list (unpunchable, shown Closed) rather than being dropped.
  *                                 401 with a generic "Invalid employee ID or code." on any mismatch.
  *   POST /api/punch/identify-face   — 1:N open face identification, no emp_id submitted.
  *                                 body: { embedding: number[192] } (on-device MobileFaceNet embedding)
@@ -58,11 +61,14 @@ import { API_BASE_URL } from '../config';
  *   POST  /api/tasks            body: { emp_id, project_code, priority?, description, location_site?, source, created_by }
  *                                 source must be one of: supervisor_app | backoffice | teams
  *   GET   /api/projects         response: [{ project_code, project_name, company, status }] (OPEN only)
- *   GET   /api/punches/team-history?supervisor_emp_id=   — read-only punch history (any approval
- *                                 status, most recent first, capped at 200) for direct reports —
- *                                 no approve/reject action lives on this endpoint, view-only.
+ *   GET   /api/punches/history?emp_id=   — read-only punch history (any approval status, most
+ *                                 recent first, capped at 200) for this employee, plus their direct
+ *                                 reports' if they're a supervisor — no approve/reject action lives
+ *                                 on this endpoint, view-only. A regular employee has no direct
+ *                                 reports, so this naturally returns only their own punches.
  *                                 response: [{ id, emp_id, employee_name, project_code, project_name,
- *                                 punch_time, entry_method, entered_by, approval_status, rejection_reason }]
+ *                                 task_id, task_display_id, punch_time, entry_method, entered_by,
+ *                                 approval_status, rejection_reason }]
  *   GET   /api/employees/:emp_id   — single employee's full record, for the Profile tab
  *                                 response: { emp_id, name, company, department, designation,
  *                                 reporting_manager_emp_id, status, ot_eligible, login_code, created_at }
@@ -165,9 +171,10 @@ export function fetchDirectReports(supervisorEmpId) {
   return request(`/api/employees/direct-reports?supervisor_emp_id=${encodeURIComponent(supervisorEmpId)}`);
 }
 
-// CONFIRMED
-export function fetchTeamPunchHistory(supervisorEmpId) {
-  return request(`/api/punches/team-history?supervisor_emp_id=${encodeURIComponent(supervisorEmpId)}`);
+// CONFIRMED — works for both a supervisor (self + team) and a regular
+// employee (self only, since they have no direct reports).
+export function fetchPunchHistory(empId) {
+  return request(`/api/punches/history?emp_id=${encodeURIComponent(empId)}`);
 }
 
 // CONFIRMED
@@ -217,11 +224,13 @@ export function fetchProjects() {
   return request('/api/projects?status=OPEN');
 }
 
-// Item 2 — the full "My Tasks" list (Completed included, unlike the
-// picker's tasks). Unauthenticated, same shape as identifyPunch's own
-// tasks field.
-export function fetchMyTaskList(empId) {
-  return request(`/api/tasks/my-list/${encodeURIComponent(empId)}`);
+// Refreshes one employee's punch-selection task list (self or, from a
+// supervisor's on-behalf flow, the team member currently being punched for)
+// without a full re-identify — same shape/filtering as identifyPunch's own
+// tasks field. Used to pick up a task created (or completed) mid-session
+// promptly, instead of only ever refreshing at login/scan time.
+export function fetchMyPunchableTasks(empId) {
+  return request(`/api/tasks/me/${encodeURIComponent(empId)}`).then((r) => r.tasks);
 }
 
 // Item 4 — lets the "Create Task" button on My Tasks show/hide itself

@@ -15,9 +15,9 @@ const PRIORITIES = ['low', 'medium', 'high'];
 // Inline tab content, not a modal popup — Create Task is its own persistent
 // tab rather than a secondary action layered over the punch flow.
 //
-// selfEmpId (item 4) switches this into self-service mode: the "Assign To"
-// picker disappears (the task is always for selfEmpId, never chosen), used
-// by MyTasksTab's emergency-window Create Task flow. Omitted, this behaves
+// selfEmpId switches this into self-service mode: the "Assign To" picker
+// disappears (the task is always for selfEmpId, never chosen), used by the
+// Emergency Tasks tab's window-gated create flow. Omitted, this behaves
 // exactly as before — a supervisor assigning to one of directReports.
 export default function TaskAssignmentForm({ directReports, projects, onSubmit, selfEmpId, heading, submitLabel }) {
   const isSelfMode = !!selfEmpId;

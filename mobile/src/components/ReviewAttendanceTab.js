@@ -39,6 +39,7 @@ export default function ReviewAttendanceTab({
               <View style={styles.approvalInfo}>
                 <Text style={styles.approvalName}>{item.employee_name}</Text>
                 <Text style={styles.approvalMeta}>
+                  {item.task_display_id ? `${item.task_display_id} — ` : ''}
                   {item.project_code || 'No project'} · {new Date(item.punch_time).toLocaleTimeString()}
                 </Text>
               </View>

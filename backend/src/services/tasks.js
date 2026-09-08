@@ -99,6 +99,13 @@ async function getTasksForDate(empId, date) {
 // client-side can disagree with it for a few hours around local midnight,
 // depending on the process's timezone. Keeping this as its own query avoids
 // that mismatch entirely.
+//
+// A task at its 2-punch cap stays in this list (unlike the old behavior,
+// which dropped it entirely) — it's unpunchable but must remain visible with
+// its Closed status, for both the employee's own Punch tab and the
+// supervisor's on-behalf punch view, which both reuse this same function via
+// POST /api/punch/identify. punch_count/task_status let the client render
+// that without re-deriving it.
 async function getTodaysTasks(empId) {
   const result = await pool.query(
     `SELECT t.id, t.project_code, t.priority, t.description, t.location_site, t.status, t.display_id,
@@ -110,22 +117,17 @@ async function getTodaysTasks(empId) {
   );
 
   if (result.rows.length > 0) {
-    // Same Completed-drop as getTasksForDate above — a task at its 2-punch
-    // cap disappears from the employee's own Tasks tab (and the supervisor's
-    // on-behalf punch view, which reuses this same function via
-    // POST /api/punch/identify) without falling through to the department
-    // default, since real tasks were assigned this day regardless.
-    return result.rows
-      .filter((task) => task.punch_count < 2)
-      .map((task) => ({
-        id: task.id,
-        display_id: task.display_id,
-        project_code: task.project_code,
-        name: task.description || task.location_site || task.project_code,
-        priority: task.priority,
-        status: task.status,
-        is_default: false,
-      }));
+    return result.rows.map((task) => ({
+      id: task.id,
+      display_id: task.display_id,
+      project_code: task.project_code,
+      name: task.description || task.location_site || task.project_code,
+      priority: task.priority,
+      status: task.status,
+      punch_count: task.punch_count,
+      task_status: deriveTaskStatus(task.punch_count),
+      is_default: false,
+    }));
   }
 
   const defaultProject = await getDepartmentDefaultProject(empId);
@@ -138,6 +140,8 @@ async function getTodaysTasks(empId) {
     name: defaultProject.project_name,
     priority: null,
     status: 'default',
+    punch_count: 0,
+    task_status: null,
     is_default: true,
   }];
 }
@@ -145,42 +149,6 @@ async function getTodaysTasks(empId) {
 function deriveTaskStatus(punchCount) {
   if (punchCount === 0) return 'not_started';
   return punchCount >= 2 ? 'completed' : 'pending';
-}
-
-// Powers mobile's "My Tasks" list — unlike getTodaysTasks above, this is a
-// read-only display, not a punch-selection source, so it deliberately does
-// NOT drop Completed tasks or synthesize the department-default fallback
-// (there's no real task behind that one to show a lifecycle for).
-// task_status is computed server-side (not_started/pending/completed, the
-// same even/odd-punch-count convention as everywhere else) so the mobile
-// app doesn't need to re-derive it from punch_count itself.
-//
-// employee_self tasks are deliberately excluded — an emergency self-created
-// task is meant to feel like just another punchable option in the normal
-// Punch flow (getTodaysTasks/getTasksForDate above still include it there,
-// unfiltered), not a distinct thing the employee manages in a list. It's
-// still a completely ordinary task underneath — same punches, same 2-punch
-// cap, same approval routing — this filter only affects which list a
-// mobile screen renders it in.
-async function getTodaysTaskList(empId) {
-  const result = await pool.query(
-    `SELECT t.id, t.display_id, t.project_code, t.priority, t.description, t.location_site, t.task_date::text AS task_date,
-            (SELECT count(*)::int FROM punches pu WHERE pu.task_id = t.id AND pu.approval_status <> 'rejected') AS punch_count
-     FROM tasks t
-     WHERE t.emp_id = $1 AND t.task_date = CURRENT_DATE AND t.source <> 'employee_self'
-     ORDER BY t.id`,
-    [empId]
-  );
-
-  return result.rows.map((task) => ({
-    id: task.id,
-    display_id: task.display_id,
-    project_code: task.project_code,
-    name: task.description || task.location_site || task.project_code,
-    priority: task.priority,
-    punch_count: task.punch_count,
-    task_status: deriveTaskStatus(task.punch_count),
-  }));
 }
 
 async function resolveTaskDate(taskDate) {
@@ -326,4 +294,4 @@ async function createTasksBulk({ emp_ids, project_code, priority, description, l
   return { created, errors, totalRequested: emp_ids.length };
 }
 
-module.exports = { getTodaysTasks, getTasksForDate, getTodaysTaskList, createTask, createTasksBulk, TaskValidationError, VALID_SOURCES };
+module.exports = { getTodaysTasks, getTasksForDate, createTask, createTasksBulk, TaskValidationError, VALID_SOURCES };
