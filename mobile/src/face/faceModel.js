@@ -1,5 +1,6 @@
 import { Image as RNImage } from 'react-native';
 import { loadTensorflowModel } from 'react-native-fast-tflite';
+import { Asset } from 'expo-asset';
 import { RNMLKitFaceDetector } from '@infinitered/react-native-mlkit-face-detection';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { Skia, ColorType, AlphaType } from '@shopify/react-native-skia';
@@ -17,10 +18,27 @@ const MODEL_INPUT_SIZE = 112;
 const EMBEDDING_LENGTH = 192;
 const CROP_MARGIN_RATIO = 0.15; // extra padding around the detected face box
 
+// react-native-fast-tflite resolves a bare require(...) via
+// Image.resolveAssetSource(...).uri, then hands that string straight to
+// java.net.URL(path).readBytes() on Android with no fallback. That works in
+// dev (Metro serves assets over http://) and on iOS release builds (bundled
+// resources get a real file:// path), but in an Android RELEASE build a
+// bundled non-image asset resolves to a bare resource name like
+// "assets_models_mobilefacenet" — no scheme at all — which URL() rejects
+// with "no protocol". Confirmed via a real crash on a physical device
+// during face registration. expo-asset's Asset.downloadAsync() is the
+// documented Expo fix for this exact class of problem: it resolves (and
+// copies, if needed) any bundled asset to a genuine file:// localUri on
+// every platform and build type, which we then pass as an explicit
+// { url } source instead of the raw require() result.
 let modelPromise = null;
 function getModel() {
   if (!modelPromise) {
-    modelPromise = loadTensorflowModel(require('../../assets/models/mobilefacenet.tflite'), []);
+    modelPromise = (async () => {
+      const asset = Asset.fromModule(require('../../assets/models/mobilefacenet.tflite'));
+      await asset.downloadAsync();
+      return loadTensorflowModel({ url: asset.localUri || asset.uri }, []);
+    })();
   }
   return modelPromise;
 }
