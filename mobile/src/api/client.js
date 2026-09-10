@@ -15,12 +15,25 @@ import { API_BASE_URL } from '../config';
  *                                 body: { embedding: number[192] } (on-device MobileFaceNet embedding)
  *                                 same response shape as /identify; 401 { error: 'Face not recognized.' }
  *                                 on no match — UI falls back to typed code, same as any other failure.
+ *   POST /api/punch/verify-face   — 1:1 re-validation ("is this still emp_id's face"), distinct
+ *                                 from /identify-face's open 1:N search above. Used immediately
+ *                                 before every self-punch (item 2, 2026-09-10).
+ *                                 body: { emp_id, embedding: number[192] }
+ *                                 200 { matched: true } on match; 401 { error: 'Face not recognized...' }
+ *                                 otherwise. Doesn't itself grant anything — POST /api/punches
+ *                                 independently re-verifies the same embedding.
  *   POST /api/employees/:emp_id/face-embeddings   — self-service face registration (only
  *                                 callable once per employee; 409 if EmpFaceId is already set).
  *                                 body: { embeddings: number[][] } (3-4 on-device embeddings, one per angle)
  *                                 response: { emp_id, registered_by, registered_at }
  *   POST /api/punches          — records a punch. Body keys the backend actually reads:
- *                                 { emp_id, task_id, project_code, lat, lng, entered_by? }
+ *                                 { emp_id, task_id, project_code, lat, lng, entered_by?,
+ *                                 revalidation_face_embedding?, revalidation_login_code? }
+ *                                 A self-punch (entered_by === emp_id, or omitted) is rejected with
+ *                                 401 unless revalidation_face_embedding or revalidation_login_code is
+ *                                 present and matches emp_id — re-proven fresh immediately before
+ *                                 every single punch (item 2, 2026-09-10). Does not apply to the
+ *                                 supervisor on-behalf path (entered_by !== emp_id) — see below.
  *                                 There is no "type" (IN/OUT) at capture time — it's derived later,
  *                                 at attendance-calculation time, from punch_time ordering within a
  *                                 day (earliest = IN, latest = OUT). punch_time is set server-side
@@ -118,7 +131,14 @@ export function identifyPunch(empId, loginCode) {
 // CONFIRMED — taskId is the real task's id (its project is resolved
 // server-side); for the department-default fallback (no real task), pass
 // projectCode instead and leave taskId null/undefined.
-export function submitPunch({ empId, taskId, projectCode, lat, lng, enteredBy }) {
+//
+// revalidationFaceEmbedding/revalidationLoginCode (item 2, 2026-09-10): a
+// self-punch (empId === enteredBy, or enteredBy omitted) is rejected with
+// 401 unless one of these is present and matches empId — re-proven fresh
+// immediately before every single punch, never reused across punches. Only
+// applies to self-punches; the supervisor "Scan Team Member" on-behalf path
+// (enteredBy !== empId) is unchanged and needs neither field.
+export function submitPunch({ empId, taskId, projectCode, lat, lng, enteredBy, revalidationFaceEmbedding, revalidationLoginCode }) {
   return request('/api/punches', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -129,7 +149,22 @@ export function submitPunch({ empId, taskId, projectCode, lat, lng, enteredBy })
       lat,
       lng,
       entered_by: enteredBy ?? undefined,
+      revalidation_face_embedding: revalidationFaceEmbedding ?? undefined,
+      revalidation_login_code: revalidationLoginCode ?? undefined,
     }),
+  });
+}
+
+// Item 2 (2026-09-10) — 1:1 re-validation ("is this still empId's face"),
+// distinct from identifyByFace's open 1:N search below. Used to give the
+// re-validation capture UI fast pass/fail feedback before attaching the
+// same embedding to the actual punch request, which independently
+// re-verifies it — this call alone never grants access to punch anything.
+export function verifyFace(empId, embedding) {
+  return request('/api/punch/verify-face', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ emp_id: empId, embedding }),
   });
 }
 

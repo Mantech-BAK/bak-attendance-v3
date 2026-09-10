@@ -19,6 +19,7 @@ const {
 } = require('../services/punchValidation');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 const { resolveBackofficeEmpId } = requireBackofficeAuth;
+const { verifyFaceForEmployee } = require('../services/faceMatch');
 
 const router = express.Router();
 
@@ -261,7 +262,7 @@ router.patch('/:id/reject', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
-    const { emp_id, task_id, project_code, lat, lng, entered_by, device_ref } = req.body;
+    const { emp_id, task_id, project_code, lat, lng, entered_by, device_ref, revalidation_face_embedding, revalidation_login_code } = req.body;
 
     if (!emp_id) {
       return res.status(400).json({ error: 'emp_id is required' });
@@ -283,15 +284,39 @@ router.post('/', async (req, res, next) => {
     }
 
     const enteredBy = entered_by || emp_id;
+    const isSelfPunch = enteredBy === emp_id;
 
     const employeeResult = await pool.query(
-      'SELECT "EmpId" AS emp_id, "EmpReportMgrId" AS reporting_manager_emp_id FROM employees WHERE "EmpId" = $1',
+      'SELECT "EmpId" AS emp_id, "EmpReportMgrId" AS reporting_manager_emp_id, login_code FROM employees WHERE "EmpId" = $1',
       [emp_id]
     );
     if (employeeResult.rows.length === 0) {
       return res.status(404).json({ error: `employee ${emp_id} not found` });
     }
     const targetEmployee = employeeResult.rows[0];
+
+    // Every self-punch — an employee OR a supervisor punching their OWN
+    // tasks — requires fresh proof of identity immediately before THIS
+    // specific punch (item 2, 2026-09-10). Re-validated every single time,
+    // never cached across punches even moments apart, and enforced HERE
+    // (not just via a separate pre-check the client could skip) so it can't
+    // be bypassed by calling this endpoint directly. Deliberately does NOT
+    // apply to the supervisor "Scan Team Member" on-behalf path
+    // (enteredBy !== emp_id) — that flow's one initial scan, which
+    // identifies WHO is being punched for, is unchanged by design.
+    if (isSelfPunch) {
+      let revalidated = false;
+
+      if (Array.isArray(revalidation_face_embedding)) {
+        revalidated = await verifyFaceForEmployee(emp_id, revalidation_face_embedding);
+      } else if (typeof revalidation_login_code === 'string') {
+        revalidated = targetEmployee.login_code === revalidation_login_code.trim().toUpperCase();
+      }
+
+      if (!revalidated) {
+        return res.status(401).json({ error: 'Please confirm your identity again before punching.' });
+      }
+    }
 
     // Resolves to a specific task (project auto-filled/locked from it) when
     // task_id is given, else the bare project_code (department-default

@@ -1,7 +1,7 @@
 const express = require('express');
 const { getTodaysTasks } = require('../services/tasks');
 const { verifyEmployeeCredentials, getEmployeeById } = require('../services/identify');
-const { identifyByFace } = require('../services/faceMatch');
+const { identifyByFace, verifyFaceForEmployee } = require('../services/faceMatch');
 const { getEmergencyTimeAllowance, isWithinEmergencyWindow, utcHHMMToLocalHHMM } = require('../services/settings');
 
 const router = express.Router();
@@ -110,6 +110,34 @@ router.post('/identify-face', async (req, res, next) => {
       is_supervisor: employee.is_supervisor,
       tasks,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * 1:1 re-validation — "is this still emp_id's face" — used immediately
+ * before every self-punch (item 2, 2026-09-10), distinct from
+ * /identify-face's open 1:N search above. Gives the mobile capture UI fast
+ * pass/fail feedback with a clear retry loop; this alone does NOT record
+ * anything or grant access to punch — POST /api/punches independently
+ * re-verifies the same embedding against the same employee before
+ * accepting the punch, so this check can't be bypassed by skipping this
+ * route and calling the punch endpoint directly.
+ */
+router.post('/verify-face', async (req, res, next) => {
+  try {
+    const { emp_id, embedding } = req.body || {};
+    if (!emp_id) {
+      return res.status(400).json({ error: 'emp_id is required' });
+    }
+
+    const matched = await verifyFaceForEmployee(emp_id, embedding);
+    if (!matched) {
+      return res.status(401).json({ error: 'Face not recognized. Please try again.' });
+    }
+
+    res.json({ matched: true });
   } catch (err) {
     next(err);
   }

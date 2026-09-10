@@ -110,4 +110,35 @@ async function identifyByFace(liveEmbedding) {
   return matched ? bestEmpId : null;
 }
 
-module.exports = { identifyByFace, isValidEmbedding, EMBEDDING_LENGTH, MATCH_THRESHOLD };
+/**
+ * 1:1 verification — "prove you are still this SPECIFIC employee", used to
+ * re-validate identity immediately before every self-punch (item 2,
+ * 2026-09-10 — every open/close of an employee's or supervisor's own task
+ * requires a fresh scan right before that punch, not just once at initial
+ * identification). Deliberately NOT the same as identifyByFace's open 1:N
+ * search: only compares against empId's own registered embeddings, so a
+ * high-scoring match against a DIFFERENT employee's face can never
+ * incorrectly re-validate this one.
+ */
+async function verifyFaceForEmployee(empId, liveEmbedding) {
+  if (!isValidEmbedding(liveEmbedding)) return false;
+
+  const { rows } = await pool.query(
+    `SELECT "EmpFaceId" AS face_data FROM employees WHERE "EmpId" = $1 AND "EmpStatus" = 'active'`,
+    [empId]
+  );
+  if (rows.length === 0 || !rows[0].face_data) return false;
+
+  const normalizedLive = l2Normalize(liveEmbedding);
+  const storedEmbeddings = parseStoredEmbeddings(rows[0].face_data);
+
+  let bestScore = -Infinity;
+  for (const stored of storedEmbeddings) {
+    const score = cosineSimilarity(normalizedLive, stored);
+    if (score > bestScore) bestScore = score;
+  }
+
+  return bestScore >= MATCH_THRESHOLD;
+}
+
+module.exports = { identifyByFace, verifyFaceForEmployee, isValidEmbedding, EMBEDDING_LENGTH, MATCH_THRESHOLD };

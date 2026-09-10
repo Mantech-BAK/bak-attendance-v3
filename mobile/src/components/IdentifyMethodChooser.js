@@ -4,14 +4,14 @@ import { Ionicons } from '@expo/vector-icons';
 // Small chooser shown before either IdentifyCodeForm or FaceCaptureModal —
 // the dual-auth entry point for self punch, "Scan Another Employee", and
 // supervisor "Scan Team Member" all funnel through this same component.
-export default function IdentifyMethodChooser({ visible, onChooseFace, onChooseCode, onCancel }) {
+export default function IdentifyMethodChooser({ visible, onChooseFace, onChooseCode, onCancel, heading = 'How would you like to identify?' }) {
   if (!visible) return null;
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
-          <Text style={styles.heading}>How would you like to identify?</Text>
+          <Text style={styles.heading}>{heading}</Text>
 
           <TouchableOpacity style={styles.optionButton} onPress={onChooseFace}>
             <Ionicons name="scan-outline" size={22} color="#2563eb" />

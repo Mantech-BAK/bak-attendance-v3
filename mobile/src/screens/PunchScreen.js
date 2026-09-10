@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import IdentifyCodeForm from '../components/IdentifyCodeForm';
 import IdentifyMethodChooser from '../components/IdentifyMethodChooser';
 import FaceCaptureModal from '../components/FaceCaptureModal';
+import FaceRevalidationModal from '../components/FaceRevalidationModal';
 import FaceRegistrationModal from '../components/FaceRegistrationModal';
 import EmployeeCard from '../components/EmployeeCard';
 import TabBar from '../components/TabBar';
@@ -43,6 +44,7 @@ import {
   fetchProjects,
   createTask,
 } from '../api/client';
+
 const EMPLOYEE_TABS = [
   { key: 'punch', label: 'Punch' },
   { key: 'my-tasks', label: 'Emergency Tasks' },
@@ -94,6 +96,14 @@ export default function PunchScreen() {
   // { type: 'punch' | 'ot', id } — one modal shared by both approval flows.
   const [rejectingItem, setRejectingItem] = useState(null);
 
+  // Item 2 (2026-09-10) — re-validation gate shown immediately before every
+  // self-punch (never for the supervisor "Scan Team Member" on-behalf
+  // flow, which is unchanged). null | 'choose' | 'face' | 'code'. The
+  // pending Promise's resolver lives in a ref (not state) so it survives
+  // across renders without itself triggering one.
+  const [revalidationStep, setRevalidationStep] = useState(null);
+  const revalidationResolverRef = useRef(null);
+
   // is_supervisor is an admin-set flag, decoupled from designation/job
   // title (real designations are things like "Operations Manager", never
   // literally "Supervisor") — see backend/src/services/backofficeAuth.js.
@@ -117,6 +127,11 @@ export default function PunchScreen() {
     setPunchHistory([]);
     setProfile(null);
     setShowProfileOverlay(false);
+    // Abandon any in-flight re-validation prompt rather than leaving a
+    // dangling resolver — its caller (handlePunchSelf) will just never
+    // continue, which is fine since the whole screen is resetting anyway.
+    setRevalidationStep(null);
+    revalidationResolverRef.current = null;
   }
 
   const loadSupervisorData = useCallback(async (supervisorEmpId) => {
@@ -321,9 +336,53 @@ export default function PunchScreen() {
     }
   }
 
+  // Resolves once the employee completes (or cancels) the re-validation
+  // prompt — the promise is how handlePunchSelf below can "await" a UI
+  // interaction. Resolves { faceEmbedding } or { loginCode } on success,
+  // null on cancel at any step.
+  function requestSelfRevalidation() {
+    return new Promise((resolve) => {
+      revalidationResolverRef.current = resolve;
+      setRevalidationStep('choose');
+    });
+  }
+
+  function resolveRevalidation(value) {
+    setRevalidationStep(null);
+    const resolve = revalidationResolverRef.current;
+    revalidationResolverRef.current = null;
+    if (resolve) resolve(value);
+  }
+
+  // Re-verifies the code is actually correct for this employee before
+  // resolving, reusing the same identify endpoint the initial identify flow
+  // already relies on — a wrong code surfaces inline in this same form for
+  // retry (IdentifyCodeForm's own try/catch), never as a generic "Punch
+  // failed" alert after the fact.
+  async function handleRevalidationCodeSubmit({ loginCode }) {
+    await identifyPunch(employee.emp_id, loginCode);
+    resolveRevalidation({ loginCode });
+  }
+
   async function handlePunchSelf(task, { lat, lng }) {
+    // Every self-punch — an employee or a supervisor punching their OWN
+    // tasks — requires a completely fresh re-validation right here, every
+    // time, even seconds after the last one succeeded. Cancelling at any
+    // point silently abandons this specific punch attempt (no error alert,
+    // no punch recorded) rather than falling through.
+    const revalidation = await requestSelfRevalidation();
+    if (!revalidation) return;
+
     const wasOpen = task.id ? task.id === selfOpenTaskId : task.project_code === selfOpenProjectCode;
-    await submitPunch({ empId: employee.emp_id, taskId: task.id, projectCode: task.id ? undefined : task.project_code, lat, lng });
+    await submitPunch({
+      empId: employee.emp_id,
+      taskId: task.id,
+      projectCode: task.id ? undefined : task.project_code,
+      lat,
+      lng,
+      revalidationFaceEmbedding: revalidation.faceEmbedding,
+      revalidationLoginCode: revalidation.loginCode,
+    });
 
     const status = await fetchTodayPunchStatus(employee.emp_id);
     setSelfOpenTaskId(status.open_task_id);
@@ -645,6 +704,29 @@ export default function PunchScreen() {
         visible={showFaceCapture}
         onIdentified={handleFaceIdentified}
         onCancel={() => setShowFaceCapture(false)}
+      />
+
+      <IdentifyMethodChooser
+        visible={revalidationStep === 'choose'}
+        heading="Confirm it's you before punching"
+        onChooseFace={() => setRevalidationStep('face')}
+        onChooseCode={() => setRevalidationStep('code')}
+        onCancel={() => resolveRevalidation(null)}
+      />
+
+      <FaceRevalidationModal
+        visible={revalidationStep === 'face'}
+        empId={employee?.emp_id}
+        onVerified={(embedding) => resolveRevalidation({ faceEmbedding: embedding })}
+        onCancel={() => resolveRevalidation(null)}
+      />
+
+      <IdentifyCodeForm
+        visible={revalidationStep === 'code'}
+        fixedEmpId={employee?.emp_id}
+        onSubmit={handleRevalidationCodeSubmit}
+        onCancel={() => resolveRevalidation(null)}
+        title="Confirm It's You"
       />
 
       <FaceRegistrationModal

@@ -24,7 +24,12 @@ import { Ionicons } from '@expo/vector-icons';
 // picking from a list instead. Self-identify and "Scan Another Employee"
 // don't pass this (there's no "team" to scope a picker to), so they keep
 // the free-text field unchanged.
-export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 'Enter Employee Code', directReports }) {
+//
+// fixedEmpId (optional, item 2, 2026-09-10): when set, hides the Employee
+// field entirely and always submits this exact id — used for per-punch
+// re-validation, where who's punching is already known and re-typing an id
+// that isn't itself secret would be pure friction with no security value.
+export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 'Enter Employee Code', directReports, fixedEmpId }) {
   const hasDirectReportsPicker = Array.isArray(directReports) && directReports.length > 0;
   const [empId, setEmpId] = useState('');
   const [loginCode, setLoginCode] = useState('');
@@ -33,7 +38,7 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
 
   useEffect(() => {
     if (visible) {
-      setEmpId(hasDirectReportsPicker ? directReports[0].emp_id : '');
+      setEmpId(fixedEmpId || (hasDirectReportsPicker ? directReports[0].emp_id : ''));
       setLoginCode('');
       setError(null);
     }
@@ -68,8 +73,8 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
             <Text style={styles.heading}>{title}</Text>
           </View>
 
-          <Text style={styles.label}>Employee</Text>
-          {hasDirectReportsPicker ? (
+          {!fixedEmpId && <Text style={styles.label}>Employee</Text>}
+          {fixedEmpId ? null : hasDirectReportsPicker ? (
             <View style={styles.pickerWrapper}>
               <Picker selectedValue={empId} onValueChange={setEmpId}>
                 {directReports.map((report) => (
@@ -98,6 +103,7 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
             autoCapitalize="characters"
             autoCorrect={false}
             maxLength={5}
+            autoFocus={!!fixedEmpId}
           />
 
           {error && (
