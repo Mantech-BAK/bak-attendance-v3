@@ -57,6 +57,11 @@ export type Employee = {
   reporting_manager_emp_id: string | null;
   status: string;
   ot_eligible: string | null;
+  // Admin-set flag, decoupled from designation/job title — real designations
+  // are things like "Operations Manager", never literally "Supervisor", so
+  // this is what actually gates supervisor-only behavior everywhere (mobile
+  // role switching, backoffice access, punch auto-approval), not designation.
+  is_supervisor: boolean;
   // Fallback identification alongside Face ID (see backend/src/routes/punch.js).
   // Testers/admins need to see an employee's code to log in as them from the
   // mobile app when Face ID isn't registered or available.
@@ -191,6 +196,7 @@ export type UpdateEmployeeResult = {
   status: string;
   login_code: string | null;
   ot_eligible: 'Y' | 'N';
+  is_supervisor: boolean;
   reporting_manager_emp_id: string | null;
 };
 
@@ -205,6 +211,7 @@ export function updateEmployee(currentEmpId: string, input: {
   status: string;
   loginCode: string | null;
   otEligible: boolean;
+  isSupervisor: boolean;
   reportingManagerEmpId: string | null;
 }): Promise<UpdateEmployeeResult> {
   return request(`/api/employees/${encodeURIComponent(currentEmpId)}`, {
@@ -216,6 +223,7 @@ export function updateEmployee(currentEmpId: string, input: {
       status: input.status,
       login_code: input.loginCode,
       ot_eligible: input.otEligible,
+      is_supervisor: input.isSupervisor,
       reporting_manager_emp_id: input.reportingManagerEmpId,
     }),
   });

@@ -42,8 +42,12 @@ async function seed() {
     );
 
     for (const { empId, existingReports } of SUPERVISORS) {
+      // is_supervisor is the actual role-gating flag (designation is just
+      // display text — real designations are things like "Operations
+      // Manager", never literally "Supervisor") — set alongside it here so
+      // this seed still assigns the designation for realistic-looking data.
       const result = await client.query(
-        `UPDATE employees SET "EmpDesigId" = $2 WHERE "EmpId" = $1 RETURNING "EmpId"`,
+        `UPDATE employees SET "EmpDesigId" = $2, is_supervisor = true WHERE "EmpId" = $1 RETURNING "EmpId"`,
         [empId, SUPERVISOR_DESIGNATION_CODE]
       );
       if (result.rowCount === 0) {

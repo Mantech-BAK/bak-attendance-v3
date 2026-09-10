@@ -43,8 +43,6 @@ import {
   fetchProjects,
   createTask,
 } from '../api/client';
-import { SUPERVISOR_DESIGNATION } from '../config';
-
 const EMPLOYEE_TABS = [
   { key: 'punch', label: 'Punch' },
   { key: 'my-tasks', label: 'Emergency Tasks' },
@@ -96,7 +94,10 @@ export default function PunchScreen() {
   // { type: 'punch' | 'ot', id } — one modal shared by both approval flows.
   const [rejectingItem, setRejectingItem] = useState(null);
 
-  const isSupervisor = employee?.designation === SUPERVISOR_DESIGNATION;
+  // is_supervisor is an admin-set flag, decoupled from designation/job
+  // title (real designations are things like "Operations Manager", never
+  // literally "Supervisor") — see backend/src/services/backofficeAuth.js.
+  const isSupervisor = employee?.is_supervisor === true;
   const tabs = isSupervisor ? SUPERVISOR_TABS : EMPLOYEE_TABS;
 
   function resetToIdle() {
@@ -245,7 +246,7 @@ export default function PunchScreen() {
 
     loadProfile(result.emp_id);
     loadPunchHistory(result.emp_id);
-    if (result.designation === SUPERVISOR_DESIGNATION) {
+    if (result.is_supervisor) {
       loadSupervisorData(result.emp_id);
     } else {
       // Needed for the Emergency Tasks tab's self-service create form —

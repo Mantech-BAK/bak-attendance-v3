@@ -18,6 +18,7 @@ router.get('/', requireBackofficeAuth, async (req, res, next) => {
               e."EmpDeptId" AS department, g.designation_name AS designation,
               e."EmpReportMgrId" AS reporting_manager_emp_id, e."EmpStatus" AS status,
               CASE WHEN e."EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
+              e.is_supervisor,
               e.login_code, e."EmpCreatedOn" AS created_at,
               e."EmpFaceId" IS NOT NULL AS has_face_registered
        FROM employees e
@@ -73,6 +74,7 @@ router.get('/:emp_id', async (req, res, next) => {
               e."EmpDeptId" AS department, g.designation_name AS designation,
               e."EmpReportMgrId" AS reporting_manager_emp_id, e."EmpStatus" AS status,
               CASE WHEN e."EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
+              e.is_supervisor,
               e.login_code, e."EmpCreatedOn" AS created_at,
               e."EmpFaceId" IS NOT NULL AS has_face_registered
        FROM employees e
@@ -201,8 +203,9 @@ const LOGIN_CODE_PATTERN = /^[A-Z]{5}$/;
 
 /**
  * Full-record edit from the backoffice Employees page — name, status
- * (active/inactive), login code, OT eligibility, and reporting manager, plus
- * EmpId itself. EmpId is the primary key: renaming it is safe only because
+ * (active/inactive), login code, OT eligibility, is_supervisor, and
+ * reporting manager, plus EmpId itself. EmpId is the primary key: renaming
+ * it is safe only because
  * of the 2026-08-23 migration adding ON UPDATE CASCADE to every FK that
  * references employees.EmpId (punches, tasks, ot_approvals,
  * confirmation_sheet_records) and adding one for the first time on
@@ -218,7 +221,7 @@ const LOGIN_CODE_PATTERN = /^[A-Z]{5}$/;
 router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
   try {
     const { emp_id } = req.params;
-    const { new_emp_id, name, status, login_code, ot_eligible, reporting_manager_emp_id } = req.body;
+    const { new_emp_id, name, status, login_code, ot_eligible, is_supervisor, reporting_manager_emp_id } = req.body;
 
     if (!new_emp_id || !String(new_emp_id).trim()) {
       return res.status(400).json({ error: 'new_emp_id is required' });
@@ -231,6 +234,9 @@ router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
     }
     if (typeof ot_eligible !== 'boolean') {
       return res.status(400).json({ error: 'ot_eligible must be a boolean' });
+    }
+    if (typeof is_supervisor !== 'boolean') {
+      return res.status(400).json({ error: 'is_supervisor must be a boolean' });
     }
 
     const trimmedNewEmpId = String(new_emp_id).trim();
@@ -253,12 +259,13 @@ router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
       const result = await pool.query(
         `UPDATE employees
          SET "EmpId" = $1, "EmpName" = $2, "EmpStatus" = $3, login_code = $4,
-             "EmpOtStatus" = $5, "EmpReportMgrId" = $6
-         WHERE "EmpId" = $7
+             "EmpOtStatus" = $5, is_supervisor = $6, "EmpReportMgrId" = $7
+         WHERE "EmpId" = $8
          RETURNING "EmpId" AS emp_id, "EmpName" AS name, "EmpStatus" AS status, login_code,
                    CASE WHEN "EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
+                   is_supervisor,
                    "EmpReportMgrId" AS reporting_manager_emp_id`,
-        [trimmedNewEmpId, trimmedName, status, trimmedLoginCode, ot_eligible, trimmedManagerId, emp_id]
+        [trimmedNewEmpId, trimmedName, status, trimmedLoginCode, ot_eligible, is_supervisor, trimmedManagerId, emp_id]
       );
       res.json(result.rows[0]);
     } catch (err) {

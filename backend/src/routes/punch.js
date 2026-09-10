@@ -66,6 +66,7 @@ router.post('/identify', async (req, res, next) => {
       emp_id: employee.emp_id,
       name: employee.name,
       designation: employee.designation,
+      is_supervisor: employee.is_supervisor,
       tasks,
     });
   } catch (err) {
@@ -106,6 +107,7 @@ router.post('/identify-face', async (req, res, next) => {
       emp_id: employee.emp_id,
       name: employee.name,
       designation: employee.designation,
+      is_supervisor: employee.is_supervisor,
       tasks,
     });
   } catch (err) {

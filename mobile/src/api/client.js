@@ -6,7 +6,7 @@ import { API_BASE_URL } from '../config';
  * CONFIRMED (built on backend, response shapes verified against it):
  *   POST /api/punch/identify   — typed { emp_id, login_code } identification — the fallback
  *                                 path, always available alongside identify-face below.
- *                                 response: { emp_id, name, designation, tasks: [{ id, project_code, name,
+ *                                 response: { emp_id, name, designation, is_supervisor, tasks: [{ id, project_code, name,
  *                                 priority, status, punch_count, task_status }] } — task_status is
  *                                 not_started/pending/completed; a completed (2-punch) task stays in
  *                                 this list (unpunchable, shown Closed) rather than being dropped.
@@ -33,7 +33,7 @@ import { API_BASE_URL } from '../config';
  *                                 When entered_by differs from emp_id (a supervisor punching on
  *                                 behalf of someone), the backend verifies emp_id's
  *                                 reporting_manager_emp_id actually equals entered_by — 403 otherwise.
- *                                 Only auto-approved when entered_by's designation is "Supervisor".
+ *                                 Only auto-approved when entered_by's is_supervisor flag is true.
  *                                 409 if the SAME task (or, for the fallback, the same project) isn't
  *                                 what's currently open — error.body.open_task_id/open_project_code
  *                                 names what is. Two different real tasks — even sharing a project —

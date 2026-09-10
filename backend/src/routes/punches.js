@@ -323,10 +323,7 @@ router.post('/', async (req, res, next) => {
       entryMethod = 'supervisor';
 
       const enteredByResult = await pool.query(
-        `SELECT e."EmpId" AS emp_id, g.designation_name AS designation
-         FROM employees e
-         LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
-         WHERE e."EmpId" = $1`,
+        `SELECT "EmpId" AS emp_id, is_supervisor FROM employees WHERE "EmpId" = $1`,
         [enteredBy]
       );
       if (enteredByResult.rows.length === 0) {
@@ -338,16 +335,19 @@ router.post('/', async (req, res, next) => {
         return res.status(403).json({ error: `${emp_id} does not report to ${enteredBy}` });
       }
 
-      // Auto-approval is gated on the literal designation string "Supervisor",
-      // not on "is a reporting manager" generally. A reporting manager whose
-      // designation is something else (e.g. "Operations Manager") is a valid
-      // entered_by and passes the check above, but their entries still land
-      // as 'pending' and surface in their own GET /pending list for review.
+      // Auto-approval is gated on the is_supervisor flag, not on "is a
+      // reporting manager" generally. A reporting manager who isn't flagged
+      // is_supervisor is a valid entered_by and passes the check above, but
+      // their entries still land as 'pending' and surface in their own
+      // GET /pending list for review.
       //
       // CONFIRMED INTENDED (2026-07-28) — not an oversight. Do not widen this
       // to "any reporting manager" without an explicit product decision to
       // do so; narrowing who gets auto-approval was a deliberate choice.
-      approvalStatus = enteredByResult.rows[0].designation === 'Supervisor' ? 'approved' : 'pending';
+      // (Originally gated on designation_name === 'Supervisor' — moved to
+      // this dedicated flag since real designations are things like
+      // "Operations Manager", never literally "Supervisor".)
+      approvalStatus = enteredByResult.rows[0].is_supervisor ? 'approved' : 'pending';
     }
 
     // punch_time is always the server's clock at receipt — never trust a

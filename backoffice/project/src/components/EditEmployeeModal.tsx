@@ -26,6 +26,7 @@ export function EditEmployeeModal({
   const [status, setStatus] = useState('active');
   const [loginCode, setLoginCode] = useState('');
   const [otEligible, setOtEligible] = useState('N');
+  const [isSupervisor, setIsSupervisor] = useState('N');
   const [reportingManagerEmpId, setReportingManagerEmpId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +38,7 @@ export function EditEmployeeModal({
       setStatus(employee.status);
       setLoginCode(employee.login_code ?? '');
       setOtEligible(employee.ot_eligible ?? 'N');
+      setIsSupervisor(employee.is_supervisor ? 'Y' : 'N');
       setReportingManagerEmpId(employee.reporting_manager_emp_id ?? '');
       setError(null);
     }
@@ -60,6 +62,7 @@ export function EditEmployeeModal({
         status,
         loginCode: loginCode.trim() ? loginCode.trim().toUpperCase() : null,
         otEligible: otEligible === 'Y',
+        isSupervisor: isSupervisor === 'Y',
         reportingManagerEmpId: reportingManagerEmpId.trim() || null,
       });
       onSuccess({
@@ -69,6 +72,7 @@ export function EditEmployeeModal({
         status: updated.status,
         login_code: updated.login_code,
         ot_eligible: updated.ot_eligible,
+        is_supervisor: updated.is_supervisor,
         reporting_manager_emp_id: updated.reporting_manager_emp_id,
       });
       onClose();
@@ -100,6 +104,14 @@ export function EditEmployeeModal({
           <option value="Y">Yes</option>
           <option value="N">No</option>
         </Select>
+
+        <Select value={isSupervisor} onChange={setIsSupervisor} label="Is Supervisor" id="edit-emp-is-supervisor">
+          <option value="N">No</option>
+          <option value="Y">Yes</option>
+        </Select>
+        <p className="-mt-2 text-xs text-slate-400">
+          Independent of Designation — controls supervisor-only behavior (mobile role, backoffice access, punch auto-approval) regardless of job title.
+        </p>
 
         <Input
           value={reportingManagerEmpId}
