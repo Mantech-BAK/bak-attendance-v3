@@ -287,7 +287,7 @@ router.post('/', async (req, res, next) => {
     const isSelfPunch = enteredBy === emp_id;
 
     const employeeResult = await pool.query(
-      'SELECT "EmpId" AS emp_id, "EmpReportMgrId" AS reporting_manager_emp_id, login_code FROM employees WHERE "EmpId" = $1',
+      'SELECT "EmpId" AS emp_id, "EmpReportMgrId" AS reporting_manager_emp_id, login_code, is_supervisor FROM employees WHERE "EmpId" = $1',
       [emp_id]
     );
     if (employeeResult.rows.length === 0) {
@@ -341,8 +341,15 @@ router.post('/', async (req, res, next) => {
       });
     }
 
+    // A supervisor's own punch auto-approves exactly like one they enter on
+    // a direct report's behalf — this branch was missing until a real
+    // supervisor's self-punch was found stuck on 'pending' despite
+    // is_supervisor=true (2026-09-13): the on-behalf branch below checked
+    // entered_by's is_supervisor, but a self-punch (entered_by === emp_id)
+    // never reached that branch at all, so it always fell through to the
+    // 'pending' default regardless of the flag.
     let entryMethod = 'self';
-    let approvalStatus = 'pending';
+    let approvalStatus = targetEmployee.is_supervisor ? 'approved' : 'pending';
 
     if (enteredBy !== emp_id) {
       entryMethod = 'supervisor';
