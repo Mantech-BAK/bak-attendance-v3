@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -66,7 +68,10 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
-      <View style={styles.backdrop}>
+      <KeyboardAvoidingView
+        style={styles.backdrop}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
         <View style={styles.sheet}>
           <View style={styles.headingRow}>
             <Ionicons name="key-outline" size={20} color="#111827" />
@@ -133,7 +138,7 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

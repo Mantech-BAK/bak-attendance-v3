@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -47,7 +49,10 @@ export default function RejectReasonModal({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+      <KeyboardAvoidingView
+        style={styles.backdrop}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
         <View style={styles.sheet}>
           <View style={styles.headingRow}>
             <Ionicons name="close-circle-outline" size={20} color="#dc2626" />
@@ -91,7 +96,7 @@ export default function RejectReasonModal({
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
