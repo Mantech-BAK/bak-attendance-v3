@@ -1,7 +1,7 @@
 const pool = require('../db');
 const {
   isWithinEmergencyWindow, getEmergencyTimeAllowance, utcHHMMToLocalHHMM,
-  getAllSettings, parseSummerBanPeriods, isWithinSummerBan,
+  getAllSettings, parseSummerBanPeriods, isWithinSummerBan, getBahrainDateKey,
 } = require('./settings');
 
 // employee_self: an employee creating a task for themselves, mobile, no
@@ -130,12 +130,18 @@ async function getTasksForDate(empId, date) {
   }];
 }
 
-// Deliberately NOT implemented as getTasksForDate(empId, today) — CURRENT_DATE
-// is the Postgres session's own notion of today (matches how every other
-// "today" query in this app resolves it), whereas computing a JS date string
-// client-side can disagree with it for a few hours around local midnight,
-// depending on the process's timezone. Keeping this as its own query avoids
-// that mismatch entirely.
+// Deliberately NOT implemented as getTasksForDate(empId, today) with a
+// caller-supplied date — "today" is always resolved fresh, right here,
+// via getBahrainDateKey(new Date()) (2026-09-16 timezone audit). This
+// used to rely on Postgres's own CURRENT_DATE, on the theory that a
+// JS-computed date string could disagree with it around local midnight
+// depending on the Node process's own timezone — but CURRENT_DATE instead
+// depends on the DB session's configured timezone, which is just as
+// environment-fragile (confirmed: UTC in production, a different default
+// in local dev, silently disagreeing with each other and with the real
+// Bahrain business day). getBahrainDateKey uses Intl with an explicit
+// timeZone, so it's correct regardless of either the Node process's or the
+// DB session's own timezone — nothing here depends on ambient config.
 //
 // A task at its 2-punch cap stays in this list (unlike the old behavior,
 // which dropped it entirely) — it's unpunchable but must remain visible with
@@ -144,6 +150,7 @@ async function getTasksForDate(empId, date) {
 // POST /api/punch/identify. punch_count/task_status let the client render
 // that without re-deriving it.
 async function getTodaysTasks(empId) {
+  const today = getBahrainDateKey(new Date());
   const result = await pool.query(
     `SELECT t.id, t.project_code, t.priority, t.description, t.location_site, t.status, t.display_id,
             (SELECT count(*)::int FROM punches pu WHERE pu.task_id = t.id AND pu.approval_status <> 'rejected') AS punch_count,
@@ -160,9 +167,9 @@ async function getTodaysTasks(empId) {
        WHERE task_id = t.id AND approval_status <> 'rejected'
        ORDER BY punch_time ASC LIMIT 1 OFFSET 1
      ) out_p ON true
-     WHERE t.emp_id = $1 AND t.task_date = CURRENT_DATE
+     WHERE t.emp_id = $1 AND t.task_date = $2::date
      ORDER BY t.id`,
-    [empId]
+    [empId, today]
   );
 
   if (result.rows.length > 0) {
@@ -209,10 +216,17 @@ function deriveTaskStatus(punchCount) {
   return punchCount >= 2 ? 'completed' : 'pending';
 }
 
+// The interactive Create Task forms (mobile Punch, Create Team Task, Scan
+// Team Member) never pass an explicit taskDate, so this default IS "today"
+// for them — resolved via getBahrainDateKey(new Date()) (2026-09-16
+// timezone audit), not Postgres's CURRENT_DATE: CURRENT_DATE depends on
+// the DB session's own timezone, which was UTC in production and a
+// different, unpinned default in local dev — the two disagreeing is
+// exactly the kind of drift this audit closed. Bulk upload and the Teams
+// intake job are the only callers that pass a real, possibly-future
+// taskDate explicitly.
 async function resolveTaskDate(taskDate) {
-  if (taskDate) return taskDate;
-  const { rows } = await pool.query("SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today");
-  return rows[0].today;
+  return taskDate || getBahrainDateKey(new Date());
 }
 
 function formatDisplayId(taskDate, counter) {
@@ -245,11 +259,11 @@ async function getNextTaskDisplayId(taskDate) {
 /**
  * Shared validation + insert used by both POST /api/tasks and the Teams
  * intake job, so the two entry points can never drift on what counts as a
- * valid task. taskDate is optional and defaults to today (resolved via the
- * Postgres session's own CURRENT_DATE, not JS's `new Date()`, to avoid a
- * local-timezone mismatch around midnight) — only the Teams job and bulk
- * upload pass an explicit one; POST /api/tasks never accepts a
- * client-supplied date, unchanged from its existing behavior.
+ * valid task. taskDate is optional and defaults to today (resolved via
+ * resolveTaskDate() above, i.e. getBahrainDateKey — see its own comment)
+ * — only the Teams job and bulk upload pass an explicit one; POST
+ * /api/tasks never accepts a client-supplied date, unchanged from its
+ * existing behavior.
  */
 async function createTask({ emp_id, project_code, priority, description, location_site, source, created_by, taskDate, is_outdoor, shift_type }) {
   if (!emp_id) throw new TaskValidationError(400, 'emp_id is required');

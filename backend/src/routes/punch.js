@@ -2,7 +2,7 @@ const express = require('express');
 const { getTodaysTasks } = require('../services/tasks');
 const { verifyEmployeeCredentials, getEmployeeById } = require('../services/identify');
 const { identifyByFace, verifyFaceForEmployee } = require('../services/faceMatch');
-const { getEmergencyTimeAllowance, isWithinEmergencyWindow, utcHHMMToLocalHHMM, getAllSettings, parseSummerBanPeriods, isWithinSummerBan, localDateKey } = require('../services/settings');
+const { getEmergencyTimeAllowance, isWithinEmergencyWindow, utcHHMMToLocalHHMM, getAllSettings, parseSummerBanPeriods, isWithinSummerBan, getBahrainDateKey } = require('../services/settings');
 
 const router = express.Router();
 
@@ -38,7 +38,7 @@ router.get('/summer-ban-status', async (req, res, next) => {
   try {
     const settingsMap = await getAllSettings();
     const periods = parseSummerBanPeriods(settingsMap);
-    const active = isWithinSummerBan(localDateKey(new Date()), periods);
+    const active = isWithinSummerBan(getBahrainDateKey(new Date()), periods);
     res.json({ active });
   } catch (err) {
     next(err);

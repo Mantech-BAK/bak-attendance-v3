@@ -2,7 +2,7 @@ const pool = require('../db');
 const { getOpenPunchForDate, punchKey, dateKey } = require('./attendance');
 const {
   getDuplicatePunchWindowMinutes,
-  getAllSettings, parseSummerBanPeriods, isWithinSummerBan, isWithinBanWindow, localDateKey,
+  getAllSettings, parseSummerBanPeriods, isWithinSummerBan, isWithinBanWindow, getBahrainDateKey,
 } = require('./settings');
 
 class PunchValidationError extends Error {
@@ -141,7 +141,7 @@ async function checkOutdoorBanWindow({ task_id, punchTime }) {
 
   const settingsMap = await getAllSettings();
   const summerBanPeriods = parseSummerBanPeriods(settingsMap);
-  if (!isWithinSummerBan(localDateKey(punchTime), summerBanPeriods)) return;
+  if (!isWithinSummerBan(getBahrainDateKey(punchTime), summerBanPeriods)) return;
 
   if (isWithinBanWindow(punchTime)) {
     throw new PunchValidationError(

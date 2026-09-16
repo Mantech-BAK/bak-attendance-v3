@@ -1,7 +1,7 @@
 const pool = require('../db');
 const {
   getAllSettings, parseRamzanPeriods,
-  parseSummerBanPeriods, isWithinSummerBan, localDateKey, getBanWindowUtcBounds,
+  parseSummerBanPeriods, isWithinSummerBan, getBahrainDateKey, getBahrainDayUtcBounds, getBanWindowUtcBounds,
 } = require('./settings');
 
 /**
@@ -37,8 +37,18 @@ const {
 const GLOBAL_DEFAULT_MINUTES = 510; // used only if overtime_threshold_minutes is somehow missing entirely
 const RAMZAN_DEFAULT_MINUTES = 360; // used only if ramzan_working_hours_minutes is somehow missing entirely
 
+// Kept under this name since it's used pervasively throughout this file and
+// its callers (routes/punches.js, punchValidation.js, otApprovals.js) — but
+// as of the 2026-09-16 timezone audit this delegates to
+// settings.js's getBahrainDateKey(), the canonical Asia/Riyadh "what day is
+// it" function, rather than a raw UTC toISOString(). Previously this WAS
+// raw-UTC, which silently disagreed with the real Bahrain calendar day for
+// roughly 3 hours after Bahrain midnight (UTC's own day boundary falls at
+// 03:00 Bahrain time) — confirmed to matter in practice, not just in
+// theory: it shifted Shift Type Night/Regular attribution, the open/close
+// conflict window, and the OT cron's "yesterday" by that same 3 hours.
 function dateKey(punchTime) {
-  return punchTime.toISOString().slice(0, 10);
+  return getBahrainDateKey(punchTime);
 }
 
 /**
@@ -53,23 +63,33 @@ function punchKey(taskId, projectCode) {
 }
 
 /**
- * Returns the [start, end) instant bounds of a UTC calendar day as JS Date
- * objects. These must be used — never a plain 'YYYY-MM-DD' string cast to
- * ::date — when filtering punch_time by day in SQL. node-pg serializes a JS
- * Date bound to a "timestamp without time zone" column through the
- * process's local timezone (the same conversion applied when punch_time was
- * originally written from a JS Date), so comparing Date-to-Date stays
- * internally consistent. A bare date string bypasses that conversion
- * entirely and silently mis-buckets any punch within the local-offset
- * window of midnight (confirmed: a 23:00 UTC punch was excluded from its
- * own day using the ::date form, in an environment offset at UTC+3).
+ * Returns the [start, end) instant bounds of a real Asia/Riyadh calendar day
+ * (matching dateKey()'s own definition of where a day starts and ends) as
+ * JS Date objects. These must be used — never a plain 'YYYY-MM-DD' string
+ * cast to ::date, and never a UTC-day assumption — when filtering
+ * punch_time by day in SQL. node-pg serializes a JS Date bound to a
+ * "timestamp without time zone" column via the Date's own UTC value with no
+ * session-timezone involved, so comparing Date-to-Date here stays correct
+ * regardless of the DB session's timezone. A bare date string bypasses that
+ * entirely and silently mis-buckets any punch within the offset window of
+ * midnight (confirmed: a 23:00 UTC punch was excluded from its own day
+ * using the ::date form, in an environment offset at UTC+3) — and prior to
+ * the 2026-09-16 timezone audit, this function itself used a UTC day
+ * boundary rather than Bahrain's, which is the same class of bug one layer
+ * up: it agreed with dateKey() only because dateKey() was ALSO UTC-based
+ * back then. Both are now Bahrain-based together.
  */
-function getUtcDayBounds(date) {
-  const start = new Date(`${date}T00:00:00.000Z`);
-  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-  return { start, end };
+function getBahrainDayBounds(date) {
+  return getBahrainDayUtcBounds(date);
 }
 
+// Pure calendar-date arithmetic (shift a 'YYYY-MM-DD' string by N whole
+// days) — timezone-agnostic by construction: anchoring at UTC-midnight of
+// the input date, shifting by whole UTC days, then reading the result back
+// out via dateKey() (Bahrain-based) always lands on the same calendar date
+// a human would expect, since UTC-midnight of any date is always still
+// Bahrain 03:00 of that SAME calendar date, never the day before or after.
+// No change needed here for the timezone audit — confirmed already correct.
 function shiftDateString(dateStr, deltaDays) {
   const d = new Date(`${dateStr}T00:00:00.000Z`);
   d.setUTCDate(d.getUTCDate() + deltaDays);
@@ -99,9 +119,9 @@ function shiftDateString(dateStr, deltaDays) {
  * behavior, to avoid conflating separate daily sessions across days.
  */
 async function fetchPunchRowsForDate(date) {
-  const windowStart = getUtcDayBounds(shiftDateString(date, -1)).start;
-  const windowEnd = getUtcDayBounds(shiftDateString(date, 1)).end;
-  const { start: dayStart, end: dayEnd } = getUtcDayBounds(date);
+  const windowStart = getBahrainDayBounds(shiftDateString(date, -1)).start;
+  const windowEnd = getBahrainDayBounds(shiftDateString(date, 1)).end;
+  const { start: dayStart, end: dayEnd } = getBahrainDayBounds(date);
 
   const candidateResult = await pool.query(
     `SELECT id, emp_id, project_code, task_id, punch_time, out_remark, extra_ot_minutes, extra_ot_granted_by
@@ -276,7 +296,7 @@ async function syncTaskSinglePunchException(taskId) {
 // this file (checkOpenConflict already forces same-day open/close for
 // anything live punching can still produce).
 function computeSummerBanOverlapMinutes(startMs, endMs, summerBanPeriods) {
-  const localDate = localDateKey(new Date(startMs));
+  const localDate = getBahrainDateKey(new Date(startMs));
   if (!isWithinSummerBan(localDate, summerBanPeriods)) return 0;
 
   const { start: banStart, end: banEnd } = getBanWindowUtcBounds(localDate);
@@ -400,7 +420,7 @@ function applyNestedSubtraction(sessionsForDay, { isOutdoorByTaskId = new Map(),
 
 // empId === null computes attendance across all employees at once (used by
 // the backoffice Reports page) instead of one employee at a time. date, when
-// given, scopes to just that UTC calendar day (via getUtcDayBounds, same
+// given, scopes to just that Bahrain calendar day (via getBahrainDayBounds, same
 // convention as everywhere else) instead of the full punch history — used by
 // the Reports page's "attendance for a specific date" view.
 async function calculateAttendance(empId, date) {
@@ -411,7 +431,7 @@ async function calculateAttendance(empId, date) {
     whereClause += ` AND emp_id = $${params.length}`;
   }
   if (date) {
-    const { start, end } = getUtcDayBounds(date);
+    const { start, end } = getBahrainDayBounds(date);
     params.push(start, end);
     whereClause += ` AND punch_time >= $${params.length - 1} AND punch_time < $${params.length}`;
   }
@@ -547,7 +567,7 @@ function calculateAttendanceForAllEmployees(date) {
  * day before, permanently blocking that session from ever being closed.
  * The department-default fallback (bare project_code, no task_id — no
  * shift_type concept applies to it) has no such cap, so it deliberately
- * stays scoped to the exact literal `date` via getUtcDayBounds, unchanged
+ * stays scoped to the exact literal `date` via getBahrainDayBounds, unchanged
  * from this app's original behavior, to avoid conflating separate daily
  * cycles together.
  */
@@ -564,7 +584,7 @@ async function getOpenPunchForDate(empId, date, excludePunchId) {
   const openTask = taskResult.rows.find((row) => row.cnt % 2 !== 0);
   if (openTask) return { task_id: openTask.task_id, project_code: null };
 
-  const { start, end } = getUtcDayBounds(date);
+  const { start, end } = getBahrainDayBounds(date);
   const projectParams = excludePunchId ? [empId, start, end, excludePunchId] : [empId, start, end];
   const projectResult = await pool.query(
     `SELECT project_code, count(*)::int AS cnt
@@ -589,7 +609,7 @@ module.exports = {
   getOpenPunchForDate,
   punchKey,
   dateKey,
-  getUtcDayBounds,
+  getBahrainDayBounds,
   fetchPunchRowsForDate,
   getEffectiveThreshold,
   applyNestedSubtraction,

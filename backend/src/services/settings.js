@@ -183,16 +183,41 @@ function getBanWindowUtcBounds(localDateStr) {
   };
 }
 
-// The Asia/Riyadh calendar date ('YYYY-MM-DD') an instant falls on — used to
-// check a punch attempt's date against declared Summer Ban periods using
-// the same local-day convention a human reading the period's start/end
-// dates would expect, rather than attendance.js's dateKey() (UTC-bucketed,
-// the right choice for grouping/reporting but not for "is this local
-// wall-clock moment inside a human-declared calendar period").
-function localDateKey(instant) {
+// THE canonical "what day is it" function for every day-boundary decision
+// in this app (2026-09-16 timezone audit) — the Asia/Riyadh calendar date
+// ('YYYY-MM-DD') a real instant falls on. Every place that used to compute
+// "today"/a session's day via JS `Date.toISOString()` (always UTC) or
+// Postgres `CURRENT_DATE`/session default timezone (UTC in production,
+// whatever the local install happens to default to in dev — confirmed to
+// disagree with production) now goes through this instead: task_date
+// defaults, open/close conflict windows, session-day bucketing in
+// attendance.js's dateKey(), Shift Type Regular/Night attribution, the OT
+// cron's "yesterday", and the Ramzan/Summer-Ban "today" guards. Using
+// Intl.DateTimeFormat with an explicit timeZone makes this correct
+// regardless of the Node process's own local timezone AND regardless of
+// whatever timezone the Postgres session happens to be in — nothing here
+// depends on ambient environment configuration drifting again.
+function getBahrainDateKey(instant) {
   const offsetMinutes = getBusinessTimeZoneOffsetMinutes(instant);
   const shifted = new Date(instant.getTime() + offsetMinutes * 60000);
   return shifted.toISOString().slice(0, 10);
+}
+
+// The real UTC instant [start, end) bounds of a full Asia/Riyadh calendar
+// day — the day-boundary counterpart to getBanWindowUtcBounds below (same
+// naive-UTC-then-offset-correct technique), for filtering punch_time by
+// "this Bahrain day" in SQL. Must be used — never a bare 'YYYY-MM-DD'
+// string cast to ::date, and never a UTC-day assumption — when the day in
+// question needs to agree with getBahrainDateKey()'s own definition of
+// where a day starts and ends.
+function getBahrainDayUtcBounds(bahrainDateStr) {
+  const naiveStart = new Date(`${bahrainDateStr}T00:00:00.000Z`);
+  const naiveEnd = new Date(`${bahrainDateStr}T24:00:00.000Z`);
+  const offsetMinutes = getBusinessTimeZoneOffsetMinutes(naiveStart);
+  return {
+    start: new Date(naiveStart.getTime() - offsetMinutes * 60000),
+    end: new Date(naiveEnd.getTime() - offsetMinutes * 60000),
+  };
 }
 
 // Whichever of a punch attempt's overlap with the 12-4pm window matters —
@@ -267,7 +292,8 @@ module.exports = {
   getSummerBanPeriods,
   isWithinSummerBan,
   isWithinBanWindow,
-  localDateKey,
+  getBahrainDateKey,
+  getBahrainDayUtcBounds,
   getBanWindowUtcBounds,
   BAN_WINDOW_START_MINUTES,
   BAN_WINDOW_END_MINUTES,

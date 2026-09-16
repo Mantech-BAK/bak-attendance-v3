@@ -10,6 +10,7 @@ const {
   getEmergencyTimeAllowance,
   localHHMMToUtcHHMM,
   utcHHMMToLocalHHMM,
+  getBahrainDateKey,
 } = require('../services/settings');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 
@@ -28,9 +29,13 @@ const MIN_DUPLICATE_WINDOW_MINUTES = 1;
 const MAX_DUPLICATE_WINDOW_MINUTES = 120;
 const HHMM_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
+// Backs the "start_date cannot be earlier than today" guard on both
+// Ramzan and Summer Ban period declaration. Resolved via getBahrainDateKey
+// (2026-09-16 timezone audit) rather than Postgres's CURRENT_DATE, which
+// depends on the DB session's own timezone (UTC in production) rather than
+// the real Bahrain business day an admin declaring a period actually means.
 async function getServerToday() {
-  const { rows } = await pool.query("SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today");
-  return rows[0].today;
+  return getBahrainDateKey(new Date());
 }
 
 router.get('/daily-working-hours', async (req, res, next) => {

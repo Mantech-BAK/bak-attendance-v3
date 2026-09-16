@@ -26,10 +26,10 @@ const COLUMNS = [
   { header: 'APPROVAL REQUIRED', key: 'approval_required', width: 18 },
 ];
 
-// dateKey()/getUtcDayBounds() use UTC internally purely as an arithmetic
-// convention for day-bucketing punches consistently through node-pg's
-// timestamp-without-tz round-trip — it says nothing about what clock time a
-// human should see. A human reading this report needs the actual local
+// dateKey()/getBahrainDayBounds() bucket punches by real Asia/Riyadh
+// calendar day (2026-09-16 timezone audit) — that's a day-bucketing
+// concern, and says nothing about what clock time a human should see. A
+// human reading this report needs the actual local
 // wall-clock time the punch happened at (BAK's operating timezone), not the
 // UTC-instant reading — displaying raw UTC here made every punch appear
 // ~3 hours earlier than it really was, so real varied punch times (e.g.

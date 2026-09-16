@@ -4,6 +4,11 @@ const { dateKey, fetchPunchRowsForDate } = require('./attendance');
 const { computeEmployeeDay, ensureOtApproval } = require('./dailyConfirmation');
 const { getDefaultProjectByEmpIdMap } = require('./tasks');
 
+// Real Bahrain calendar yesterday, via dateKey()'s now-Bahrain-based
+// getBahrainDateKey (2026-09-16 timezone audit) — correct here specifically
+// because Asia/Riyadh has no DST, so "24 real hours before this cron's own
+// Asia/Riyadh-scheduled fire time" always lands on the same Bahrain
+// calendar date shiftDateString(today, -1) would give.
 function yesterday() {
   return dateKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
 }
