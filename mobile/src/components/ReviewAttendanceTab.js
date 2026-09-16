@@ -1,4 +1,5 @@
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import OvertimeApprovalsCard from './OvertimeApprovalsCard';
 
@@ -11,6 +12,7 @@ export default function ReviewAttendanceTab({
   loadingApprovals,
   onApprove,
   onReject,
+  onEdit,
   processingId,
   pendingOtApprovals,
   loadingOt,
@@ -18,6 +20,24 @@ export default function ReviewAttendanceTab({
   onRejectOt,
   processingOtId,
 }) {
+  // Extra OT hours typed per pending punch, keyed by punch id — only ever
+  // read for a closing (OUT) punch's own Approve press; an opening punch's
+  // row never shows this field at all.
+  const [extraOtHoursByPunchId, setExtraOtHoursByPunchId] = useState({});
+
+  function handleApprovePress(item) {
+    const hoursRaw = extraOtHoursByPunchId[item.id];
+    const extraOtMinutes = hoursRaw ? Math.round(Number(hoursRaw) * 60) : undefined;
+    onApprove(item.id, extraOtMinutes);
+    if (hoursRaw) {
+      setExtraOtHoursByPunchId((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+    }
+  }
+
   return (
     <View>
       <View style={styles.container}>
@@ -43,10 +63,29 @@ export default function ReviewAttendanceTab({
                   {item.project_code || 'No project'} · {new Date(item.punch_time).toLocaleTimeString()}
                 </Text>
               </View>
+              {item.is_in_punch === false && (
+                <TextInput
+                  style={styles.extraOtInput}
+                  keyboardType="decimal-pad"
+                  placeholder="Extra OT (hrs)"
+                  placeholderTextColor="#9ca3af"
+                  value={extraOtHoursByPunchId[item.id] ?? ''}
+                  onChangeText={(text) => setExtraOtHoursByPunchId((prev) => ({ ...prev, [item.id]: text }))}
+                  editable={processingId !== item.id}
+                />
+              )}
               <View style={styles.approvalActions}>
                 <TouchableOpacity
+                  style={[styles.smallButton, styles.editButton]}
+                  onPress={() => onEdit(item)}
+                  disabled={processingId === item.id}
+                >
+                  <Ionicons name="create-outline" size={14} color="#374151" />
+                  <Text style={styles.editButtonText}>Edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
                   style={[styles.smallButton, styles.approveButton]}
-                  onPress={() => onApprove(item.id)}
+                  onPress={() => handleApprovePress(item)}
                   disabled={processingId === item.id}
                 >
                   <Ionicons name="checkmark" size={14} color="#fff" />
@@ -101,8 +140,21 @@ const styles = StyleSheet.create({
   approvalName: { fontSize: 15, fontWeight: '600', color: '#111827' },
   approvalMeta: { fontSize: 12, color: '#6b7280', marginTop: 2 },
   approvalActions: { flexDirection: 'row', gap: 8 },
-  smallButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 },
+  extraOtInput: {
+    width: 96,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    fontSize: 13,
+    marginRight: 8,
+    color: '#111827',
+  },
+  smallButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6 },
   approveButton: { backgroundColor: '#16a34a' },
   rejectButton: { backgroundColor: '#dc2626' },
+  editButton: { backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#e5e7eb' },
   smallButtonText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  editButtonText: { color: '#374151', fontSize: 13, fontWeight: '600' },
 });

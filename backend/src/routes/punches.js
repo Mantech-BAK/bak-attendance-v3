@@ -14,17 +14,38 @@ const {
   resolvePunchTarget,
   checkOpenConflict,
   checkTaskPunchCap,
+  checkOutdoorBanWindow,
   checkCrossKeyTimestampClash,
   checkNearDuplicate,
 } = require('../services/punchValidation');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 const { resolveBackofficeEmpId } = requireBackofficeAuth;
 const { verifyFaceForEmployee } = require('../services/faceMatch');
+const multer = require('multer');
+const {
+  uploadPunchPhoto,
+  getSignedUrls,
+  OUT_PHOTO_WINDOW_HOURS,
+} = require('../services/punchPhotoStorage');
 
 const router = express.Router();
 
 const PUNCH_SELECT_RETURNING = `id, emp_id, project_code, task_id, punch_time, lat, lng, device_ref,
-                 entered_by, entry_method, approval_status, approved_by, approved_at, resolved_address, created_at`;
+                 entered_by, entry_method, approval_status, approved_by, approved_at, resolved_address, out_remark,
+                 photo_path, photo_uploaded_at, created_at, extra_ot_minutes, extra_ot_granted_by, extra_ot_granted_at`;
+
+const PHOTO_MIME_TYPES = ['image/jpeg', 'image/png', 'image/heic', 'image/heif'];
+const uploadPhoto = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
+  fileFilter(req, file, cb) {
+    if (!PHOTO_MIME_TYPES.includes(file.mimetype)) {
+      cb(new Error('Unsupported file type. Upload a JPEG, PNG, or HEIC photo.'));
+      return;
+    }
+    cb(null, true);
+  },
+});
 
 // Client-side hint for the mobile app's task/project picker — which task
 // (or, for the department-default fallback, which project) is currently
@@ -60,7 +81,10 @@ router.get('/', requireBackofficeAuth, async (req, res, next) => {
               p.project_code, pr.project_name, p.task_id, t.display_id AS task_display_id, t.description AS task_description,
               p.punch_time, p.lat, p.lng, p.entry_method,
               p.entered_by, p.approval_status, p.approved_by, p.approved_at, p.rejection_reason,
-              p.resolved_address, p.created_at
+              p.resolved_address, p.out_remark, p.photo_path, p.photo_uploaded_at, p.created_at,
+              (p.task_id IS NOT NULL AND NOT EXISTS (
+                 SELECT 1 FROM punches p2 WHERE p2.task_id = p.task_id AND p2.punch_time < p.punch_time
+               )) AS is_in_punch
        FROM punches p
        LEFT JOIN employees e ON e."EmpId" = p.emp_id
        LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
@@ -68,7 +92,19 @@ router.get('/', requireBackofficeAuth, async (req, res, next) => {
        LEFT JOIN tasks t ON t.id = p.task_id
        ORDER BY p.punch_time DESC`
     );
-    res.json(result.rows);
+
+    // Batched signed-URL generation (2026-09-14) — one round trip for every
+    // photographed punch in the list, not one per row. Bucket is private,
+    // so the list response never carries a bare storage path the frontend
+    // could construct a URL from itself.
+    const photoPaths = result.rows.filter((r) => r.photo_path).map((r) => r.photo_path);
+    const signedUrls = await getSignedUrls(photoPaths);
+    const rows = result.rows.map((r) => ({
+      ...r,
+      photo_url: r.photo_path ? (signedUrls.get(r.photo_path) ?? null) : null,
+    }));
+
+    res.json(rows);
   } catch (err) {
     next(err);
   }
@@ -97,7 +133,10 @@ router.get('/pending', async (req, res, next) => {
 
     const pendingResult = await pool.query(
       `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, p.project_code, pr.project_name, p.task_id, t.display_id AS task_display_id,
-              p.punch_time, p.lat, p.lng, p.entry_method, p.entered_by
+              p.punch_time, p.lat, p.lng, p.entry_method, p.entered_by,
+              (p.task_id IS NOT NULL AND NOT EXISTS (
+                 SELECT 1 FROM punches p2 WHERE p2.task_id = p.task_id AND p2.punch_time < p.punch_time
+               )) AS is_in_punch
        FROM punches p
        JOIN employees e ON e."EmpId" = p.emp_id
        LEFT JOIN projects pr ON pr.project_code = p.project_code
@@ -158,10 +197,16 @@ router.get('/history', async (req, res, next) => {
 // session (item 3) — an admin isn't literally anyone's reporting manager,
 // so the normal EmpReportMgrId match can never pass for them, the same way
 // GET /pending above treats "no supervisor_emp_id + valid backoffice
-// session" as its company-wide path.
+// session" as its company-wide path. Shared by approve/reject below AND
+// PUT /:id (2026-09-14) — the same "pending only" gate that already
+// protected approve/reject is exactly the lock-once-approved rule editing
+// needed too, so it's reused rather than re-implemented.
 async function loadPunchForApproval(punchId, actingEmpId, { bypassManagerCheck } = {}) {
   const punchResult = await pool.query(
-    `SELECT p.id, p.approval_status, e."EmpReportMgrId" AS reporting_manager_emp_id
+    `SELECT p.id, p.emp_id, p.task_id, p.approval_status, e."EmpReportMgrId" AS reporting_manager_emp_id,
+            (p.task_id IS NOT NULL AND NOT EXISTS (
+               SELECT 1 FROM punches p2 WHERE p2.task_id = p.task_id AND p2.punch_time < p.punch_time
+             )) AS is_in_punch
      FROM punches p
      JOIN employees e ON e."EmpId" = p.emp_id
      WHERE p.id = $1`,
@@ -185,10 +230,26 @@ async function loadPunchForApproval(punchId, actingEmpId, { bypassManagerCheck }
   return { punch };
 }
 
+// Manual extra OT cap (2026-09-14) — a sanity ceiling on the raw number
+// entered, purely to catch a fat-finger mistake (e.g. hours typed into a
+// minutes field); it is NOT the same concept as max_ot_minutes, which caps
+// the automatically-calculated figure. A deliberate manual grant is allowed
+// to exceed that automatic cap entirely — see checkExtraOtMinutes below.
+const MAX_EXTRA_OT_MINUTES = 720; // 12 hours
+
+function parseExtraOtMinutes(raw) {
+  if (raw === undefined || raw === null || raw === '') return { ok: true, minutes: null };
+  const minutes = Number(raw);
+  if (!Number.isFinite(minutes) || !Number.isInteger(minutes) || minutes <= 0 || minutes > MAX_EXTRA_OT_MINUTES) {
+    return { ok: false };
+  }
+  return { ok: true, minutes };
+}
+
 router.patch('/:id/approve', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { supervisor_emp_id } = req.body;
+    const { supervisor_emp_id, extra_ot_minutes } = req.body;
     const backofficeEmpId = await resolveBackofficeEmpId(req);
     const actingEmpId = backofficeEmpId || supervisor_emp_id;
 
@@ -207,12 +268,26 @@ router.patch('/:id/approve', async (req, res, next) => {
       return res.status(error.status).json({ error: error.message });
     }
 
+    const parsedExtraOt = parseExtraOtMinutes(extra_ot_minutes);
+    if (!parsedExtraOt.ok) {
+      return res.status(400).json({ error: `extra_ot_minutes must be a whole number of minutes between 1 and ${MAX_EXTRA_OT_MINUTES}` });
+    }
+    // Extra OT is only ever granted alongside approving a session's closing
+    // (OUT) punch — an opening punch or a punch with no real task has no
+    // completed session yet for the extra hours to attach to.
+    if (parsedExtraOt.minutes !== null && punch.is_in_punch !== false) {
+      return res.status(400).json({ error: 'extra_ot_minutes can only be granted when approving a closing (OUT) punch' });
+    }
+
     const result = await pool.query(
       `UPDATE punches
-       SET approval_status = 'approved', approved_by = $1, approved_at = now()
+       SET approval_status = 'approved', approved_by = $1, approved_at = now(),
+           extra_ot_minutes = COALESCE($3, extra_ot_minutes),
+           extra_ot_granted_by = CASE WHEN $3 IS NOT NULL THEN $1 ELSE extra_ot_granted_by END,
+           extra_ot_granted_at = CASE WHEN $3 IS NOT NULL THEN now() ELSE extra_ot_granted_at END
        WHERE id = $2
        RETURNING ${PUNCH_SELECT_RETURNING}, rejection_reason`,
-      [actingEmpId, punch.id]
+      [actingEmpId, punch.id, parsedExtraOt.minutes]
     );
 
     res.json(result.rows[0]);
@@ -262,7 +337,7 @@ router.patch('/:id/reject', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
-    const { emp_id, task_id, project_code, lat, lng, entered_by, device_ref, revalidation_face_embedding, revalidation_login_code } = req.body;
+    const { emp_id, task_id, project_code, lat, lng, entered_by, device_ref, out_remark, revalidation_face_embedding, revalidation_login_code } = req.body;
 
     if (!emp_id) {
       return res.status(400).json({ error: 'emp_id is required' });
@@ -327,6 +402,7 @@ router.post('/', async (req, res, next) => {
     // again, even a genuine third attempt from the employee's own device.
     await checkTaskPunchCap({ task_id: target.task_id });
 
+    let isClosingPunch = false;
     if (target.project_code) {
       // Only one task (or, for the fallback, one project) can be genuinely
       // "in progress" at a time — globally, across every project — punching
@@ -339,6 +415,76 @@ router.post('/', async (req, res, next) => {
         project_code: target.project_code,
         date: dateKey(new Date()),
       });
+
+      // Re-derives the same "is this punch closing the currently-open
+      // task/project" fact checkOpenConflict above already used internally
+      // (it only throws or returns, doesn't expose it) — needed here to
+      // gate out_remark. A closing punch is always the SAME key as
+      // whatever's open (checkOpenConflict already rejected anything else).
+      const openBeforeThisPunch = await getOpenPunchForDate(emp_id, dateKey(new Date()));
+      isClosingPunch =
+        !!openBeforeThisPunch &&
+        punchKey(openBeforeThisPunch.task_id, openBeforeThisPunch.project_code) ===
+          punchKey(target.task_id, target.project_code);
+    }
+
+    // Mandatory closing remark (2026-09-14) — the employee's (or, via Scan
+    // Team Member, the supervisor's) note on what was done, required on the
+    // OUT punch specifically. Rejected outright if sent on an opening punch
+    // — should never happen from the app's own UI, so a stray value there
+    // signals a bug worth surfacing, not silently dropping.
+    const trimmedOutRemark = typeof out_remark === 'string' ? out_remark.trim() : '';
+    if (isClosingPunch && !trimmedOutRemark) {
+      return res.status(400).json({ error: 'A remark is required to punch out.' });
+    }
+    if (isClosingPunch && trimmedOutRemark.length > 500) {
+      return res.status(400).json({ error: 'Remark must be 500 characters or fewer.' });
+    }
+    if (!isClosingPunch && trimmedOutRemark) {
+      return res.status(400).json({ error: 'out_remark is only valid on the closing punch.' });
+    }
+
+    // Mandatory in/out task photos (2026-09-14). Scoped to real tasks only
+    // (target.task_id set) — the department-default fallback (no task
+    // assigned that day) isn't "a task" in this feature's sense, so it's
+    // never gated either as the thing needing a photo or the thing being
+    // blocked from opening.
+    if (isClosingPunch && target.task_id) {
+      // The in-punch is whatever's currently open for this task — same row
+      // checkOpenConflict/getOpenPunchForDate above already confirmed is
+      // the one this punch is closing.
+      const inPunchResult = await pool.query(
+        'SELECT id, photo_path FROM punches WHERE task_id = $1 ORDER BY punch_time ASC LIMIT 1',
+        [target.task_id]
+      );
+      if (inPunchResult.rows.length > 0 && !inPunchResult.rows[0].photo_path) {
+        return res.status(403).json({
+          error: 'An in-photo is required before punching out. Upload it first.',
+          in_punch_id: inPunchResult.rows[0].id,
+        });
+      }
+    }
+    if (!isClosingPunch && target.task_id) {
+      // Blocks starting a DIFFERENT real task while a just-closed one's
+      // out-photo is still owed and its window hasn't lapsed yet. Once the
+      // window lapses, missingPunchPhotoCron raises a missing_punch_photo
+      // exception instead and this stops blocking anything — never carries
+      // into a future shift (see punchPhotoStorage.js's OUT_PHOTO_WINDOW_HOURS
+      // comment).
+      const owedPhotoResult = await pool.query(
+        `SELECT p.id FROM punches p
+         WHERE p.emp_id = $1 AND p.task_id IS NOT NULL AND p.photo_path IS NULL
+           AND p.punch_time > now() - ($2 || ' hours')::interval
+           AND EXISTS (SELECT 1 FROM punches p2 WHERE p2.task_id = p.task_id AND p2.punch_time < p.punch_time)
+         LIMIT 1`,
+        [emp_id, OUT_PHOTO_WINDOW_HOURS]
+      );
+      if (owedPhotoResult.rows.length > 0) {
+        return res.status(403).json({
+          error: `An out-photo is still owed for a recently closed task. Upload it within ${OUT_PHOTO_WINDOW_HOURS}h of closing, or before starting a different task.`,
+          out_punch_id: owedPhotoResult.rows[0].id,
+        });
+      }
     }
 
     // A supervisor's own punch auto-approves exactly like one they enter on
@@ -387,17 +533,21 @@ router.post('/', async (req, res, next) => {
     // would corrupt the ordering that attendance calculation depends on.
     const punchTime = new Date();
 
-    // Real reverse geocoding via Nominatim, resolved synchronously right
+    // Summer Ban 12pm-4pm block (2026-09-14, rule 4) — no-ops for an Indoor
+    // task, a non-Summer-Ban date, or the department-default fallback.
+    await checkOutdoorBanWindow({ task_id: target.task_id, punchTime });
+
+    // Real reverse geocoding via LocationIQ, resolved synchronously right
     // here. Never blocks or fails the punch — reverseGeocode() resolves to
     // null on any timeout/error rather than throwing.
     const resolvedAddress = await reverseGeocode(lat, lng);
 
     const result = await pool.query(
       `INSERT INTO punches
-         (emp_id, project_code, task_id, punch_time, lat, lng, device_ref, entered_by, entry_method, approval_status, resolved_address)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         (emp_id, project_code, task_id, punch_time, lat, lng, device_ref, entered_by, entry_method, approval_status, resolved_address, out_remark)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING ${PUNCH_SELECT_RETURNING}`,
-      [emp_id, target.project_code, target.task_id, punchTime, lat ?? null, lng ?? null, device_ref || null, enteredBy, entryMethod, approvalStatus, resolvedAddress]
+      [emp_id, target.project_code, target.task_id, punchTime, lat ?? null, lng ?? null, device_ref || null, enteredBy, entryMethod, approvalStatus, resolvedAddress, isClosingPunch ? trimmedOutRemark : null]
     );
 
     if (target.task_id) {
@@ -409,6 +559,81 @@ router.post('/', async (req, res, next) => {
     if (err instanceof PunchValidationError) {
       return res.status(err.status).json({ error: err.message, ...err.extra });
     }
+    next(err);
+  }
+});
+
+/**
+ * Uploads the in-photo or out-photo for a real-task punch (2026-09-14) —
+ * always a separate action from recording the punch itself (item 6 of the
+ * spec): the punch's own punch_time is never touched here, only
+ * photo_path/photo_uploaded_at. role ('in'/'out') is derived server-side
+ * from whether this punch is chronologically the first or second for its
+ * task, never trusted from the client. Rejects a second upload for the
+ * same punch outright (409) — this is how "exactly 2 photos per task, one
+ * per punch" is enforced, since each punch row can only ever hold one.
+ *
+ * emp_id in the body authorizes the upload the same way entered_by does at
+ * punch-creation time: either the punch's own employee (self) or whichever
+ * supervisor originally entered it on their behalf (Scan Team Member) — no
+ * separate re-validation beyond that, since uploading a photo isn't itself
+ * a new identity claim the way punching is.
+ */
+router.post('/:id/photo', uploadPhoto.single('photo'), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { emp_id } = req.body;
+
+    if (!emp_id) {
+      return res.status(400).json({ error: 'emp_id is required' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'photo file is required' });
+    }
+
+    const punchResult = await pool.query(
+      'SELECT id, emp_id, entered_by, task_id, photo_path, punch_time FROM punches WHERE id = $1',
+      [id]
+    );
+    if (punchResult.rows.length === 0) {
+      return res.status(404).json({ error: `punch ${id} not found` });
+    }
+    const punch = punchResult.rows[0];
+
+    if (emp_id !== punch.emp_id && emp_id !== punch.entered_by) {
+      return res.status(403).json({ error: `${emp_id} is not authorized to upload a photo for this punch` });
+    }
+    if (!punch.task_id) {
+      return res.status(400).json({ error: 'Photos are only required/accepted for real-task punches, not the department-default fallback.' });
+    }
+    if (punch.photo_path) {
+      return res.status(409).json({ error: 'A photo has already been uploaded for this punch.' });
+    }
+
+    const priorCountResult = await pool.query(
+      'SELECT count(*)::int AS cnt FROM punches WHERE task_id = $1 AND punch_time < $2',
+      [punch.task_id, punch.punch_time]
+    );
+    const role = priorCountResult.rows[0].cnt === 0 ? 'in' : 'out';
+
+    const photoPath = await uploadPunchPhoto(punch.id, role, req.file.buffer, req.file.mimetype);
+
+    const updateResult = await pool.query(
+      `UPDATE punches SET photo_path = $1, photo_uploaded_at = now() WHERE id = $2 RETURNING ${PUNCH_SELECT_RETURNING}`,
+      [photoPath, punch.id]
+    );
+
+    // A missing_punch_photo exception may already exist if this upload
+    // lands after the window lapsed (missingPunchPhotoCron already raised
+    // it) — late is still better than never, so resolve it same as
+    // resolveSinglePunchException does for its own exception type.
+    await pool.query(
+      `UPDATE exceptions SET status = 'resolved' WHERE type = 'missing_punch_photo' AND ref_table = 'punches' AND ref_id = $1 AND status = 'open'`,
+      [punch.id]
+    );
+
+    res.status(201).json(updateResult.rows[0]);
+  } catch (err) {
     next(err);
   }
 });
@@ -432,7 +657,7 @@ router.post('/', async (req, res, next) => {
  */
 router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) => {
   try {
-    const { emp_id, task_id, project_code, punch_time, force } = req.body;
+    const { emp_id, task_id, project_code, punch_time, force, out_remark } = req.body;
     const enteredBy = req.backofficeEmpId;
 
     if (!emp_id) {
@@ -461,13 +686,40 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
     await checkOpenConflict({ emp_id, task_id: target.task_id, project_code: target.project_code, date: punchDate });
     await checkCrossKeyTimestampClash({ emp_id, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime });
     await checkNearDuplicate({ emp_id, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime, force });
+    // Summer Ban block applies to admin corrections too (2026-09-14) — the
+    // rule is stated as absolute ("no punch... can be recorded"), not just
+    // a live-capture constraint; an admin can't backdate around it either.
+    await checkOutdoorBanWindow({ task_id: target.task_id, punchTime: parsedPunchTime });
+
+    // Same mandatory-on-close / forbidden-on-open rule as the mobile route
+    // (2026-09-14), scoped to whatever date is actually being corrected
+    // (punchDate, an admin-supplied timestamp) rather than "today" — this
+    // route already scopes checkOpenConflict the same way, above.
+    let isClosingPunch = false;
+    if (target.project_code) {
+      const openBeforeThisPunch = await getOpenPunchForDate(emp_id, punchDate);
+      isClosingPunch =
+        !!openBeforeThisPunch &&
+        punchKey(openBeforeThisPunch.task_id, openBeforeThisPunch.project_code) ===
+          punchKey(target.task_id, target.project_code);
+    }
+    const trimmedOutRemark = typeof out_remark === 'string' ? out_remark.trim() : '';
+    if (isClosingPunch && !trimmedOutRemark) {
+      return res.status(400).json({ error: 'A remark is required to punch out.' });
+    }
+    if (isClosingPunch && trimmedOutRemark.length > 500) {
+      return res.status(400).json({ error: 'Remark must be 500 characters or fewer.' });
+    }
+    if (!isClosingPunch && trimmedOutRemark) {
+      return res.status(400).json({ error: 'out_remark is only valid on the closing punch.' });
+    }
 
     const result = await pool.query(
       `INSERT INTO punches
-         (emp_id, project_code, task_id, punch_time, lat, lng, entered_by, entry_method, approval_status, approved_by, approved_at)
-       VALUES ($1, $2, $3, $4, NULL, NULL, $5, 'admin_correction', 'approved', $5, now())
+         (emp_id, project_code, task_id, punch_time, lat, lng, entered_by, entry_method, approval_status, approved_by, approved_at, out_remark)
+       VALUES ($1, $2, $3, $4, NULL, NULL, $5, 'admin_correction', 'approved', $5, now(), $6)
        RETURNING ${PUNCH_SELECT_RETURNING}`,
-      [emp_id, target.project_code, target.task_id, parsedPunchTime, enteredBy]
+      [emp_id, target.project_code, target.task_id, parsedPunchTime, enteredBy, isClosingPunch ? trimmedOutRemark : null]
     );
 
     if (target.task_id) {
@@ -484,27 +736,57 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
 });
 
 /**
- * Admin-only punch edit — corrects an existing punch's date/time/task/
- * project after the fact. Goes through the exact same validation as
- * creating one (resolvePunchTarget, checkOpenConflict,
- * checkCrossKeyTimestampClash, checkNearDuplicate), with the punch's own id
- * excluded from every check so editing a punch's time by five minutes
- * doesn't spuriously conflict with itself. emp_id is never editable here —
- * moving a punch to a different employee isn't a "correction," it's a
- * different punch; delete and re-create instead.
+ * Punch edit — corrects an existing PENDING punch's date/time/task/project.
+ * Dual-authorized exactly like PATCH /:id/approve above: a backoffice
+ * admin, or (2026-09-14) a supervisor editing their own direct report's
+ * punch before deciding whether to approve it, via supervisor_emp_id.
+ * loadPunchForApproval enforces both who's allowed to touch this punch AND
+ * that it's still 'pending' — once approved (or rejected), this 409s for
+ * everyone, admin included, with no separate check to bypass. That's the
+ * actual lock-once-approved rule; there is no other gate on this route.
+ *
+ * Editing no longer force-approves the punch as a side effect (2026-09-14
+ * behavior change from the old admin-only version of this route) —
+ * approval_status is left exactly as it was (pending stays pending).
+ * Approve/reject are their own deliberate, separate actions; an edit is
+ * just correcting what's being reviewed, not a review decision itself.
+ *
+ * Goes through the exact same validation as creating a punch
+ * (resolvePunchTarget, checkOpenConflict, checkCrossKeyTimestampClash,
+ * checkNearDuplicate), with the punch's own id excluded from every check so
+ * editing a punch's time by five minutes doesn't spuriously conflict with
+ * itself. emp_id is never editable here — moving a punch to a different
+ * employee isn't a "correction," it's a different punch; delete and
+ * re-create instead.
+ *
+ * entry_method is only relabeled 'admin_correction' when a backoffice
+ * admin is the one editing — a supervisor's edit leaves it as whatever it
+ * already was (self/supervisor), since relabeling it 'admin_correction'
+ * would misattribute it in the Punches list.
  */
-router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
+router.put('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { task_id, project_code, punch_time, force } = req.body;
-    const enteredBy = req.backofficeEmpId;
+    const { task_id, project_code, punch_time, force, supervisor_emp_id } = req.body;
+    const backofficeEmpId = await resolveBackofficeEmpId(req);
+    const actingEmpId = backofficeEmpId || supervisor_emp_id;
 
-    const existingResult = await pool.query('SELECT id, emp_id, task_id FROM punches WHERE id = $1', [id]);
-    if (existingResult.rows.length === 0) {
-      return res.status(404).json({ error: `punch ${id} not found` });
+    if (!actingEmpId) {
+      return res.status(400).json({ error: 'supervisor_emp_id is required' });
     }
-    const empId = existingResult.rows[0].emp_id;
-    const oldTaskId = existingResult.rows[0].task_id;
+    if (!backofficeEmpId) {
+      const supervisorResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [supervisor_emp_id]);
+      if (supervisorResult.rows.length === 0) {
+        return res.status(400).json({ error: `supervisor_emp_id ${supervisor_emp_id} not found` });
+      }
+    }
+
+    const { punch, error } = await loadPunchForApproval(id, actingEmpId, { bypassManagerCheck: !!backofficeEmpId });
+    if (error) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    const empId = punch.emp_id;
+    const oldTaskId = punch.task_id;
 
     if (!task_id && !project_code) {
       return res.status(400).json({ error: 'task_id or project_code is required' });
@@ -525,14 +807,21 @@ router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
     await checkOpenConflict({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, date: punchDate, excludePunchId: punchId });
     await checkCrossKeyTimestampClash({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime, excludePunchId: punchId });
     await checkNearDuplicate({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime, excludePunchId: punchId, force });
+    // Summer Ban block applies to edits too (2026-09-14) — same absolute
+    // rule as admin-correction above.
+    await checkOutdoorBanWindow({ task_id: target.task_id, punchTime: parsedPunchTime });
 
     const result = await pool.query(
-      `UPDATE punches
-       SET project_code = $1, task_id = $2, punch_time = $3, entry_method = 'admin_correction',
-           approval_status = 'approved', approved_by = $4, approved_at = now()
-       WHERE id = $5
-       RETURNING ${PUNCH_SELECT_RETURNING}`,
-      [target.project_code, target.task_id, parsedPunchTime, enteredBy, punchId]
+      backofficeEmpId
+        ? `UPDATE punches
+           SET project_code = $1, task_id = $2, punch_time = $3, entry_method = 'admin_correction'
+           WHERE id = $4
+           RETURNING ${PUNCH_SELECT_RETURNING}`
+        : `UPDATE punches
+           SET project_code = $1, task_id = $2, punch_time = $3
+           WHERE id = $4
+           RETURNING ${PUNCH_SELECT_RETURNING}`,
+      [target.project_code, target.task_id, parsedPunchTime, punchId]
     );
 
     // Resolve first in case this punch's own id was the ref for an open
@@ -585,6 +874,16 @@ router.delete('/:id', requireBackofficeAuth, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// Handles Multer errors (bad mime type, file too large) with a clean 400
+// instead of falling through to the default Express error page — same
+// pattern as routes/tasks.js's bulk-upload handler.
+router.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError || err.message.startsWith('Unsupported file type')) {
+    return res.status(400).json({ error: err.message });
+  }
+  next(err);
 });
 
 module.exports = router;

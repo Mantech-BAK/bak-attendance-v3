@@ -1,5 +1,8 @@
 const pool = require('../db');
-const { getAllSettings, parseRamzanPeriods } = require('./settings');
+const {
+  getAllSettings, parseRamzanPeriods,
+  parseSummerBanPeriods, isWithinSummerBan, localDateKey, getBanWindowUtcBounds,
+} = require('./settings');
 
 /**
  * Punch type (IN/OUT) is never stored — it's derived here, at calculation
@@ -65,6 +68,67 @@ function getUtcDayBounds(date) {
   const start = new Date(`${date}T00:00:00.000Z`);
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
   return { start, end };
+}
+
+function shiftDateString(dateStr, deltaDays) {
+  const d = new Date(`${dateStr}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + deltaDays);
+  return dateKey(d);
+}
+
+/**
+ * Fetches the punch rows needed to correctly build one calendar date's
+ * sessions once a task's shift_type can attribute a session to its
+ * punch-OUT date instead of its punch-IN date (2026-09-14, see
+ * dailyConfirmation.js's attributionDateForSession) — a session can
+ * therefore cross the literal day boundary this function is being asked
+ * about, in either direction, depending on shift_type. Regular sessions
+ * crossing midnight (attribute to punch-IN date) need to be found by a
+ * report generated for the day AFTER they close; Night sessions (attribute
+ * to punch-OUT date) need to be found by a report generated for the day
+ * BEFORE they open. A ±1 day window around `date` covers both directions
+ * for any normal-length shift.
+ *
+ * task_id-keyed punches (any real task) are fetched completely regardless
+ * of date — safe because a task can never accumulate more than its 2
+ * punches, ever (checkTaskPunchCap), so no width of window risks merging
+ * unrelated sessions together. The department-default fallback (bare
+ * project_code, no task_id — no shift_type concept applies to it, since
+ * there's no task to hold one) has no such cap, so it deliberately stays
+ * scoped to the exact literal day, unchanged from this app's original
+ * behavior, to avoid conflating separate daily sessions across days.
+ */
+async function fetchPunchRowsForDate(date) {
+  const windowStart = getUtcDayBounds(shiftDateString(date, -1)).start;
+  const windowEnd = getUtcDayBounds(shiftDateString(date, 1)).end;
+  const { start: dayStart, end: dayEnd } = getUtcDayBounds(date);
+
+  const candidateResult = await pool.query(
+    `SELECT id, emp_id, project_code, task_id, punch_time, out_remark, extra_ot_minutes, extra_ot_granted_by
+     FROM punches
+     WHERE approval_status <> 'rejected' AND punch_time >= $1 AND punch_time < $2
+     ORDER BY emp_id, project_code, task_id, punch_time`,
+    [windowStart, windowEnd]
+  );
+
+  const taskIds = [...new Set(candidateResult.rows.filter((r) => r.task_id !== null).map((r) => r.task_id))];
+  const projectOnlyRows = candidateResult.rows.filter(
+    (r) => r.task_id === null && r.punch_time >= dayStart && r.punch_time < dayEnd
+  );
+
+  let taskRows = candidateResult.rows.filter((r) => r.task_id !== null);
+  if (taskIds.length > 0) {
+    const completeTaskResult = await pool.query(
+      `SELECT id, emp_id, project_code, task_id, punch_time, out_remark, extra_ot_minutes, extra_ot_granted_by
+       FROM punches
+       WHERE approval_status <> 'rejected' AND task_id = ANY($1)
+       ORDER BY emp_id, project_code, task_id, punch_time`,
+      [taskIds]
+    );
+    taskRows = completeTaskResult.rows;
+  }
+
+  return [...taskRows, ...projectOnlyRows];
 }
 
 // A deactivated period (active === false) no longer applies to threshold
@@ -202,6 +266,25 @@ async function syncTaskSinglePunchException(taskId) {
   }
 }
 
+// Minutes [startMs, endMs) overlaps the 12pm-4pm Asia/Riyadh Summer Ban
+// window on punch_in's own local calendar date — 0 outright if that date
+// isn't inside a declared, active period. Computed for EVERY session
+// (regardless of its own Indoor/Outdoor flag) — an Indoor session's own raw
+// overlap still needs to be known so an Outdoor PARENT's real exposure can
+// be derived correctly, below. Assumes a session doesn't cross local
+// midnight, same as every other same-day assumption already built into
+// this file (checkOpenConflict already forces same-day open/close for
+// anything live punching can still produce).
+function computeSummerBanOverlapMinutes(startMs, endMs, summerBanPeriods) {
+  const localDate = localDateKey(new Date(startMs));
+  if (!isWithinSummerBan(localDate, summerBanPeriods)) return 0;
+
+  const { start: banStart, end: banEnd } = getBanWindowUtcBounds(localDate);
+  const overlapStart = Math.max(startMs, banStart.getTime());
+  const overlapEnd = Math.min(endMs, banEnd.getTime());
+  return Math.max(0, Math.round((overlapEnd - overlapStart) / 60000));
+}
+
 /**
  * Nested time, within one employee's one day: if one task/project's entire
  * punch span (its own first-to-last) falls chronologically inside another's
@@ -220,8 +303,27 @@ async function syncTaskSinglePunchException(taskId) {
  * child's counted_minutes is already resolved by the time its parent needs
  * it: counted_minutes = raw span minutes − sum of direct children's
  * (already-adjusted) counted_minutes.
+ *
+ * Summer Ban subtraction (2026-09-14) is computed in this SAME bottom-up
+ * pass, not as a separate before/after step — deliberately: a naive "if
+ * Outdoor and the raw span straddles 12-4pm, subtract 240 minutes" is only
+ * correct for a session with no nested children. If an Indoor child (never
+ * itself blocked from punching inside 12-4pm, per rule 3) is nested inside
+ * an Outdoor parent and happens to overlap the ban window, that slice of
+ * the window was already carved out of the parent's counted time by the
+ * ordinary nested-subtraction above — flatly subtracting the parent's full
+ * raw overlap on top would double-remove it. So each session's raw
+ * ban-window overlap is propagated to its direct parent exactly the way
+ * counted_minutes itself is (parent's real overlap = parent's raw overlap
+ * − Σ direct children's raw overlap), and the actual subtraction from
+ * counted_minutes only ever applies to sessions whose OWN task is flagged
+ * Outdoor. Because Outdoor tasks can never have a punch land inside
+ * 12-4pm at all (rule 4 blocks it at write time), an Outdoor session's own
+ * raw overlap is always exactly 0 or the full 240 minutes — never partial;
+ * only an Indoor session (as a nested child) can contribute a partial
+ * value into this propagation.
  */
-function applyNestedSubtraction(sessionsForDay) {
+function applyNestedSubtraction(sessionsForDay, { isOutdoorByTaskId = new Map(), summerBanPeriods = [] } = {}) {
   const spans = sessionsForDay
     .filter((session) => !session.incomplete)
     .map((session) => ({
@@ -253,16 +355,37 @@ function applyNestedSubtraction(sessionsForDay) {
 
   const bySpanLengthAscending = [...spans].sort((a, b) => (a.endMs - a.startMs) - (b.endMs - b.startMs));
   const subtractionForParent = new Map();
+  const banOverlapSubtractionForParent = new Map();
 
   for (const { session, startMs, endMs } of bySpanLengthAscending) {
     const rawMinutes = Math.round((endMs - startMs) / 60000);
     const subtract = subtractionForParent.get(session) || 0;
     session.counted_minutes = Math.max(0, rawMinutes - subtract);
 
+    const rawBanOverlapMinutes = computeSummerBanOverlapMinutes(startMs, endMs, summerBanPeriods);
+    const childBanOverlapSubtract = banOverlapSubtractionForParent.get(session) || 0;
+    const netBanOverlapMinutes = Math.max(0, rawBanOverlapMinutes - childBanOverlapSubtract);
+
+    const isOutdoor = isOutdoorByTaskId.get(session.task_id) === true;
+    session.summer_ban_minutes_subtracted = isOutdoor ? netBanOverlapMinutes : 0;
+    if (isOutdoor && netBanOverlapMinutes > 0) {
+      session.counted_minutes = Math.max(0, session.counted_minutes - netBanOverlapMinutes);
+    }
+
     const parent = directParent.get(session);
     session.nested_within = parent ? punchKey(parent.task_id, parent.project_code) : null;
     if (parent) {
+      // session.counted_minutes already reflects this session's own ban
+      // subtraction (applied just above) — a child's REAL worked time
+      // (post-ban) is what's genuinely "claimed" from the parent's raw
+      // span, so propagating anything else here would double-subtract.
       subtractionForParent.set(parent, (subtractionForParent.get(parent) || 0) + session.counted_minutes);
+      // Separately, the ban-OVERLAP (not counted-minutes) propagation
+      // tracks each session's raw overlap with the window regardless of
+      // its own Indoor/Outdoor status — this is what lets an Outdoor
+      // PARENT compute its own real exposure net of whatever a nested
+      // child (Indoor or Outdoor) already occupied inside that window.
+      banOverlapSubtractionForParent.set(parent, (banOverlapSubtractionForParent.get(parent) || 0) + rawBanOverlapMinutes);
     }
   }
 
@@ -270,6 +393,7 @@ function applyNestedSubtraction(sessionsForDay) {
     if (session.incomplete) {
       session.counted_minutes = null;
       session.nested_within = null;
+      session.summer_ban_minutes_subtracted = null;
     }
   }
 }
@@ -300,15 +424,22 @@ async function calculateAttendance(empId, date) {
     params
   );
 
-  const [settingsMap, religionRows] = await Promise.all([
+  const taskIds = [...new Set(rows.map((r) => r.task_id).filter((id) => id !== null))];
+
+  const [settingsMap, religionRows, taskRows] = await Promise.all([
     getAllSettings(),
     pool.query(
       `SELECT e."EmpId" AS emp_id, r.religion_name AS religion, e."EmpOtStatus" AS ot_eligible
        FROM employees e
        LEFT JOIN religions r ON e."EmpReligionId" = r.religion_code`
     ),
+    taskIds.length > 0
+      ? pool.query('SELECT id, is_outdoor FROM tasks WHERE id = ANY($1)', [taskIds])
+      : Promise.resolve({ rows: [] }),
   ]);
   const ramzanPeriods = parseRamzanPeriods(settingsMap);
+  const summerBanPeriods = parseSummerBanPeriods(settingsMap);
+  const isOutdoorByTaskId = new Map(taskRows.rows.map((row) => [row.id, row.is_outdoor === true]));
   const religionByEmpId = new Map(religionRows.rows.map((row) => [row.emp_id, row.religion]));
   // is_overtime/overtime_minutes below must never surface for a
   // non-OT-eligible employee, however many minutes over threshold they
@@ -365,7 +496,7 @@ async function calculateAttendance(empId, date) {
     byEmpDay.get(key).push(session);
   }
   for (const group of byEmpDay.values()) {
-    applyNestedSubtraction(group);
+    applyNestedSubtraction(group, { isOutdoorByTaskId, summerBanPeriods });
   }
 
   for (const session of sessions) {
@@ -397,38 +528,54 @@ function calculateAttendanceForAllEmployees(date) {
 
 /**
  * Returns the identity — { task_id, project_code } — of the one thing (if
- * any) the employee has left "open" on the given date: an odd punch count
- * within its punchKey() group, meaning it hasn't been closed with a
- * matching punch yet. Purely a lookup — the actual policy of what punching
- * something else while this is open should do (block it) lives in
- * checkOpenConflict (punchValidation.js), which currently enforces a
- * global "only one thing open at a time" rule: punching anything other
- * than this exact open task/project is rejected, no same-project exception.
+ * any) the employee has left "open": an odd punch count within its
+ * punchKey() group, meaning it hasn't been closed with a matching punch
+ * yet. Purely a lookup — the actual policy of what punching something else
+ * while this is open should do (block it) lives in checkOpenConflict
+ * (punchValidation.js), which currently enforces a global "only one thing
+ * open at a time" rule: punching anything other than this exact open
+ * task/project is rejected, no same-project exception.
  *
- * date is a 'YYYY-MM-DD' string; bounds are computed via getUtcDayBounds
- * (never SQL's CURRENT_DATE or a ::date-cast string) so this can never
- * disagree with dateKey()'s UTC-based day boundary.
+ * A real task's own open/closed state (2026-09-14) is checked with NO date
+ * filter at all, regardless of what `date` is passed — a task can never
+ * accumulate more than its 2 punches, ever (checkTaskPunchCap), so "is this
+ * task currently open" has one unambiguous answer independent of which
+ * calendar day either punch happens to fall on. This is what makes a
+ * genuine overnight Night-shift session (see shift_type) actually
+ * closeable: checking task 21's open-ness scoped to the CLOSING punch's own
+ * date (as this used to do) could never find an opening punch dated the
+ * day before, permanently blocking that session from ever being closed.
+ * The department-default fallback (bare project_code, no task_id — no
+ * shift_type concept applies to it) has no such cap, so it deliberately
+ * stays scoped to the exact literal `date` via getUtcDayBounds, unchanged
+ * from this app's original behavior, to avoid conflating separate daily
+ * cycles together.
  */
 async function getOpenPunchForDate(empId, date, excludePunchId) {
+  const excludeClause = excludePunchId ? ' AND id != $2' : '';
+  const taskParams = excludePunchId ? [empId, excludePunchId] : [empId];
+  const taskResult = await pool.query(
+    `SELECT task_id, count(*)::int AS cnt
+     FROM punches
+     WHERE emp_id = $1 AND approval_status <> 'rejected' AND task_id IS NOT NULL${excludeClause}
+     GROUP BY task_id`,
+    taskParams
+  );
+  const openTask = taskResult.rows.find((row) => row.cnt % 2 !== 0);
+  if (openTask) return { task_id: openTask.task_id, project_code: null };
+
   const { start, end } = getUtcDayBounds(date);
-
-  const params = [empId, start, end];
-  let sql = `
-    SELECT task_id, project_code, count(*)::int AS cnt
-    FROM punches
-    WHERE emp_id = $1 AND approval_status <> 'rejected'
-      AND (task_id IS NOT NULL OR project_code IS NOT NULL)
-      AND punch_time >= $2 AND punch_time < $3`;
-  if (excludePunchId) {
-    params.push(excludePunchId);
-    sql += ` AND id != $${params.length}`;
-  }
-  sql += ' GROUP BY task_id, project_code';
-
-  const { rows } = await pool.query(sql, params);
-
-  const open = rows.find((row) => row.cnt % 2 !== 0);
-  return open ? { task_id: open.task_id, project_code: open.project_code } : null;
+  const projectParams = excludePunchId ? [empId, start, end, excludePunchId] : [empId, start, end];
+  const projectResult = await pool.query(
+    `SELECT project_code, count(*)::int AS cnt
+     FROM punches
+     WHERE emp_id = $1 AND approval_status <> 'rejected' AND task_id IS NULL AND project_code IS NOT NULL
+       AND punch_time >= $2 AND punch_time < $3${excludePunchId ? ' AND id != $4' : ''}
+     GROUP BY project_code`,
+    projectParams
+  );
+  const openProject = projectResult.rows.find((row) => row.cnt % 2 !== 0);
+  return openProject ? { task_id: null, project_code: openProject.project_code } : null;
 }
 
 function getOpenPunchForToday(empId) {
@@ -443,6 +590,7 @@ module.exports = {
   punchKey,
   dateKey,
   getUtcDayBounds,
+  fetchPunchRowsForDate,
   getEffectiveThreshold,
   applyNestedSubtraction,
   buildSessionFromPunches,

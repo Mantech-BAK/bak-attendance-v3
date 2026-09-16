@@ -15,7 +15,7 @@ import type { Employee, Task, Punch, Project, ExceptionRow, OtApproval } from '@
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Spinner, EmptyState } from '@/components/ui';
 import { MonthCalendar } from '@/components/MonthCalendar';
-import { cn, formatDate, formatDateTime, initials } from '@/lib/utils';
+import { cn, formatDate, formatDateTime, initials, formatDurationHM } from '@/lib/utils';
 import { useRouter, type RouteName } from '@/lib/router';
 
 function dateKeyOf(iso: string): string {
@@ -191,9 +191,9 @@ export function DashboardPage() {
                 <li key={o.id} className="flex items-center justify-between gap-3 rounded-lg bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
                   <div className="min-w-0">
                     <p className="truncate font-medium">{o.employee_name}</p>
-                    <p className="text-xs text-amber-700">{o.work_date} · {(o.worked_minutes / 60).toFixed(1)}h worked of {(o.threshold_minutes / 60).toFixed(1)}h</p>
+                    <p className="text-xs text-amber-700">{o.work_date} · {formatDurationHM(o.worked_minutes)} worked of {formatDurationHM(o.threshold_minutes)}</p>
                   </div>
-                  <Badge variant="warning">+{(o.ot_minutes / 60).toFixed(1)}h</Badge>
+                  <Badge variant="warning">+{formatDurationHM(o.ot_minutes)}</Badge>
                 </li>
               ))}
             </ul>

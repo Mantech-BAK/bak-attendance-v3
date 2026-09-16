@@ -27,6 +27,9 @@ import ReviewAttendanceTab from '../components/ReviewAttendanceTab';
 import PunchHistoryTab from '../components/PunchHistoryTab';
 import ProfileOverlay from '../components/ProfileOverlay';
 import RejectReasonModal from '../components/RejectReasonModal';
+import OutRemarkModal from '../components/OutRemarkModal';
+import PunchPhotoUploadModal from '../components/PunchPhotoUploadModal';
+import EditApprovalTaskModal from '../components/EditApprovalTaskModal';
 import {
   identifyPunch,
   submitPunch,
@@ -104,6 +107,52 @@ export default function PunchScreen() {
   const [revalidationStep, setRevalidationStep] = useState(null);
   const revalidationResolverRef = useRef(null);
 
+  // Mandatory remark shown right before a CLOSING punch (self or the
+  // supervisor's on-behalf close) — never for an opening punch. { subjectName }
+  // or null when hidden; resolver lives in a ref for the same reason as
+  // revalidationResolverRef above.
+  const [outRemarkPrompt, setOutRemarkPrompt] = useState(null);
+  const outRemarkResolverRef = useRef(null);
+
+  function requestOutRemark(subjectName) {
+    return new Promise((resolve) => {
+      outRemarkResolverRef.current = resolve;
+      setOutRemarkPrompt({ subjectName });
+    });
+  }
+
+  function resolveOutRemark(value) {
+    setOutRemarkPrompt(null);
+    const resolve = outRemarkResolverRef.current;
+    outRemarkResolverRef.current = null;
+    if (resolve) resolve(value);
+  }
+
+  // Mandatory in/out task photo (2026-09-14) — added independently of the
+  // punch action itself (recording a punch and uploading its photo are
+  // separate actions), via "Add Photo" on a task card. refreshSetter is
+  // whichever of setSelfTasks/setTeamMemberTasks that task list came from,
+  // so the card's photo status updates immediately on success.
+  const [photoUploadTarget, setPhotoUploadTarget] = useState(null);
+
+  function handleAddPhoto(task, role, targetEmpId, refreshSetter) {
+    const punchId = role === 'in' ? task.in_punch_id : task.out_punch_id;
+    setPhotoUploadTarget({
+      punchId,
+      empId: targetEmpId,
+      label: `Add ${role === 'in' ? 'an In' : 'an Out'} Photo for "${task.name}"`,
+      refreshEmpId: targetEmpId,
+      refreshSetter,
+    });
+  }
+
+  function handlePhotoUploaded() {
+    if (photoUploadTarget) {
+      refreshTasksFor(photoUploadTarget.refreshEmpId, photoUploadTarget.refreshSetter);
+    }
+    setPhotoUploadTarget(null);
+  }
+
   // is_supervisor is an admin-set flag, decoupled from designation/job
   // title (real designations are things like "Operations Manager", never
   // literally "Supervisor") — see backend/src/services/backofficeAuth.js.
@@ -132,6 +181,10 @@ export default function PunchScreen() {
     // continue, which is fine since the whole screen is resetting anyway.
     setRevalidationStep(null);
     revalidationResolverRef.current = null;
+    setOutRemarkPrompt(null);
+    outRemarkResolverRef.current = null;
+    setPhotoUploadTarget(null);
+    setEditingApprovalPunch(null);
   }
 
   const loadSupervisorData = useCallback(async (supervisorEmpId) => {
@@ -374,12 +427,22 @@ export default function PunchScreen() {
     if (!revalidation) return;
 
     const wasOpen = task.id ? task.id === selfOpenTaskId : task.project_code === selfOpenProjectCode;
+
+    // Mandatory on the closing punch only — cancelling abandons this punch
+    // attempt the same way declining re-validation does, above.
+    let outRemark;
+    if (wasOpen) {
+      outRemark = await requestOutRemark();
+      if (!outRemark) return;
+    }
+
     await submitPunch({
       empId: employee.emp_id,
       taskId: task.id,
       projectCode: task.id ? undefined : task.project_code,
       lat,
       lng,
+      outRemark,
       revalidationFaceEmbedding: revalidation.faceEmbedding,
       revalidationLoginCode: revalidation.loginCode,
     });
@@ -397,12 +460,22 @@ export default function PunchScreen() {
 
   async function handlePunchTeamMember(task, { lat, lng }) {
     const wasOpen = task.id ? task.id === teamOpenTaskId : task.project_code === teamOpenProjectCode;
+
+    // Mandatory on the closing punch only, same as self-punch above — the
+    // supervisor is the one typing it, on the team member's behalf.
+    let outRemark;
+    if (wasOpen) {
+      outRemark = await requestOutRemark(teamMemberTarget.name);
+      if (!outRemark) return;
+    }
+
     await submitPunch({
       empId: teamMemberTarget.emp_id,
       taskId: task.id,
       projectCode: task.id ? undefined : task.project_code,
       lat,
       lng,
+      outRemark,
       enteredBy: employee.emp_id,
     });
 
@@ -425,10 +498,23 @@ export default function PunchScreen() {
     setTeamOpenProjectCode(null);
   }
 
-  async function handleApprove(punchId) {
+  // Review Attendance's Edit action (2026-09-14) — reassigns a pending
+  // team punch's task/project before the supervisor decides to approve or
+  // reject it. Refetches the whole pending list on success rather than
+  // patching the one item in place — simpler than reconstructing
+  // employee_name/task_display_id/project_name client-side, and this list
+  // is never long enough for a full refetch to matter.
+  const [editingApprovalPunch, setEditingApprovalPunch] = useState(null);
+
+  function handleEditApprovalSaved() {
+    setEditingApprovalPunch(null);
+    loadSupervisorData(employee.emp_id);
+  }
+
+  async function handleApprove(punchId, extraOtMinutes) {
     setProcessingApprovalId(punchId);
     try {
-      await approvePunch(punchId, employee.emp_id);
+      await approvePunch(punchId, employee.emp_id, extraOtMinutes);
       setPendingApprovals((prev) => prev.filter((p) => p.id !== punchId));
     } catch (err) {
       if (err.status === 403) {
@@ -487,8 +573,8 @@ export default function PunchScreen() {
     }
   }
 
-  async function handleCreateTask({ assignedEmpId, projectCode, priority, description, locationSite }) {
-    await createTask({ assignedEmpId, projectCode, priority, description, locationSite, createdBy: employee.emp_id });
+  async function handleCreateTask({ assignedEmpId, projectCode, priority, description, locationSite, isOutdoor, shiftType }) {
+    await createTask({ assignedEmpId, projectCode, priority, description, locationSite, isOutdoor, shiftType, createdBy: employee.emp_id });
     // If the assignee is the team member currently scanned for on-behalf
     // punching, refresh their list so the new task shows up immediately
     // instead of only after a fresh scan (item 1's fix, extended to this
@@ -501,13 +587,15 @@ export default function PunchScreen() {
   // Self-service: assignedEmpId is always this same employee (enforced
   // again server-side regardless), source 'employee_self' is what the
   // backend actually gates on the Emergency Time Allowance window.
-  async function handleCreateSelfTask({ assignedEmpId, projectCode, priority, description, locationSite }) {
+  async function handleCreateSelfTask({ assignedEmpId, projectCode, priority, description, locationSite, isOutdoor, shiftType }) {
     await createTask({
       assignedEmpId,
       projectCode,
       priority,
       description,
       locationSite,
+      isOutdoor,
+      shiftType,
       createdBy: employee.emp_id,
       source: 'employee_self',
     });
@@ -524,6 +612,7 @@ export default function PunchScreen() {
           openTaskId={selfOpenTaskId}
           openProjectCode={selfOpenProjectCode}
           onPunch={handlePunchSelf}
+          onAddPhoto={(task, role) => handleAddPhoto(task, role, employee.emp_id, setSelfTasks)}
         />
       );
     }
@@ -604,6 +693,7 @@ export default function PunchScreen() {
             openTaskId={teamOpenTaskId}
             openProjectCode={teamOpenProjectCode}
             onPunch={handlePunchTeamMember}
+            onAddPhoto={(task, role) => handleAddPhoto(task, role, teamMemberTarget.emp_id, setTeamMemberTasks)}
           />
           <TouchableOpacity style={styles.resetButton} onPress={handleScanDifferentTeamMember}>
             <Ionicons name="refresh-outline" size={16} color="#2563eb" />
@@ -620,6 +710,7 @@ export default function PunchScreen() {
           loadingApprovals={loadingApprovals}
           onApprove={handleApprove}
           onReject={(id) => setRejectingItem({ type: 'punch', id })}
+          onEdit={setEditingApprovalPunch}
           processingId={processingApprovalId}
           pendingOtApprovals={pendingOtApprovals}
           loadingOt={loadingOt}
@@ -727,6 +818,30 @@ export default function PunchScreen() {
         onSubmit={handleRevalidationCodeSubmit}
         onCancel={() => resolveRevalidation(null)}
         title="Confirm It's You"
+      />
+
+      <OutRemarkModal
+        visible={outRemarkPrompt !== null}
+        subjectName={outRemarkPrompt?.subjectName}
+        onSubmit={(remark) => resolveOutRemark(remark)}
+        onCancel={() => resolveOutRemark(null)}
+      />
+
+      <PunchPhotoUploadModal
+        visible={photoUploadTarget !== null}
+        punchId={photoUploadTarget?.punchId}
+        empId={photoUploadTarget?.empId}
+        label={photoUploadTarget?.label}
+        onUploaded={handlePhotoUploaded}
+        onCancel={() => setPhotoUploadTarget(null)}
+      />
+
+      <EditApprovalTaskModal
+        visible={editingApprovalPunch !== null}
+        punch={editingApprovalPunch}
+        supervisorEmpId={employee?.emp_id}
+        onSaved={handleEditApprovalSaved}
+        onCancel={() => setEditingApprovalPunch(null)}
       />
 
       <FaceRegistrationModal

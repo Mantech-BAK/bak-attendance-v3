@@ -14,7 +14,13 @@ const COLUMNS = [
   { header: 'T. WORKING H.', key: 'working_hours', width: 14 },
   { header: 'JOB', key: 'job', width: 12 },
   { header: 'PROJECT NAME', key: 'project_name', width: 28 },
-  { header: 'REMARKS', key: 'remarks', width: 44 },
+  // Renamed from "REMARKS" (2026-09-14) — this column's content (task
+  // name/description, plus any gap or OT note) is unchanged, only the
+  // label; the genuinely new "Remarks" column right after it is the
+  // employee's/supervisor's mandatory closing note (punches.out_remark),
+  // an unrelated new field that happens to share the old column's name.
+  { header: 'TASK NAME', key: 'remarks', width: 44 },
+  { header: 'Remarks', key: 'out_remark', width: 34 },
   { header: 'OT ELIGIBLE', key: 'ot_eligible', width: 12 },
   { header: 'OT', key: 'ot', width: 10 },
   { header: 'APPROVAL REQUIRED', key: 'approval_required', width: 18 },

@@ -12,7 +12,7 @@ import {
 import type { PendingPunch, OtApproval } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Button, Badge, EmptyState, Spinner, Modal, Textarea } from '@/components/ui';
-import { formatDateTime, formatDate } from '@/lib/utils';
+import { formatDateTime, formatDate, formatDurationHM } from '@/lib/utils';
 
 // Item 3 — company-wide approval, straight from the backoffice, using the
 // exact same endpoints the mobile supervisor Review Attendance tab already
@@ -33,6 +33,12 @@ export function ApprovalsPage() {
   const [rejectReason, setRejectReason] = useState('');
   const [rejecting, setRejecting] = useState(false);
   const [rejectError, setRejectError] = useState<string | null>(null);
+
+  // Extra OT hours typed per pending punch, keyed by punch id — only ever
+  // read for a closing (OUT) punch's own Approve click (see
+  // handleApprovePunch below); an opening punch's entry, if any, is just
+  // never sent.
+  const [extraOtHoursByPunchId, setExtraOtHoursByPunchId] = useState<Record<number, string>>({});
 
   useEffect(() => {
     load();
@@ -56,8 +62,20 @@ export function ApprovalsPage() {
     setProcessingId(`punch:${id}`);
     setError(null);
     try {
-      await approvePunchAdmin(id);
+      const hoursRaw = extraOtHoursByPunchId[id];
+      const extraOtMinutes = hoursRaw ? Math.round(Number(hoursRaw) * 60) : undefined;
+      if (hoursRaw && (!Number.isFinite(extraOtMinutes) || extraOtMinutes! <= 0)) {
+        setError('Extra OT must be a positive number of hours.');
+        setProcessingId(null);
+        return;
+      }
+      await approvePunchAdmin(id, extraOtMinutes);
       setPunches((prev) => prev.filter((p) => p.id !== id));
+      setExtraOtHoursByPunchId((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not approve the punch. Please try again.');
     } finally {
@@ -150,7 +168,21 @@ export function ApprovalsPage() {
                     </p>
                     <p className="text-xs text-slate-400">Entered by {p.entered_by} ({p.entry_method})</p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-2">
+                    {p.is_in_punch === false && (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          placeholder="Extra OT"
+                          value={extraOtHoursByPunchId[p.id] ?? ''}
+                          onChange={(e) => setExtraOtHoursByPunchId((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                          className="w-24 rounded-lg border border-slate-300 px-2.5 py-2 text-sm text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                        />
+                        <span className="text-xs text-slate-400">hrs</span>
+                      </div>
+                    )}
                     <Button
                       size="sm"
                       onClick={() => handleApprovePunch(p.id)}
@@ -195,7 +227,7 @@ export function ApprovalsPage() {
                   <div>
                     <p className="text-sm font-medium text-slate-900">{o.employee_name}</p>
                     <p className="text-xs text-slate-500">
-                      {formatDate(o.work_date)} · worked {Math.round(o.worked_minutes / 60 * 10) / 10}h, threshold {Math.round(o.threshold_minutes / 60 * 10) / 10}h — {Math.round(o.ot_minutes / 60 * 10) / 10}h OT
+                      {formatDate(o.work_date)} · worked {formatDurationHM(o.worked_minutes)}, threshold {formatDurationHM(o.threshold_minutes)} — {formatDurationHM(o.ot_minutes)} OT
                     </p>
                   </div>
                   <div className="flex gap-2">

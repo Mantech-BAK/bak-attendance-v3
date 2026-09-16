@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
+import { fetchSummerBanStatus } from '../api/client';
 
 const PRIORITIES = ['low', 'medium', 'high'];
 
@@ -26,6 +27,9 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit, 
   const [priority, setPriority] = useState('medium');
   const [description, setDescription] = useState('');
   const [locationSite, setLocationSite] = useState('');
+  const [isOutdoor, setIsOutdoor] = useState(null);
+  const [shiftType, setShiftType] = useState('regular');
+  const [summerBanActive, setSummerBanActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
@@ -37,6 +41,15 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit, 
     setProjectCode((prev) => prev ?? projects?.[0]?.project_code ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [directReports, projects]);
+
+  // Indoor/Outdoor is only ever asked while a Summer Ban period is
+  // currently declared/active — outside one, task creation stays exactly
+  // as it was before this feature existed.
+  useEffect(() => {
+    fetchSummerBanStatus()
+      .then((r) => setSummerBanActive(!!r.active))
+      .catch(() => setSummerBanActive(false));
+  }, []);
 
   async function handleSubmit() {
     setSuccess(false);
@@ -53,6 +66,10 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit, 
       setError('Description is required');
       return;
     }
+    if (summerBanActive && isOutdoor === null) {
+      setError('Select whether this task is Indoor or Outdoor');
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
@@ -63,9 +80,13 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit, 
         priority,
         description: description.trim(),
         locationSite: locationSite.trim() || null,
+        ...(summerBanActive ? { isOutdoor } : {}),
+        shiftType,
       });
       setDescription('');
       setLocationSite('');
+      setIsOutdoor(null);
+      setShiftType('regular');
       setSuccess(true);
     } catch (err) {
       setError(err.message);
@@ -115,6 +136,30 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit, 
           ))}
         </Picker>
       </View>
+
+      <Text style={styles.label}>Shift Type</Text>
+      <View style={styles.pickerWrapper}>
+        <Picker selectedValue={shiftType} onValueChange={setShiftType}>
+          <Picker.Item label="Regular" value="regular" />
+          <Picker.Item label="Night" value="night" />
+        </Picker>
+      </View>
+
+      {summerBanActive && (
+        <>
+          <Text style={styles.label}>Indoor / Outdoor</Text>
+          <View style={styles.pickerWrapper}>
+            <Picker
+              selectedValue={isOutdoor === null ? '' : isOutdoor ? 'outdoor' : 'indoor'}
+              onValueChange={(v) => setIsOutdoor(v === '' ? null : v === 'outdoor')}
+            >
+              <Picker.Item label="Select…" value="" />
+              <Picker.Item label="Indoor" value="indoor" />
+              <Picker.Item label="Outdoor" value="outdoor" />
+            </Picker>
+          </View>
+        </>
+      )}
 
       <Text style={styles.label}>Description</Text>
       <TextInput

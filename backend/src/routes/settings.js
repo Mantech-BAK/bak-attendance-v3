@@ -4,6 +4,7 @@ const pool = require('../db');
 const {
   getSetting,
   getRamzanPeriods,
+  getSummerBanPeriods,
   setSetting,
   DEFAULT_DUPLICATE_WINDOW_MINUTES,
   getEmergencyTimeAllowance,
@@ -312,6 +313,126 @@ router.delete('/ramzan-periods/:id', async (req, res, next) => {
     }
 
     await setSetting('ramzan_periods', JSON.stringify(filtered));
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Summer Ban periods (2026-09-14) — identical CRUD shape/behavior to
+// Ramzan periods above (append/edit/activate-deactivate/delete, never
+// retroactive), with two deliberate differences from Ramzan's own rules:
+// no max-span cap (a real Gulf outdoor-work ban commonly runs several
+// months — Ramzan's 30-day cap doesn't apply here), and the one-declared-
+// period-per-year rule is kept as a duplicate-declaration safety guard,
+// not a religious-calendar constraint.
+router.get('/summer-ban-periods', async (req, res, next) => {
+  try {
+    const periods = await getSummerBanPeriods();
+    const sorted = [...periods].sort((a, b) => (a.start_date < b.start_date ? -1 : a.start_date > b.start_date ? 1 : 0));
+    res.json({ periods: sorted });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/summer-ban-periods', async (req, res, next) => {
+  try {
+    const { start_date, end_date } = req.body;
+    const declaredBy = req.backofficeEmpId;
+
+    if (!start_date || !end_date) {
+      return res.status(400).json({ error: 'start_date and end_date are required' });
+    }
+
+    const today = await getServerToday();
+    if (start_date < today) {
+      return res.status(400).json({ error: `start_date cannot be earlier than today (${today})` });
+    }
+    if (end_date < start_date) {
+      return res.status(400).json({ error: 'end_date cannot be earlier than start_date' });
+    }
+
+    const periods = await getSummerBanPeriods();
+    const newYear = start_date.slice(0, 4);
+    const collidesWithYear = periods.some((period) => period.start_date.slice(0, 4) === newYear);
+    if (collidesWithYear) {
+      return res.status(400).json({ error: `a Summer Ban period has already been declared for ${newYear}` });
+    }
+
+    const newPeriod = {
+      id: crypto.randomUUID(),
+      start_date,
+      end_date,
+      declared_by: declaredBy,
+      declared_at: new Date().toISOString(),
+      active: true,
+    };
+    periods.push(newPeriod);
+    await setSetting('summer_ban_periods', JSON.stringify(periods));
+
+    res.status(201).json({ periods });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/summer-ban-periods/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { start_date, end_date, active } = req.body;
+
+    const periods = await getSummerBanPeriods();
+    const index = periods.findIndex((p) => p.id === id);
+    if (index === -1) {
+      return res.status(404).json({ error: `Summer Ban period ${id} not found` });
+    }
+
+    const current = periods[index];
+    const nextStartDate = start_date ?? current.start_date;
+    const nextEndDate = end_date ?? current.end_date;
+
+    if (end_date !== undefined || start_date !== undefined) {
+      if (nextEndDate < nextStartDate) {
+        return res.status(400).json({ error: 'end_date cannot be earlier than start_date' });
+      }
+
+      const newYear = nextStartDate.slice(0, 4);
+      const collidesWithYear = periods.some((p) => p.id !== id && p.start_date.slice(0, 4) === newYear);
+      if (collidesWithYear) {
+        return res.status(400).json({ error: `a Summer Ban period has already been declared for ${newYear}` });
+      }
+    }
+
+    if (active !== undefined && typeof active !== 'boolean') {
+      return res.status(400).json({ error: 'active must be a boolean' });
+    }
+
+    periods[index] = {
+      ...current,
+      start_date: nextStartDate,
+      end_date: nextEndDate,
+      active: active ?? current.active,
+    };
+    await setSetting('summer_ban_periods', JSON.stringify(periods));
+
+    res.json({ periods });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/summer-ban-periods/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const periods = await getSummerBanPeriods();
+    const filtered = periods.filter((p) => p.id !== id);
+    if (filtered.length === periods.length) {
+      return res.status(404).json({ error: `Summer Ban period ${id} not found` });
+    }
+
+    await setSetting('summer_ban_periods', JSON.stringify(filtered));
     res.status(204).end();
   } catch (err) {
     next(err);

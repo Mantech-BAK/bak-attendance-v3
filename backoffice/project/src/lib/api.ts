@@ -100,6 +100,10 @@ export type Task = {
   // Tasks page's Completed/Pending/Not Started tabs: 0 = Not Started, odd =
   // Pending, even & non-zero = Completed.
   punch_count: number;
+  // Controls which date this task's session reports under on the
+  // Confirmation Sheet once punched (2026-09-14) — 'regular' (the default,
+  // punch-IN date) or 'night' (punch-OUT date instead).
+  shift_type: 'regular' | 'night';
 };
 
 export type Punch = {
@@ -128,7 +132,30 @@ export type Punch = {
   approved_at: string | null;
   rejection_reason: string | null;
   resolved_address: string | null;
+  // Mandatory closing note the employee (or, via Scan Team Member, the
+  // supervisor) types when giving the OUT punch (2026-09-14) — null on an
+  // opening punch, always. Also settable from the backoffice's own Add
+  // Punch, mandatory there under the same rule.
+  out_remark: string | null;
+  // In/out task photo (2026-09-14) — photo_path is the private-bucket
+  // storage path (never used directly); photo_url is a short-lived signed
+  // URL generated fresh on every GET /api/punches, null once it's actually
+  // expired even if photo_path is set (shouldn't happen within one page
+  // load, but don't assume). is_in_punch tells which of the two photo
+  // columns this row's photo (if any) belongs under — true for the task's
+  // first punch, false for its second, null for a non-task (fallback) punch.
+  photo_path: string | null;
+  photo_uploaded_at: string | null;
+  photo_url: string | null;
+  is_in_punch: boolean | null;
   created_at: string;
+  // Manually granted on top of the automatic OT calculation, at the moment
+  // a closing (OUT) punch was approved (2026-09-14) — its own audit trail,
+  // separate from approved_by/approved_at above (which just mean "this
+  // punch itself is legitimate", not "extra OT was granted here").
+  extra_ot_minutes: number | null;
+  extra_ot_granted_by: string | null;
+  extra_ot_granted_at: string | null;
 };
 
 export type ExceptionRow = {
@@ -274,7 +301,16 @@ export type PunchableTask = {
 // actually assigned on that date, or their department default if none,
 // never an arbitrary task/project. Not deduped by project — two tasks
 // sharing a project are two separate selections (punches track task_id).
-export function fetchPunchableTasks(empId: string, date: string): Promise<{ tasks: PunchableTask[] }> {
+// open_task_id/open_project_code (2026-09-14) name whichever one is
+// currently open for this employee on this date, if any — lets Add Punch
+// tell whether the punch it's about to add would be a CLOSING one, to
+// require the closing remark. A hint only; POST /admin-correction
+// re-derives and enforces the same fact server-side regardless.
+export function fetchPunchableTasks(empId: string, date: string): Promise<{
+  tasks: PunchableTask[];
+  open_task_id: number | null;
+  open_project_code: string | null;
+}> {
   return request(`/api/tasks/punchable-tasks?emp_id=${encodeURIComponent(empId)}&date=${encodeURIComponent(date)}`);
 }
 
@@ -294,6 +330,8 @@ export function createTask(input: {
   priority: string;
   description: string;
   locationSite: string | null;
+  isOutdoor?: boolean;
+  shiftType?: 'regular' | 'night';
 }): Promise<Task> {
   return request('/api/tasks', {
     method: 'POST',
@@ -305,6 +343,8 @@ export function createTask(input: {
       description: input.description,
       location_site: input.locationSite,
       source: 'backoffice',
+      ...(input.isOutdoor !== undefined ? { is_outdoor: input.isOutdoor } : {}),
+      ...(input.shiftType !== undefined ? { shift_type: input.shiftType } : {}),
     }),
   });
 }
@@ -323,6 +363,8 @@ export function assignTaskBulk(input: {
   priority: string;
   description: string;
   locationSite: string | null;
+  isOutdoor?: boolean;
+  shiftType?: 'regular' | 'night';
 }): Promise<BulkAssignTaskResult> {
   return request('/api/tasks/bulk-assign', {
     method: 'POST',
@@ -333,6 +375,8 @@ export function assignTaskBulk(input: {
       priority: input.priority,
       description: input.description,
       location_site: input.locationSite,
+      ...(input.isOutdoor !== undefined ? { is_outdoor: input.isOutdoor } : {}),
+      ...(input.shiftType !== undefined ? { shift_type: input.shiftType } : {}),
     }),
   });
 }
@@ -380,11 +424,15 @@ export function fetchPunches(): Promise<Punch[]> {
 // of taskId/projectCode is mandatory — the backend rejects neither being
 // present with a 400, matching the UI which never lets the form reach
 // Submit without a task (or fallback project) selected.
+// outRemark is mandatory whenever this punch is a closing one (see
+// fetchPunchableTasks' open_task_id/open_project_code) — the backend
+// rejects both a missing remark on a close and a present one on an open.
 export function addAdminPunchCorrection(input: {
   empId: string;
   taskId?: number | null;
   projectCode?: string | null;
   punchTime: string;
+  outRemark?: string | null;
   force?: boolean;
 }): Promise<Punch> {
   return request('/api/punches/admin-correction', {
@@ -395,6 +443,7 @@ export function addAdminPunchCorrection(input: {
       task_id: input.taskId ?? null,
       project_code: input.taskId ? null : (input.projectCode ?? null),
       punch_time: input.punchTime,
+      out_remark: input.outRemark ?? undefined,
       force: input.force ?? false,
     }),
   });
@@ -483,17 +532,21 @@ export type PendingPunch = {
   punch_time: string;
   entry_method: string;
   entered_by: string;
+  // True for a task's opening punch, false for its closing (OUT) punch, null
+  // for the department-default fallback (no real task) — extra OT can only
+  // ever be granted on a closing punch (2026-09-14).
+  is_in_punch: boolean | null;
 };
 
 export function fetchAllPendingPunches(): Promise<PendingPunch[]> {
   return request('/api/punches/pending');
 }
 
-export function approvePunchAdmin(id: number): Promise<Punch> {
+export function approvePunchAdmin(id: number, extraOtMinutes?: number): Promise<Punch> {
   return request(`/api/punches/${encodeURIComponent(id)}/approve`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
+    body: JSON.stringify(extraOtMinutes ? { extra_ot_minutes: extraOtMinutes } : {}),
   });
 }
 
@@ -596,6 +649,39 @@ export function saveRamzanWorkingHours(hours: number): Promise<RamzanWorkingHour
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ hours }),
   });
+}
+
+export type SummerBanPeriod = {
+  id: string;
+  start_date: string;
+  end_date: string;
+  declared_by: string;
+  declared_at: string;
+  active: boolean;
+};
+
+export function fetchSummerBanPeriods(): Promise<{ periods: SummerBanPeriod[] }> {
+  return request('/api/settings/summer-ban-periods');
+}
+
+export function declareSummerBanPeriod(input: { start_date: string; end_date: string }): Promise<{ periods: SummerBanPeriod[] }> {
+  return request('/api/settings/summer-ban-periods', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateSummerBanPeriod(id: string, input: { start_date?: string; end_date?: string; active?: boolean }): Promise<{ periods: SummerBanPeriod[] }> {
+  return request(`/api/settings/summer-ban-periods/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteSummerBanPeriod(id: string): Promise<void> {
+  return request(`/api/settings/summer-ban-periods/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 export type DuplicatePunchWindow = {

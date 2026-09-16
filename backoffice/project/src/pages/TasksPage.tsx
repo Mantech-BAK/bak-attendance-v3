@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { ClipboardList, Plus, CheckCircle2, XCircle, AlertTriangle, Loader2, MapPin, Calendar, Download, Upload, Filter, X, Pencil, Trash2 } from 'lucide-react';
-import { fetchTasks, fetchEmployees, fetchProjects, assignTaskBulk, deleteTask, tasksExportUrl, authHeaders, ApiError } from '@/lib/api';
+import { fetchTasks, fetchEmployees, fetchProjects, fetchSummerBanPeriods, assignTaskBulk, deleteTask, tasksExportUrl, authHeaders, ApiError } from '@/lib/api';
 import type { Task, Employee, Project, BulkAssignTaskResult } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Select, Textarea, Input, Spinner, EmptyState, Modal } from '@/components/ui';
@@ -20,6 +20,8 @@ type FormState = {
   priority: string;
   description: string;
   locationSite: string;
+  isOutdoor: boolean | null;
+  shiftType: 'regular' | 'night';
 };
 
 const EMPTY_FORM: FormState = {
@@ -28,7 +30,14 @@ const EMPTY_FORM: FormState = {
   priority: 'medium',
   description: '',
   locationSite: '',
+  isOutdoor: null,
+  shiftType: 'regular',
 };
+
+function isSummerBanActiveToday(periods: { start_date: string; end_date: string; active: boolean }[]): boolean {
+  const today = todayDate();
+  return periods.some((p) => p.active && p.start_date <= today && today <= p.end_date);
+}
 
 // Derived from each task's own punch_count (via task_id), not the tasks.status
 // DB column (which never actually transitions off 'pending' anywhere in this
@@ -55,6 +64,7 @@ export function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [summerBanActive, setSummerBanActive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
@@ -82,10 +92,11 @@ export function TasksPage() {
 
   async function load() {
     setLoading(true);
-    const [tsk, emp, prj] = await Promise.all([fetchTasks(), fetchEmployees(), fetchProjects('OPEN')]);
+    const [tsk, emp, prj, sbp] = await Promise.all([fetchTasks(), fetchEmployees(), fetchProjects('OPEN'), fetchSummerBanPeriods()]);
     setTasks(tsk);
     setEmployees(emp);
     setProjects(prj);
+    setSummerBanActive(isSummerBanActiveToday(sbp.periods));
     setLoading(false);
   }
 
@@ -122,6 +133,10 @@ export function TasksPage() {
       setSubmitError('At least one employee, a project, and a description are required.');
       return;
     }
+    if (summerBanActive && form.isOutdoor === null) {
+      setSubmitError('Select whether this task is Indoor or Outdoor — required while a Summer Ban period is active.');
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -131,6 +146,8 @@ export function TasksPage() {
         priority: form.priority,
         description: form.description.trim(),
         locationSite: form.locationSite.trim() || null,
+        ...(summerBanActive ? { isOutdoor: form.isOutdoor as boolean } : {}),
+        shiftType: form.shiftType,
       });
       setBulkResult(result);
       // Only clear the form fully once every selected employee succeeded —
@@ -246,6 +263,29 @@ export function TasksPage() {
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
               </Select>
+
+              <Select
+                value={form.shiftType}
+                onChange={(v) => setForm({ ...form, shiftType: v as 'regular' | 'night' })}
+                label="Shift Type"
+                id="task-shift-type"
+              >
+                <option value="regular">Regular</option>
+                <option value="night">Night</option>
+              </Select>
+
+              {summerBanActive && (
+                <Select
+                  value={form.isOutdoor === null ? '' : form.isOutdoor ? 'outdoor' : 'indoor'}
+                  onChange={(v) => setForm({ ...form, isOutdoor: v === '' ? null : v === 'outdoor' })}
+                  label="Indoor / Outdoor"
+                  id="task-is-outdoor"
+                >
+                  <option value="">Select…</option>
+                  <option value="indoor">Indoor</option>
+                  <option value="outdoor">Outdoor</option>
+                </Select>
+              )}
 
               <Textarea value={form.description} onChange={(v) => setForm({ ...form, description: v })} label="Description" id="task-description" placeholder="Describe the task in detail…" rows={4} />
 
@@ -418,6 +458,7 @@ export function TasksPage() {
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           <Badge variant={priorityVariant}>{t.priority ?? 'none'}</Badge>
                           <Badge variant={statusVariant}>{statusLabel}</Badge>
+                          {t.shift_type === 'night' && <Badge variant="accent">Night</Badge>}
                           <span className="text-xs text-slate-500">{t.employee_name ?? 'Unassigned'}</span>
                           <span className="text-xs text-slate-400">·</span>
                           <span className="text-xs text-slate-500">{t.project_name ?? 'No project'}</span>

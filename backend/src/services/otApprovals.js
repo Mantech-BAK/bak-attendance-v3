@@ -1,7 +1,8 @@
 const pool = require('../db');
-const { getAllSettings, parseRamzanPeriods } = require('./settings');
-const { dateKey, getUtcDayBounds } = require('./attendance');
+const { getAllSettings, parseRamzanPeriods, parseSummerBanPeriods } = require('./settings');
+const { dateKey, fetchPunchRowsForDate } = require('./attendance');
 const { computeEmployeeDay, ensureOtApproval } = require('./dailyConfirmation');
+const { getDefaultProjectByEmpIdMap } = require('./tasks');
 
 function yesterday() {
   return dateKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
@@ -17,7 +18,7 @@ function yesterday() {
  * re-running for an already-processed date is always safe.
  */
 async function runDailyOtJob(date = yesterday()) {
-  const [settingsMap, employeesResult] = await Promise.all([
+  const [settingsMap, employeesResult, tasksResult, defaultProjectByEmpId] = await Promise.all([
     getAllSettings(),
     pool.query(
       `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, g.designation_name AS designation,
@@ -30,20 +31,25 @@ async function runDailyOtJob(date = yesterday()) {
        LEFT JOIN religions r ON e."EmpReligionId" = r.religion_code
        WHERE e."EmpStatus" = 'active' AND e."EmpOtStatus" = true ORDER BY e."EmpId"`
     ),
+    // 2026-09-14/15 — this job used to compute otMinutes with neither Summer
+    // Ban, shift_type, nor the Travelling-Time/default-project gap handling
+    // aware of each other at all, silently drifting from whatever the
+    // on-demand Confirmation Sheet (generateConfirmationSheetRows, which
+    // already had all three) would show for the same date. Brought in line
+    // here too, same maps, same fetch helper, so the nightly sweep never
+    // disagrees with an admin manually generating the report for that date.
+    pool.query('SELECT id, is_outdoor, shift_type, source FROM tasks'),
+    getDefaultProjectByEmpIdMap(),
   ]);
   const ramzanPeriods = parseRamzanPeriods(settingsMap);
+  const summerBanPeriods = parseSummerBanPeriods(settingsMap);
+  const isOutdoorByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.is_outdoor === true]));
+  const shiftTypeByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.shift_type]));
+  const sourceByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.source]));
 
-  const { start, end } = getUtcDayBounds(date);
-  const punchesResult = await pool.query(
-    `SELECT id, emp_id, project_code, task_id, punch_time
-     FROM punches
-     WHERE approval_status <> 'rejected'
-       AND punch_time >= $1 AND punch_time < $2
-     ORDER BY emp_id, project_code, task_id, punch_time`,
-    [start, end]
-  );
+  const widenedPunchRows = await fetchPunchRowsForDate(date);
   const punchesByEmp = new Map();
-  for (const row of punchesResult.rows) {
+  for (const row of widenedPunchRows) {
     if (!punchesByEmp.has(row.emp_id)) punchesByEmp.set(row.emp_id, []);
     punchesByEmp.get(row.emp_id).push(row);
   }
@@ -54,7 +60,8 @@ async function runDailyOtJob(date = yesterday()) {
     if (punchRows.length === 0) continue;
 
     const { totalWorkedMinutes, thresholdMinutes, otMinutes } = computeEmployeeDay({
-      employee, date, punchRows, settingsMap, ramzanPeriods,
+      employee, date, punchRows, settingsMap, ramzanPeriods, isOutdoorByTaskId, summerBanPeriods, shiftTypeByTaskId,
+      sourceByTaskId, defaultProject: defaultProjectByEmpId.get(employee.emp_id) ?? null,
     });
 
     if (otMinutes > 0) {

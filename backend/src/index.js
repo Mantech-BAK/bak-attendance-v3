@@ -18,6 +18,7 @@ const reportsRoutes = require('./routes/reports');
 const otApprovalsRoutes = require('./routes/otApprovals');
 const { startTeamsCron } = require('./jobs/teamsCron');
 const { startOtApprovalCron } = require('./jobs/otApprovalCron');
+const { startMissingPunchPhotoCron } = require('./jobs/missingPunchPhotoCron');
 
 const app = express();
 
@@ -62,4 +63,5 @@ app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
   startTeamsCron();
   startOtApprovalCron();
+  startMissingPunchPhotoCron();
 });

@@ -26,7 +26,7 @@ import { Ionicons } from '@expo/vector-icons';
 const LOCATION_TIMEOUT_MS = 15000;
 const LAST_KNOWN_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
 
-export default function PunchProjectList({ tasks, openTaskId, openProjectCode, onPunch }) {
+export default function PunchProjectList({ tasks, openTaskId, openProjectCode, onPunch, onAddPhoto }) {
   const [submittingKey, setSubmittingKey] = useState(null);
   const list = tasks || [];
 
@@ -193,6 +193,40 @@ export default function PunchProjectList({ tasks, openTaskId, openProjectCode, o
                   <Text style={styles.blockedHint}>Close what's open first</Text>
                 </View>
               )}
+              {/* In/out task photos (2026-09-14) — each only appears once
+                  its own punch exists (in_punch_id/out_punch_id), one row
+                  per photo, mandatory before the corresponding punch (out,
+                  or a different task's in) can go through server-side. */}
+              {task.in_punch_id && (
+                <View style={styles.hintRow}>
+                  {task.in_photo_uploaded ? (
+                    <>
+                      <Ionicons name="camera" size={12} color={open ? '#dbeafe' : '#16a34a'} />
+                      <Text style={[styles.photoOkHint, open && styles.openText]}>In photo added</Text>
+                    </>
+                  ) : (
+                    <TouchableOpacity style={styles.addPhotoButton} onPress={() => onAddPhoto(task, 'in')}>
+                      <Ionicons name="camera-outline" size={12} color="#dc2626" />
+                      <Text style={styles.addPhotoText}>Photo not added — tap to add In Photo</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+              {task.out_punch_id && (
+                <View style={styles.hintRow}>
+                  {task.out_photo_uploaded ? (
+                    <>
+                      <Ionicons name="camera" size={12} color={open ? '#dbeafe' : '#16a34a'} />
+                      <Text style={[styles.photoOkHint, open && styles.openText]}>Out photo added</Text>
+                    </>
+                  ) : (
+                    <TouchableOpacity style={styles.addPhotoButton} onPress={() => onAddPhoto(task, 'out')}>
+                      <Ionicons name="camera-outline" size={12} color="#dc2626" />
+                      <Text style={styles.addPhotoText}>Photo not added — tap to add Out Photo</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
             </View>
             {isSubmitting && <ActivityIndicator color={open ? '#fff' : '#2563eb'} />}
           </TouchableOpacity>
@@ -234,6 +268,9 @@ const styles = StyleSheet.create({
   hintRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   openHint: { fontSize: 12, color: '#dbeafe' },
   blockedHint: { fontSize: 12, color: '#dc2626' },
+  photoOkHint: { fontSize: 12, color: '#16a34a', fontWeight: '600' },
+  addPhotoButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  addPhotoText: { fontSize: 12, color: '#dc2626', fontWeight: '600', textDecorationLine: 'underline' },
   taskIdHint: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
   priorityBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
   priority_high: { backgroundColor: '#fee2e2' },

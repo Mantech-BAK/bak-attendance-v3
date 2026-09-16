@@ -1,10 +1,22 @@
 const pool = require('../db');
-const { isWithinEmergencyWindow, getEmergencyTimeAllowance, utcHHMMToLocalHHMM } = require('./settings');
+const {
+  isWithinEmergencyWindow, getEmergencyTimeAllowance, utcHHMMToLocalHHMM,
+  getAllSettings, parseSummerBanPeriods, isWithinSummerBan,
+} = require('./settings');
 
 // employee_self: an employee creating a task for themselves, mobile, no
 // supervisor/backoffice involved — only allowed inside the configured
 // Emergency Time Allowance window (see createTask below).
 const VALID_SOURCES = ['supervisor_app', 'backoffice', 'teams', 'employee_self'];
+
+// Regular/Night (2026-09-14) — unlike is_outdoor, this is never gated behind
+// any active-period concept: it's always a real, meaningful property of a
+// task, shown on every creation surface. Defaults to 'regular' whenever a
+// caller doesn't send one at all (silently, not an error) so the automated
+// Teams intake path and any other non-interactive caller keep working
+// unchanged — only a value that's actually PRESENT but not one of these two
+// is rejected as a real input mistake.
+const VALID_SHIFT_TYPES = ['regular', 'night'];
 
 class TaskValidationError extends Error {
   constructor(status, message) {
@@ -33,6 +45,31 @@ async function getDepartmentDefaultProject(empId) {
 
   const row = result.rows[0];
   return row && row.project_code ? row : null;
+}
+
+/**
+ * Batch form of getDepartmentDefaultProject above, one query for every
+ * employee instead of one query per employee — used by the Confirmation
+ * Sheet's gap-handling (dailyConfirmation.js, restored 2026-09-15) when a
+ * gap sits next to an emergency-created task: that gap reverts to being
+ * attributed to the department's default project, the original pre-2026-08-30
+ * gap-handling behavior, rather than becoming a "Travelling Time" row.
+ * A department with no default project configured maps to null, same
+ * UNASSIGNED meaning as the single-employee version above.
+ */
+async function getDefaultProjectByEmpIdMap() {
+  const result = await pool.query(
+    `SELECT e."EmpId" AS emp_id, p.project_code, p.project_name
+     FROM employees e
+     LEFT JOIN divisions dv ON e."EmpDivision" = dv.division_code
+     LEFT JOIN departments d ON d.company_dept_id = dv.division_name AND d.department_name = e."EmpDeptId"
+     LEFT JOIN projects p ON p.project_code = d.default_project_code`
+  );
+  const map = new Map();
+  for (const row of result.rows) {
+    map.set(row.emp_id, row.project_code ? { project_code: row.project_code, project_name: row.project_name } : null);
+  }
+  return map;
 }
 
 /**
@@ -109,14 +146,31 @@ async function getTasksForDate(empId, date) {
 async function getTodaysTasks(empId) {
   const result = await pool.query(
     `SELECT t.id, t.project_code, t.priority, t.description, t.location_site, t.status, t.display_id,
-            (SELECT count(*)::int FROM punches pu WHERE pu.task_id = t.id AND pu.approval_status <> 'rejected') AS punch_count
+            (SELECT count(*)::int FROM punches pu WHERE pu.task_id = t.id AND pu.approval_status <> 'rejected') AS punch_count,
+            in_p.id AS in_punch_id, in_p.photo_path AS in_photo_path,
+            out_p.id AS out_punch_id, out_p.photo_path AS out_photo_path
      FROM tasks t
+     LEFT JOIN LATERAL (
+       SELECT id, photo_path FROM punches
+       WHERE task_id = t.id AND approval_status <> 'rejected'
+       ORDER BY punch_time ASC LIMIT 1
+     ) in_p ON true
+     LEFT JOIN LATERAL (
+       SELECT id, photo_path FROM punches
+       WHERE task_id = t.id AND approval_status <> 'rejected'
+       ORDER BY punch_time ASC LIMIT 1 OFFSET 1
+     ) out_p ON true
      WHERE t.emp_id = $1 AND t.task_date = CURRENT_DATE
      ORDER BY t.id`,
     [empId]
   );
 
   if (result.rows.length > 0) {
+    // in_punch_id/out_punch_id are null until that punch actually exists —
+    // the mobile client uses them to know which punch to upload a photo
+    // against (POST /api/punches/:id/photo). Never populated for the
+    // department-default fallback below — photos are scoped to real tasks
+    // only (2026-09-14).
     return result.rows.map((task) => ({
       id: task.id,
       display_id: task.display_id,
@@ -127,6 +181,10 @@ async function getTodaysTasks(empId) {
       punch_count: task.punch_count,
       task_status: deriveTaskStatus(task.punch_count),
       is_default: false,
+      in_punch_id: task.in_punch_id,
+      in_photo_uploaded: task.in_punch_id ? !!task.in_photo_path : null,
+      out_punch_id: task.out_punch_id,
+      out_photo_uploaded: task.out_punch_id ? !!task.out_photo_path : null,
     }));
   }
 
@@ -193,7 +251,7 @@ async function getNextTaskDisplayId(taskDate) {
  * upload pass an explicit one; POST /api/tasks never accepts a
  * client-supplied date, unchanged from its existing behavior.
  */
-async function createTask({ emp_id, project_code, priority, description, location_site, source, created_by, taskDate }) {
+async function createTask({ emp_id, project_code, priority, description, location_site, source, created_by, taskDate, is_outdoor, shift_type }) {
   if (!emp_id) throw new TaskValidationError(400, 'emp_id is required');
   if (!project_code) throw new TaskValidationError(400, 'project_code is required');
   if (!description) throw new TaskValidationError(400, 'description is required');
@@ -201,6 +259,38 @@ async function createTask({ emp_id, project_code, priority, description, locatio
     throw new TaskValidationError(400, `source must be one of: ${VALID_SOURCES.join(', ')}`);
   }
   if (!created_by) throw new TaskValidationError(400, 'created_by is required');
+  if (shift_type !== undefined && shift_type !== null && !VALID_SHIFT_TYPES.includes(shift_type)) {
+    throw new TaskValidationError(400, `shift_type must be one of: ${VALID_SHIFT_TYPES.join(', ')}`);
+  }
+  const resolvedShiftType = VALID_SHIFT_TYPES.includes(shift_type) ? shift_type : 'regular';
+
+  // Resolved up front (moved ahead of the is_outdoor gate below, 2026-09-15)
+  // — the interactive Create Task forms never pass an explicit taskDate, so
+  // this is always "today" for them, unchanged; only bulk upload (and the
+  // Teams intake job) pass a real, possibly-future one.
+  const resolvedTaskDate = await resolveTaskDate(taskDate);
+
+  // Indoor/Outdoor (2026-09-14, date-scoping corrected 2026-09-15) — only
+  // ever asked, and only ever stored, when the TASK'S OWN scheduled date
+  // (resolvedTaskDate) falls within a declared Summer Ban period — not
+  // whether one happens to be active at the moment of creation. This
+  // matters for bulk upload especially: a whole batch of future-dated tasks
+  // uploaded today, some inside a not-yet-started (or already-ended) period
+  // and some outside it, must each be gated on their OWN date, not today's.
+  // Outside a period for that date, whatever the client sent is silently
+  // ignored — the feature is meant to be entirely dormant then, not
+  // something that errors on stale UI state. Inside one, an explicit answer
+  // is mandatory — silently defaulting to "indoor" would quietly exempt a
+  // real outdoor task from the ban rules.
+  const summerBanSettingsMap = await getAllSettings();
+  const summerBanActiveForTaskDate = isWithinSummerBan(resolvedTaskDate, parseSummerBanPeriods(summerBanSettingsMap));
+  let resolvedIsOutdoor = null;
+  if (summerBanActiveForTaskDate) {
+    if (typeof is_outdoor !== 'boolean') {
+      throw new TaskValidationError(400, 'is_outdoor (true/false) is required because this task\'s date falls within a declared Summer Ban period');
+    }
+    resolvedIsOutdoor = is_outdoor;
+  }
 
   // employee_self is the one source where the creator and the assignee must
   // be the same person — an employee can only self-create a task for
@@ -236,8 +326,6 @@ async function createTask({ emp_id, project_code, priority, description, locatio
     throw new TaskValidationError(400, `project ${project_code} is closed and cannot accept new tasks`);
   }
 
-  const resolvedTaskDate = await resolveTaskDate(taskDate);
-
   // Same employee + same day + same project + same description (exact
   // match) is a duplicate — a different description on that same
   // project/day is a distinct, legitimate second task (e.g. two separate
@@ -256,10 +344,10 @@ async function createTask({ emp_id, project_code, priority, description, locatio
   const displayId = await getNextTaskDisplayId(resolvedTaskDate);
 
   const result = await pool.query(
-    `INSERT INTO tasks (emp_id, task_date, project_code, priority, description, location_site, source, created_by, display_id)
-     VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9)
-     RETURNING id, emp_id, task_date::text AS task_date, project_code, priority, description, location_site, status, source, created_by, created_at, display_id`,
-    [emp_id, resolvedTaskDate, project_code, priority || null, description, location_site || null, source, created_by, displayId]
+    `INSERT INTO tasks (emp_id, task_date, project_code, priority, description, location_site, source, created_by, display_id, is_outdoor, shift_type)
+     VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     RETURNING id, emp_id, task_date::text AS task_date, project_code, priority, description, location_site, status, source, created_by, created_at, display_id, is_outdoor, shift_type`,
+    [emp_id, resolvedTaskDate, project_code, priority || null, description, location_site || null, source, created_by, displayId, resolvedIsOutdoor, resolvedShiftType]
   );
 
   return result.rows[0];
@@ -273,7 +361,7 @@ async function createTask({ emp_id, project_code, priority, description, locatio
  * a duplicate or validation failure for one employee never blocks the
  * others in the same batch.
  */
-async function createTasksBulk({ emp_ids, project_code, priority, description, location_site, source, created_by, taskDate }) {
+async function createTasksBulk({ emp_ids, project_code, priority, description, location_site, source, created_by, taskDate, is_outdoor, shift_type }) {
   if (!Array.isArray(emp_ids) || emp_ids.length === 0) {
     throw new TaskValidationError(400, 'emp_ids must be a non-empty array');
   }
@@ -283,7 +371,7 @@ async function createTasksBulk({ emp_ids, project_code, priority, description, l
 
   for (const emp_id of emp_ids) {
     try {
-      const task = await createTask({ emp_id, project_code, priority, description, location_site, source, created_by, taskDate });
+      const task = await createTask({ emp_id, project_code, priority, description, location_site, source, created_by, taskDate, is_outdoor, shift_type });
       created.push(task);
     } catch (err) {
       const reason = err instanceof TaskValidationError ? err.message : 'unexpected error creating the task';
@@ -294,4 +382,7 @@ async function createTasksBulk({ emp_ids, project_code, priority, description, l
   return { created, errors, totalRequested: emp_ids.length };
 }
 
-module.exports = { getTodaysTasks, getTasksForDate, createTask, createTasksBulk, TaskValidationError, VALID_SOURCES };
+module.exports = {
+  getTodaysTasks, getTasksForDate, createTask, createTasksBulk, TaskValidationError, VALID_SOURCES,
+  getDefaultProjectByEmpIdMap,
+};

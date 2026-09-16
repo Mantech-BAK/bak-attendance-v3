@@ -1,6 +1,9 @@
 const pool = require('../db');
 const { getOpenPunchForDate, punchKey, dateKey } = require('./attendance');
-const { getDuplicatePunchWindowMinutes } = require('./settings');
+const {
+  getDuplicatePunchWindowMinutes,
+  getAllSettings, parseSummerBanPeriods, isWithinSummerBan, isWithinBanWindow, localDateKey,
+} = require('./settings');
 
 class PunchValidationError extends Error {
   constructor(status, message, extra) {
@@ -119,6 +122,36 @@ async function checkTaskPunchCap({ task_id, excludePunchId }) {
 }
 
 /**
+ * Summer Ban punch block (2026-09-14, rule 4): for an Outdoor task, on a
+ * date inside a declared-and-active Summer Ban period, NEITHER the opening
+ * nor the closing punch may be recorded with a local (Asia/Riyadh)
+ * timestamp inside 12:00pm-4:00pm — hard block, no force override, applied
+ * uniformly to every punch-writing path (self/supervisor punches, admin-
+ * correction, and edit), since the rule is stated as absolute, not just a
+ * live-capture constraint on the mobile app. Never applies to the
+ * department-default fallback (task_id null — "a task" in this feature's
+ * sense always means a real one) or to an Indoor task, regardless of
+ * Summer Ban status.
+ */
+async function checkOutdoorBanWindow({ task_id, punchTime }) {
+  if (task_id === null || task_id === undefined) return;
+
+  const taskResult = await pool.query('SELECT is_outdoor FROM tasks WHERE id = $1', [task_id]);
+  if (taskResult.rows.length === 0 || taskResult.rows[0].is_outdoor !== true) return;
+
+  const settingsMap = await getAllSettings();
+  const summerBanPeriods = parseSummerBanPeriods(settingsMap);
+  if (!isWithinSummerBan(localDateKey(punchTime), summerBanPeriods)) return;
+
+  if (isWithinBanWindow(punchTime)) {
+    throw new PunchValidationError(
+      403,
+      'Outdoor tasks cannot be punched in or out between 12:00pm and 4:00pm during a declared Summer Ban period. Please try again after 4:00pm.'
+    );
+  }
+}
+
+/**
  * Two different tasks/projects sharing the exact same instant is ambiguous:
  * the even/odd open check and First-In-Last-Out session logic both depend
  * on every punch having a genuine chronological order, and two punches at
@@ -189,6 +222,7 @@ module.exports = {
   resolvePunchTarget,
   checkOpenConflict,
   checkTaskPunchCap,
+  checkOutdoorBanWindow,
   checkCrossKeyTimestampClash,
   checkNearDuplicate,
   describeKey,

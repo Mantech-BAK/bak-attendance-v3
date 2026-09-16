@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Clock, Calendar, Filter, X, Plus, Pencil, Trash2, XCircle, Loader2 } from 'lucide-react';
+import { Clock, Calendar, Filter, X, Plus, Pencil, Trash2, XCircle, Loader2, Image as ImageIcon } from 'lucide-react';
 import { fetchPunches, fetchProjects, fetchEmployees, deletePunch, ApiError } from '@/lib/api';
 import type { Punch, Project, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Spinner, EmptyState, Select, Button, Modal } from '@/components/ui';
 import { AddPunchModal } from '@/components/AddPunchModal';
-import { formatDateTime, initials } from '@/lib/utils';
+import { formatDateTime, initials, googleMapsUrl } from '@/lib/utils';
 
 export function PunchesPage() {
   const [punches, setPunches] = useState<Punch[]>([]);
@@ -201,6 +201,9 @@ export function PunchesPage() {
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Punch Time</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Entry Method</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Location</th>
+                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Remarks</th>
+                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">In Punch Photo</th>
+                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Out Punch Photo</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500"></th>
                 </tr>
@@ -236,12 +239,58 @@ export function PunchesPage() {
                       </Badge>
                     </td>
                     <td className="px-6 py-4 max-w-xs">
-                      {p.resolved_address ? (
+                      {p.lat !== null && p.lng !== null ? (
+                        <a
+                          href={googleMapsUrl(p.lat, p.lng)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-teal-700 underline decoration-dotted hover:text-teal-800"
+                        >
+                          {p.resolved_address ?? `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`}
+                        </a>
+                      ) : p.resolved_address ? (
                         <p className="text-sm text-slate-700">{p.resolved_address}</p>
-                      ) : p.lat !== null && p.lng !== null ? (
-                        <p className="text-sm text-slate-500">{p.lat.toFixed(5)}, {p.lng.toFixed(5)}</p>
                       ) : (
                         <span className="text-sm text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 max-w-xs">
+                      {p.out_remark ? (
+                        <p className="text-sm text-slate-700">{p.out_remark}</p>
+                      ) : (
+                        <span className="text-sm text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {p.is_in_punch !== true ? (
+                        <span className="text-sm text-slate-400">—</span>
+                      ) : p.photo_url ? (
+                        <a
+                          href={p.photo_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-700 hover:text-teal-800 hover:underline"
+                        >
+                          <ImageIcon className="h-3.5 w-3.5" /> View
+                        </a>
+                      ) : (
+                        <span className="text-sm font-medium text-amber-600">Photo not added</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {p.is_in_punch !== false ? (
+                        <span className="text-sm text-slate-400">—</span>
+                      ) : p.photo_url ? (
+                        <a
+                          href={p.photo_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-700 hover:text-teal-800 hover:underline"
+                        >
+                          <ImageIcon className="h-3.5 w-3.5" /> View
+                        </a>
+                      ) : (
+                        <span className="text-sm font-medium text-amber-600">Photo not added</span>
                       )}
                     </td>
                     <td className="px-6 py-4">
@@ -254,9 +303,15 @@ export function PunchesPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => setEditingPunch(p)} className="!px-2 !py-1">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
+                        {/* Editing is locked to pending punches server-side
+                            (PUT /:id 409s otherwise) — hidden here too so
+                            the button itself never invites an edit that can
+                            only fail (2026-09-14). */}
+                        {p.approval_status === 'pending' && (
+                          <Button variant="ghost" size="sm" onClick={() => setEditingPunch(p)} className="!px-2 !py-1">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" onClick={() => { setDeleteError(null); setDeletingPunch(p); }} className="!px-2 !py-1 text-rose-600 hover:bg-rose-50">
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>

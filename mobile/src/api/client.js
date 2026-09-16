@@ -27,8 +27,15 @@ import { API_BASE_URL } from '../config';
  *                                 body: { embeddings: number[][] } (3-4 on-device embeddings, one per angle)
  *                                 response: { emp_id, registered_by, registered_at }
  *   POST /api/punches          — records a punch. Body keys the backend actually reads:
- *                                 { emp_id, task_id, project_code, lat, lng, entered_by?,
+ *                                 { emp_id, task_id, project_code, lat, lng, entered_by?, out_remark?,
  *                                 revalidation_face_embedding?, revalidation_login_code? }
+ *                                 out_remark is MANDATORY on a closing punch (whichever punch the
+ *                                 backend determines is closing the currently-open task/project for
+ *                                 this emp_id — see the "no type at capture time" note below) — 400
+ *                                 without it. Rejected as an error (not silently dropped) if sent on
+ *                                 an opening punch, since it should never be possible to attach one
+ *                                 there. Stored on the punch as out_remark, shown in the Confirmation
+ *                                 Sheet's Remarks column (2026-09-14).
  *                                 A self-punch (entered_by === emp_id, or omitted) is rejected with
  *                                 401 unless revalidation_face_embedding or revalidation_login_code is
  *                                 present and matches emp_id — re-proven fresh immediately before
@@ -138,7 +145,7 @@ export function identifyPunch(empId, loginCode) {
 // immediately before every single punch, never reused across punches. Only
 // applies to self-punches; the supervisor "Scan Team Member" on-behalf path
 // (enteredBy !== empId) is unchanged and needs neither field.
-export function submitPunch({ empId, taskId, projectCode, lat, lng, enteredBy, revalidationFaceEmbedding, revalidationLoginCode }) {
+export function submitPunch({ empId, taskId, projectCode, lat, lng, enteredBy, outRemark, revalidationFaceEmbedding, revalidationLoginCode }) {
   return request('/api/punches', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -149,9 +156,30 @@ export function submitPunch({ empId, taskId, projectCode, lat, lng, enteredBy, r
       lat,
       lng,
       entered_by: enteredBy ?? undefined,
+      out_remark: outRemark ?? undefined,
       revalidation_face_embedding: revalidationFaceEmbedding ?? undefined,
       revalidation_login_code: revalidationLoginCode ?? undefined,
     }),
+  });
+}
+
+// Mandatory in/out task photo (2026-09-14) — always a separate action from
+// the punch itself (POST /api/punches above never carries a photo). role is
+// purely descriptive here; the backend derives which one this actually is
+// from punch ordering, never trusts it from the client. React Native's
+// fetch/FormData accepts this { uri, name, type } shape directly — no Blob
+// conversion needed.
+export function uploadPunchPhoto(punchId, empId, photoUri) {
+  const formData = new FormData();
+  formData.append('emp_id', empId);
+  formData.append('photo', {
+    uri: photoUri,
+    name: 'punch-photo.jpg',
+    type: 'image/jpeg',
+  });
+  return request(`/api/punches/${punchId}/photo`, {
+    method: 'POST',
+    body: formData,
   });
 }
 
@@ -184,11 +212,14 @@ export function fetchPendingApprovals(supervisorEmpId) {
 }
 
 // CONFIRMED
-export function approvePunch(punchId, supervisorEmpId) {
+export function approvePunch(punchId, supervisorEmpId, extraOtMinutes) {
   return request(`/api/punches/${encodeURIComponent(punchId)}/approve`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ supervisor_emp_id: supervisorEmpId }),
+    body: JSON.stringify({
+      supervisor_emp_id: supervisorEmpId,
+      ...(extraOtMinutes ? { extra_ot_minutes: extraOtMinutes } : {}),
+    }),
   });
 }
 
@@ -199,6 +230,40 @@ export function rejectPunch(punchId, supervisorEmpId, reason) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ supervisor_emp_id: supervisorEmpId, reason }),
   });
+}
+
+// Lets a supervisor reassign a direct report's PENDING punch to a
+// different task/project before deciding whether to approve it
+// (2026-09-14) — same PUT /api/punches/:id the backoffice's own Edit Punch
+// uses, just authorized via supervisor_emp_id instead of a backoffice
+// session. 409s if the punch is no longer pending by the time this lands
+// (approved/rejected already, e.g. by another admin) — surfaced as a plain
+// error, never retried, since force can't fix that. Editing never changes
+// approval_status itself; a separate approvePunch/rejectPunch call is still
+// needed after.
+export function editPunch(punchId, { taskId, projectCode, punchTime, supervisorEmpId, force }) {
+  return request(`/api/punches/${encodeURIComponent(punchId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      task_id: taskId ?? null,
+      project_code: taskId ? undefined : (projectCode ?? undefined),
+      punch_time: punchTime,
+      supervisor_emp_id: supervisorEmpId,
+      force: force ?? false,
+    }),
+  });
+}
+
+// Powers the Review Attendance Edit action's task picker — tasks the
+// pending punch's OWN employee (not the supervisor) could legitimately be
+// assigned on the punch's own date. Mirrors the backoffice's
+// fetchPunchableTasks, just supervisor-authorized instead of backoffice-
+// session-authorized.
+export function fetchReassignableTasks(empId, date, supervisorEmpId) {
+  return request(
+    `/api/tasks/punchable-tasks?emp_id=${encodeURIComponent(empId)}&date=${encodeURIComponent(date)}&supervisor_emp_id=${encodeURIComponent(supervisorEmpId)}`
+  );
 }
 
 // CONFIRMED
@@ -238,7 +303,7 @@ export function registerFaceEmbeddings(empId, embeddings) {
 // CONFIRMED — source defaults to 'supervisor_app' (a supervisor assigning
 // to a direct report, unchanged); item 4's self-service emergency flow
 // passes 'employee_self' instead, with assignedEmpId === createdBy.
-export function createTask({ assignedEmpId, projectCode, priority, description, locationSite, createdBy, source }) {
+export function createTask({ assignedEmpId, projectCode, priority, description, locationSite, createdBy, source, isOutdoor, shiftType }) {
   return request('/api/tasks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -250,8 +315,17 @@ export function createTask({ assignedEmpId, projectCode, priority, description, 
       location_site: locationSite,
       source: source || 'supervisor_app',
       created_by: createdBy,
+      ...(isOutdoor !== undefined ? { is_outdoor: isOutdoor } : {}),
+      ...(shiftType !== undefined ? { shift_type: shiftType } : {}),
     }),
   });
+}
+
+// Summer Ban (2026-09-14) — lets task-creation forms show/hide the
+// Indoor/Outdoor field without guessing; mirrors fetchEmergencyWindow's
+// shape/pattern. Unauthenticated, same as /emergency-window.
+export function fetchSummerBanStatus() {
+  return request('/api/punch/summer-ban-status');
 }
 
 // CONFIRMED

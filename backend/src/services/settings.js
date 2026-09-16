@@ -48,6 +48,34 @@ async function getRamzanPeriods() {
   }
 }
 
+// Summer Ban periods (2026-09-14) — same shape/storage pattern as Ramzan
+// periods above: { id, start_date, end_date, declared_by, declared_at,
+// active }, one JSON array under its own system_settings key. Declaring one
+// gates two things: task creation surfaces the Indoor/Outdoor question at
+// all (only while a period is active), and outdoor tasks get the 12pm-4pm
+// punch block + counted-hours subtraction on dates inside it.
+function parseSummerBanPeriods(settingsMap) {
+  const raw = settingsMap.summer_ban_periods;
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function getSummerBanPeriods() {
+  const value = await getSetting('summer_ban_periods');
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 const DEFAULT_DUPLICATE_WINDOW_MINUTES = 5;
 
 // Falls back to the default whenever unset or corrupted rather than
@@ -124,6 +152,66 @@ function utcHHMMToLocalHHMM(hhmm) {
   }).format(utcInstant);
 }
 
+// Summer Ban punch window (2026-09-14) — fixed 12:00pm-4:00pm Asia/Riyadh,
+// not admin-configurable (unlike the emergency window above). Half-open
+// [12:00, 16:00): exactly 4:00:00pm local is already "after 4pm", allowed.
+const BAN_WINDOW_START_MINUTES = 12 * 60;
+const BAN_WINDOW_END_MINUTES = 16 * 60;
+
+// The Asia/Riyadh wall-clock minute-of-day for a real instant — reuses the
+// same DST-safe offset lookup as localHHMMToUtcHHMM/utcHHMMToLocalHHMM
+// above, just applied to an actual Date rather than a stored "HH:MM".
+function localMinutesOfDay(instant) {
+  const offsetMinutes = getBusinessTimeZoneOffsetMinutes(instant);
+  const shifted = new Date(instant.getTime() + offsetMinutes * 60000);
+  return shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
+}
+
+// The real UTC instant bounds of the 12:00pm-4:00pm Asia/Riyadh window on a
+// given LOCAL calendar date — for the calculation side (attendance.js),
+// which needs actual overlap DURATION between a session's punch_in/
+// punch_out and the ban window, not just a yes/no check. Same
+// naive-UTC-then-offset-correct technique as localHHMMToUtcHHMM above,
+// just carrying the full date through instead of discarding it.
+function getBanWindowUtcBounds(localDateStr) {
+  const naiveStart = new Date(`${localDateStr}T12:00:00.000Z`);
+  const naiveEnd = new Date(`${localDateStr}T16:00:00.000Z`);
+  const offsetMinutes = getBusinessTimeZoneOffsetMinutes(naiveStart);
+  return {
+    start: new Date(naiveStart.getTime() - offsetMinutes * 60000),
+    end: new Date(naiveEnd.getTime() - offsetMinutes * 60000),
+  };
+}
+
+// The Asia/Riyadh calendar date ('YYYY-MM-DD') an instant falls on — used to
+// check a punch attempt's date against declared Summer Ban periods using
+// the same local-day convention a human reading the period's start/end
+// dates would expect, rather than attendance.js's dateKey() (UTC-bucketed,
+// the right choice for grouping/reporting but not for "is this local
+// wall-clock moment inside a human-declared calendar period").
+function localDateKey(instant) {
+  const offsetMinutes = getBusinessTimeZoneOffsetMinutes(instant);
+  const shifted = new Date(instant.getTime() + offsetMinutes * 60000);
+  return shifted.toISOString().slice(0, 10);
+}
+
+// Whichever of a punch attempt's overlap with the 12-4pm window matters —
+// used identically by the live block (routes/punches.js, "now") and the
+// counted-hours subtraction (attendance.js, a stored punch_time).
+function isWithinBanWindow(instant) {
+  const minutes = localMinutesOfDay(instant);
+  return minutes >= BAN_WINDOW_START_MINUTES && minutes < BAN_WINDOW_END_MINUTES;
+}
+
+// A deactivated period (active === false) no longer applies, same
+// "settings changes are never retroactive" rule Ramzan periods already
+// follow (see attendance.js's isWithinRamzan).
+function isWithinSummerBan(localDateStr, summerBanPeriods) {
+  return summerBanPeriods.some(
+    (period) => period.active !== false && localDateStr >= period.start_date && localDateStr <= period.end_date
+  );
+}
+
 const DEFAULT_EMERGENCY_START = '22:00';
 const DEFAULT_EMERGENCY_END = '06:00';
 
@@ -175,6 +263,14 @@ module.exports = {
   getAllSettings,
   parseRamzanPeriods,
   getRamzanPeriods,
+  parseSummerBanPeriods,
+  getSummerBanPeriods,
+  isWithinSummerBan,
+  isWithinBanWindow,
+  localDateKey,
+  getBanWindowUtcBounds,
+  BAN_WINDOW_START_MINUTES,
+  BAN_WINDOW_END_MINUTES,
   getDuplicatePunchWindowMinutes,
   DEFAULT_DUPLICATE_WINDOW_MINUTES,
   getEmergencyTimeAllowance,

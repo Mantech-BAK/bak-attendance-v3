@@ -19,10 +19,12 @@ import { cn, formatDateTime, initials } from '@/lib/utils';
 
 const TYPE_VARIANTS: Record<string, 'error' | 'warning' | 'info' | 'accent' | 'neutral'> = {
   single_punch_only: 'error',
+  missing_punch_photo: 'warning',
 };
 
 const TYPE_LABELS: Record<string, string> = {
   single_punch_only: 'Single Punch Only',
+  missing_punch_photo: 'Missing Punch Photo',
 };
 
 function typeBadgeVariant(type: string): 'error' | 'warning' | 'info' | 'accent' | 'neutral' {

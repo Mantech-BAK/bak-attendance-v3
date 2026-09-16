@@ -1,8 +1,13 @@
 const pool = require('../db');
-const { getAllSettings, parseRamzanPeriods } = require('./settings');
-const { getEffectiveThreshold, applyNestedSubtraction, getUtcDayBounds, punchKey, buildSessionFromPunches } = require('./attendance');
+const { getAllSettings, parseRamzanPeriods, parseSummerBanPeriods } = require('./settings');
+const {
+  getEffectiveThreshold, applyNestedSubtraction, punchKey, buildSessionFromPunches,
+  dateKey, fetchPunchRowsForDate,
+} = require('./attendance');
+const { getDefaultProjectByEmpIdMap } = require('./tasks');
 
 const DEFAULT_MAX_OT_MINUTES = 600; // 10 hours, used only if max_ot_minutes is somehow missing
+const UNASSIGNED_LABEL = 'UNASSIGNED — no default project configured';
 
 // Every OT display surface (mobile OvertimeApprovalsCard, backoffice
 // Dashboard Overtime Alerts, backoffice ApprovalsPage) rounds ot hours to
@@ -34,6 +39,16 @@ function formatDurationShort(minutes) {
   return `${h}h ${m}m`;
 }
 
+// Summer Ban transparency note (2026-09-14) — session.summer_ban_minutes_subtracted
+// is only ever non-zero for an Outdoor task's own row (applyNestedSubtraction
+// in attendance.js already gates it that way), so this never needs its own
+// Indoor/Outdoor check.
+function appendSummerBanNote(remarks, session) {
+  if (!session.summer_ban_minutes_subtracted) return remarks;
+  const note = `Summer Ban: -${formatDurationShort(session.summer_ban_minutes_subtracted)} subtracted (12pm-4pm)`;
+  return remarks ? `${remarks}. ${note}` : note;
+}
+
 function formatClockTime(value) {
   if (!value) return '';
   return new Date(value).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: REPORT_TIME_ZONE });
@@ -47,7 +62,25 @@ function formatClockTime(value) {
 // fallback — so two different tasks sharing the same project become two
 // independent sessions with their own real, separately calculated time
 // (item 4), not merged into one.
-function buildSessionsForDay(punchRows, empId, date) {
+// Which report date a session belongs on (2026-09-14) — Regular (the
+// default, and the only concept that existed before this feature) always
+// uses the punch-IN date; Night uses the punch-OUT date instead. An
+// incomplete (still-open) session has no OUT date to use yet regardless of
+// shift_type, so it provisionally shows under its punch-IN date — once it
+// closes, a LATER report run for the real OUT date picks it up correctly
+// (this app never retroactively rewrites an already-generated date, same as
+// every other setting/period change here). Only a real task can have a
+// shift_type at all; the department-default fallback (task_id null) is
+// always IN-date, same as it always was.
+function attributionDateForSession(session, shiftTypeByTaskId) {
+  if (session.incomplete) {
+    return dateKey(session.punch_in.punch_time);
+  }
+  const shiftType = session.task_id != null ? (shiftTypeByTaskId.get(session.task_id) || 'regular') : 'regular';
+  return shiftType === 'night' ? dateKey(session.punch_out.punch_time) : dateKey(session.punch_in.punch_time);
+}
+
+function buildSessionsForDay(punchRows, empId, date, { isOutdoorByTaskId, summerBanPeriods, shiftTypeByTaskId = new Map() }) {
   const groups = new Map();
   for (const row of punchRows) {
     const key = punchKey(row.task_id, row.project_code);
@@ -68,14 +101,29 @@ function buildSessionsForDay(punchRows, empId, date) {
       date,
       punch_count: punchCount,
       punch_in: { id: punchIn.id, punch_time: punchIn.punch_time },
-      punch_out: punchOut ? { id: punchOut.id, punch_time: punchOut.punch_time } : null,
+      punch_out: punchOut
+        ? {
+            id: punchOut.id,
+            punch_time: punchOut.punch_time,
+            out_remark: punchOut.out_remark,
+            extra_ot_minutes: punchOut.extra_ot_minutes ?? null,
+            extra_ot_granted_by: punchOut.extra_ot_granted_by ?? null,
+          }
+        : null,
       incomplete,
       worked_minutes: workedMinutes,
     });
   }
 
-  applyNestedSubtraction(sessions);
-  return sessions;
+  // Nested-subtraction must see every session that overlaps in real time —
+  // including one that (per shift_type) will end up attributed to a
+  // different report date than `date` — BEFORE the attribution filter below
+  // removes it, so a cross-midnight parent's counted_minutes still nets
+  // correctly against a same-time nested child regardless of which date
+  // each one is ultimately reported under.
+  applyNestedSubtraction(sessions, { isOutdoorByTaskId, summerBanPeriods });
+
+  return sessions.filter((session) => attributionDateForSession(session, shiftTypeByTaskId) === date);
 }
 
 /**
@@ -84,11 +132,14 @@ function buildSessionsForDay(punchRows, empId, date) {
  * project are two separate rows with independently calculated real time).
  *
  * Every gap between two sequential top-level sessions — regardless of
- * magnitude, 5 minutes or 5 hours — folds entirely into the PRECEDING
- * task's row with a REMARKS note (2026-08-30: the earlier <1hr-folds/
- * >=1hr-becomes-separate-time distinction was removed; there is no longer
- * any gap-length threshold at all, every gap always folds into the task
- * before it, never becomes separate/default-project time).
+ * magnitude, 5 minutes or 5 hours — becomes its OWN "Travelling Time" row
+ * between the two task rows (2026-09-15, reversing the previous 2026-08-30
+ * behavior of folding it into the PRECEDING task's row). It carries the
+ * SECOND task's project code/name (the travel is generally understood as
+ * being incurred on the way TO the next task), both its TASK NAME and
+ * Remarks columns literally "Travelling Time", and the gap's own duration
+ * as its own counted working hours — no length threshold, same as before.
+ * A non-positive gap (overlapping/adjacent punches) still produces nothing.
  *
  * For OT-eligible employees whose true worked time exceeds the day's
  * threshold, OT is shown directly on the day's last real row — its own OT
@@ -107,7 +158,10 @@ function buildSessionsForDay(punchRows, empId, date) {
  * generateConfirmationSheetRows and otApprovals.js) rather than rely on
  * this function to represent absence.
  */
-function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeriods }) {
+function computeEmployeeDay({
+  employee, date, punchRows, settingsMap, ramzanPeriods, isOutdoorByTaskId, summerBanPeriods, shiftTypeByTaskId,
+  sourceByTaskId = new Map(), defaultProject = null,
+}) {
   const threshold = getEffectiveThreshold({
     religion: employee.religion,
     date,
@@ -118,7 +172,7 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
     ? Number(settingsMap.max_ot_minutes)
     : DEFAULT_MAX_OT_MINUTES;
 
-  const sessions = buildSessionsForDay(punchRows, employee.emp_id, date);
+  const sessions = buildSessionsForDay(punchRows, employee.emp_id, date, { isOutdoorByTaskId, summerBanPeriods, shiftTypeByTaskId });
   const complete = sessions.filter((s) => !s.incomplete);
   const incompleteSessions = sessions.filter((s) => s.incomplete);
   const topLevel = complete
@@ -128,41 +182,94 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
 
   const rows = [];
   let totalWorkedMinutes = 0;
+  let lastTopLevelRow = null;
 
   for (let i = 0; i < topLevel.length; i++) {
     const session = topLevel[i];
-    let extraMinutes = 0;
-    let remarks = '';
 
-    if (i < topLevel.length - 1) {
-      const next = topLevel[i + 1];
-      const gapMinutes = Math.round((next.punch_in.punch_time - session.punch_out.punch_time) / 60000);
+    // Summer Ban note (2026-09-14) — transparency for a real payroll-
+    // adjacent deduction. Only ever set on an Outdoor task's own row.
+    const remarks = appendSummerBanNote('', session);
 
-      // Every gap, any length, folds into the preceding task's row — no
-      // gap-length threshold anymore (2026-08-30 — see computeEmployeeDay's
-      // docstring). A non-positive gap (overlapping/adjacent punches) adds
-      // nothing.
-      if (gapMinutes > 0) {
-        extraMinutes = gapMinutes;
-        remarks = `Includes ${formatDurationShort(gapMinutes)} transition gap before the next task`;
-      }
-    }
+    totalWorkedMinutes += session.counted_minutes;
 
-    const rowMinutes = session.counted_minutes + extraMinutes;
-    totalWorkedMinutes += rowMinutes;
-
-    rows.push({
+    const row = {
       project_code: session.project_code,
       project_name: null, // filled in by the caller, which has the projects lookup
       task_id: session.task_id,
       cost_center: null,
       start_time: session.punch_in.punch_time,
       end_time: session.punch_out.punch_time,
-      working_minutes: rowMinutes,
+      working_minutes: session.counted_minutes,
       remarks,
+      out_remark: session.punch_out.out_remark ?? null,
       is_ot_row: false,
       ot_minutes: 0,
-    });
+      _extraOtMinutes: session.punch_out.extra_ot_minutes,
+      _extraOtGrantedBy: session.punch_out.extra_ot_granted_by,
+    };
+    rows.push(row);
+    lastTopLevelRow = row;
+
+    if (i < topLevel.length - 1) {
+      const next = topLevel[i + 1];
+      const gapMinutes = Math.round((next.punch_in.punch_time - session.punch_out.punch_time) / 60000);
+
+      // Every gap, any length, becomes its own row — no gap-length
+      // threshold (2026-09-15). A non-positive gap (overlapping/adjacent
+      // punches) still produces nothing, same as before.
+      //
+      // Two shapes, depending on what's on either side of the gap
+      // (2026-09-15): between two admin/supervisor-created tasks, it's a
+      // "Travelling Time" row carrying the SECOND task's own project. Next
+      // to an Emergency Task (source 'employee_self') on either side, it
+      // instead reverts to the ORIGINAL pre-2026-08-30 behavior — its own
+      // row attributed to the employee's department default project (or an
+      // UNASSIGNED placeholder if none is configured) — since an
+      // emergency-created task has no real "next scheduled task" to travel
+      // toward, the way an admin/supervisor-planned one does.
+      if (gapMinutes > 0) {
+        totalWorkedMinutes += gapMinutes;
+        const isEmergencyAdjacent =
+          sourceByTaskId.get(session.task_id) === 'employee_self' ||
+          sourceByTaskId.get(next.task_id) === 'employee_self';
+
+        if (isEmergencyAdjacent) {
+          rows.push({
+            // Real default project: project_name left null so the caller's
+            // existing generic fill (projectsByCode, same as every other
+            // row) populates both project_name and cost_center — no default
+            // project configured: no real project_code to look up, so the
+            // UNASSIGNED label is set directly here instead.
+            project_code: defaultProject ? defaultProject.project_code : null,
+            project_name: defaultProject ? null : UNASSIGNED_LABEL,
+            task_id: null,
+            cost_center: null,
+            start_time: session.punch_out.punch_time,
+            end_time: next.punch_in.punch_time,
+            working_minutes: gapMinutes,
+            remarks: `Gap of ${formatDurationShort(gapMinutes)} between projects — attributed to default project`,
+            out_remark: null,
+            is_ot_row: false,
+            ot_minutes: 0,
+          });
+        } else {
+          rows.push({
+            project_code: next.project_code,
+            project_name: null, // filled in by the caller, same as any other row
+            task_id: null,
+            cost_center: null,
+            start_time: session.punch_out.punch_time,
+            end_time: next.punch_in.punch_time,
+            working_minutes: gapMinutes,
+            remarks: 'Travelling Time',
+            out_remark: 'Travelling Time',
+            is_ot_row: false,
+            ot_minutes: 0,
+          });
+        }
+      }
+    }
   }
 
   for (const session of nested) {
@@ -175,9 +282,12 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
       start_time: session.punch_in.punch_time,
       end_time: session.punch_out.punch_time,
       working_minutes: session.counted_minutes,
-      remarks: '',
+      remarks: appendSummerBanNote('', session),
+      out_remark: session.punch_out.out_remark ?? null,
       is_ot_row: false,
       ot_minutes: 0,
+      _extraOtMinutes: session.punch_out.extra_ot_minutes,
+      _extraOtGrantedBy: session.punch_out.extra_ot_granted_by,
     });
   }
 
@@ -191,6 +301,7 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
       end_time: null,
       working_minutes: 0,
       remarks: 'Incomplete session — only one punch recorded',
+      out_remark: null,
       is_ot_row: false,
       ot_minutes: 0,
     });
@@ -217,15 +328,38 @@ function computeEmployeeDay({ employee, date, punchRows, settingsMap, ramzanPeri
     const otStart = new Date(otEnd.getTime() - otMinutes * 60000);
     const timeRangeNote = `OT: ${formatClockTime(otStart)} - ${formatClockTime(otEnd)}`;
 
-    // Populates the LAST TASK'S OWN ROW (already pushed above, topLevel's
-    // final entry is always rows[topLevel.length - 1] since top-level rows
-    // are pushed in topLevel order before any nested/incomplete rows) —
-    // never a second row for the same task/time (2026-08-30 fix; see
-    // computeEmployeeDay's docstring).
-    const lastRow = rows[topLevel.length - 1];
-    lastRow.ot_minutes = otMinutes;
-    lastRow.is_ot_row = true;
-    lastRow.remarks = lastRow.remarks ? `${lastRow.remarks} ${timeRangeNote}${cappedNote}` : `${timeRangeNote}${cappedNote}`;
+    // Populates the LAST TASK'S OWN ROW — tracked directly as
+    // lastTopLevelRow while building rows above (a plain rows[topLevel.length
+    // - 1] positional lookup no longer works now that a Travelling Time row
+    // can sit between two topLevel rows in `rows`' construction order,
+    // shifting later indices) — never a second row for the same task/time
+    // (2026-08-30 fix; see computeEmployeeDay's docstring).
+    lastTopLevelRow.ot_minutes = otMinutes;
+    lastTopLevelRow.is_ot_row = true;
+    lastTopLevelRow.remarks = lastTopLevelRow.remarks
+      ? `${lastTopLevelRow.remarks} ${timeRangeNote}${cappedNote}`
+      : `${timeRangeNote}${cappedNote}`;
+  }
+
+  // Manual extra OT (2026-09-14) — granted by a supervisor/admin at the
+  // moment they approved that specific session's closing punch (see
+  // PATCH /api/punches/:id/approve). Purely additive on top of whatever the
+  // automatic calculation above produced: independent of ot_eligible and
+  // never capped by max_ot_minutes — a deliberate human grant, not the
+  // automatic system's own determination. Attributed to the SAME row as the
+  // punch it was granted on (topLevel or nested), not always the day's last
+  // row, since the grant is tied to a specific session, not the whole day.
+  for (const row of rows) {
+    const extraOtMinutes = row._extraOtMinutes;
+    if (extraOtMinutes) {
+      row.ot_minutes += extraOtMinutes;
+      row.is_ot_row = true;
+      const grantNote = `+${formatDurationShort(extraOtMinutes)} manual OT granted${row._extraOtGrantedBy ? ` by ${row._extraOtGrantedBy}` : ''}`;
+      row.remarks = row.remarks ? `${row.remarks} ${grantNote}` : grantNote;
+      otMinutes += extraOtMinutes;
+    }
+    delete row._extraOtMinutes;
+    delete row._extraOtGrantedBy;
   }
 
   return { rows, totalWorkedMinutes, thresholdMinutes: threshold.minutes, otMinutes, trueExcessMinutes };
@@ -291,7 +425,7 @@ async function ensureOtApproval({ empId, date, workedMinutes, thresholdMinutes, 
  * nightly cron.
  */
 async function generateConfirmationSheetRows(date) {
-  const [settingsMap, employeesResult, projectsResult, tasksResult, otApprovalsResult] = await Promise.all([
+  const [settingsMap, employeesResult, projectsResult, tasksResult, otApprovalsResult, defaultProjectByEmpId] = await Promise.all([
     getAllSettings(),
     pool.query(
       `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, g.designation_name AS designation,
@@ -304,26 +438,30 @@ async function generateConfirmationSheetRows(date) {
        WHERE e."EmpStatus" = 'active' ORDER BY e."EmpId"`
     ),
     pool.query('SELECT project_code, project_name, cost_center FROM projects'),
-    pool.query('SELECT id, display_id, description FROM tasks'),
+    pool.query('SELECT id, display_id, description, is_outdoor, shift_type, source FROM tasks'),
     pool.query('SELECT emp_id, status, approved_by FROM ot_approvals WHERE work_date = $1', [date]),
+    getDefaultProjectByEmpIdMap(),
   ]);
 
   const ramzanPeriods = parseRamzanPeriods(settingsMap);
+  const summerBanPeriods = parseSummerBanPeriods(settingsMap);
   const projectsByCode = new Map(projectsResult.rows.map((p) => [p.project_code, p]));
   const tasksById = new Map(tasksResult.rows.map((t) => [t.id, t]));
+  const isOutdoorByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.is_outdoor === true]));
+  const shiftTypeByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.shift_type]));
+  // Source per task (2026-09-15) — a gap next to an Emergency Task (source
+  // 'employee_self') reverts to the original default-project gap handling
+  // instead of becoming a "Travelling Time" row; see computeEmployeeDay.
+  const sourceByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.source]));
   const otStatusByEmp = new Map(otApprovalsResult.rows.map((o) => [o.emp_id, { status: o.status, approvedBy: o.approved_by }]));
 
-  const { start, end } = getUtcDayBounds(date);
-  const punchesResult = await pool.query(
-    `SELECT id, emp_id, project_code, task_id, punch_time
-     FROM punches
-     WHERE approval_status <> 'rejected'
-       AND punch_time >= $1 AND punch_time < $2
-     ORDER BY emp_id, project_code, task_id, punch_time`,
-    [start, end]
-  );
+  // Widened beyond the literal day for shift_type attribution — see
+  // fetchPunchRowsForDate's own doc comment (attendance.js) for exactly what
+  // it fetches and why it's safe to widen for task-based punches but not the
+  // department-default fallback.
+  const widenedPunchRows = await fetchPunchRowsForDate(date);
   const punchesByEmp = new Map();
-  for (const row of punchesResult.rows) {
+  for (const row of widenedPunchRows) {
     if (!punchesByEmp.has(row.emp_id)) punchesByEmp.set(row.emp_id, []);
     punchesByEmp.get(row.emp_id).push(row);
   }
@@ -336,7 +474,8 @@ async function generateConfirmationSheetRows(date) {
     if (punchRows.length === 0) continue;
 
     const { rows, totalWorkedMinutes, thresholdMinutes, otMinutes } = computeEmployeeDay({
-      employee, date, punchRows, settingsMap, ramzanPeriods,
+      employee, date, punchRows, settingsMap, ramzanPeriods, isOutdoorByTaskId, summerBanPeriods, shiftTypeByTaskId,
+      sourceByTaskId, defaultProject: defaultProjectByEmpId.get(employee.emp_id) ?? null,
     });
 
     for (const row of rows) {
@@ -387,14 +526,22 @@ async function generateConfirmationSheetRows(date) {
         designation: employee.designation,
         cost_center: row.cost_center,
         attendance_date: date,
-        start_date: date,
+        // The session's own real calendar dates (2026-09-14) — independent
+        // of attendance_date, which is which report `date` this row is
+        // attributed under (punch-IN date for a Regular task, punch-OUT
+        // date for Night — see attributionDateForSession). For a same-day
+        // session these always coincide anyway; a cross-midnight one is
+        // exactly where they now genuinely differ, and this must keep
+        // showing the real dates the punches happened, per spec.
+        start_date: row.start_time ? dateKey(row.start_time) : date,
         start_time: row.start_time,
         end_time: row.end_time,
-        end_date: date,
+        end_date: row.end_time ? dateKey(row.end_time) : null,
         working_hours: formatHours(row.working_minutes),
         job: row.project_code || '',
         project_name: row.project_name,
         remarks: row.remarks,
+        out_remark: row.out_remark,
         ot_eligible: employee.ot_eligible,
         ot: row.is_ot_row ? formatHours(row.ot_minutes) : '',
         approval_required: approvalRequired ? 'Y' : 'N',

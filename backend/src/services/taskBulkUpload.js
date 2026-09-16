@@ -14,6 +14,17 @@ const TEMPLATE_COLUMNS = [
   { header: 'Priority *', key: 'priority', width: 14, note: 'One of: low, medium, high.' },
   { header: 'Description *', key: 'description', width: 40, note: 'Required — describe the task.' },
   { header: 'Location', key: 'location_site', width: 24, note: 'Optional.' },
+  // Only actually required when THIS ROW'S OWN Task Date falls within a
+  // declared Summer Ban period (2026-09-15 — corrected from an earlier,
+  // upload-time-based check) — same rule createTask() itself enforces via
+  // resolvedTaskDate, so a row left blank for a date inside a period
+  // surfaces as that row's own per-row error, not a template-level
+  // requirement enforced here.
+  { header: 'Indoor/Outdoor', key: 'is_outdoor', width: 16, note: "Leave blank unless this row's Task Date falls within a declared Summer Ban period — then required: 'Indoor' or 'Outdoor'." },
+  // Controls which date this task's session reports under on the
+  // Confirmation Sheet once punched — Regular (default) uses the punch-IN
+  // date, Night uses the punch-OUT date instead (2026-09-14).
+  { header: 'Shift Type', key: 'shift_type', width: 14, note: "Optional — 'Regular' (default) or 'Night'. Leave blank for Regular." },
 ];
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -78,6 +89,8 @@ function parseUploadedWorkbook(workbook) {
       cellToString(row.getCell(4).value),
       cellToString(row.getCell(5).value),
       cellToString(row.getCell(6).value),
+      cellToString(row.getCell(7).value),
+      cellToString(row.getCell(8).value),
     ];
     if (cells.every((c) => c === '')) return; // trailing blank row
 
@@ -98,8 +111,31 @@ function parseUploadedWorkbook(workbook) {
  * currently do — this is deliberately stricter than either, kept local to
  * bulk upload rather than changed globally in createTask().
  */
+// 'Indoor'/'Outdoor' (case-insensitive) map to false/true; blank maps to
+// undefined (not asked — matches createTask()'s own default whenever this
+// row's Task Date isn't within a declared Summer Ban period). Anything else
+// is a per-row validation error, same tier as a bad Priority value.
+function parseIsOutdoorCell(raw) {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === '') return { ok: true, value: undefined };
+  if (normalized === 'outdoor') return { ok: true, value: true };
+  if (normalized === 'indoor') return { ok: true, value: false };
+  return { ok: false };
+}
+
+// Blank maps to undefined — createTask() itself defaults that to 'regular',
+// so leaving this column blank is always safe and matches the template
+// note's "Leave blank for Regular".
+function parseShiftTypeCell(raw) {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === '') return { ok: true, value: undefined };
+  if (normalized === 'regular') return { ok: true, value: 'regular' };
+  if (normalized === 'night') return { ok: true, value: 'night' };
+  return { ok: false };
+}
+
 function validateBulkRow(cells, { employeeStatusByEmpId, projectCodes }) {
-  const [empId, taskDate, projectCode, priorityRaw, description, locationSite] = cells;
+  const [empId, taskDate, projectCode, priorityRaw, description, locationSite, isOutdoorRaw, shiftTypeRaw] = cells;
 
   if (!empId) return { valid: false, empId: 'UNKNOWN', reason: 'Employee ID is required' };
   if (!employeeStatusByEmpId.has(empId)) {
@@ -125,6 +161,16 @@ function validateBulkRow(cells, { employeeStatusByEmpId, projectCodes }) {
 
   if (!description) return { valid: false, empId, reason: 'Description is required' };
 
+  const parsedOutdoor = parseIsOutdoorCell(isOutdoorRaw);
+  if (!parsedOutdoor.ok) {
+    return { valid: false, empId, reason: "Indoor/Outdoor must be 'Indoor', 'Outdoor', or left blank" };
+  }
+
+  const parsedShiftType = parseShiftTypeCell(shiftTypeRaw);
+  if (!parsedShiftType.ok) {
+    return { valid: false, empId, reason: "Shift Type must be 'Regular', 'Night', or left blank" };
+  }
+
   return {
     valid: true,
     task: {
@@ -134,6 +180,8 @@ function validateBulkRow(cells, { employeeStatusByEmpId, projectCodes }) {
       priority,
       description,
       location_site: locationSite || null,
+      is_outdoor: parsedOutdoor.value,
+      shift_type: parsedShiftType.value,
     },
   };
 }
@@ -182,6 +230,8 @@ async function processBulkUpload(buffer, createdByEmpId) {
         source: 'backoffice',
         created_by: createdByEmpId,
         taskDate: result.task.taskDate,
+        is_outdoor: result.task.is_outdoor,
+        shift_type: result.task.shift_type,
       });
       created.push(task);
     } catch (err) {

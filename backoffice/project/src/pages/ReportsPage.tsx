@@ -4,7 +4,7 @@ import { fetchEmployees, fetchTasks, fetchProjects, fetchAttendance, confirmatio
 import type { Employee, Task, Project, AttendanceSession } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Spinner, Input, EmptyState } from '@/components/ui';
-import { cn, initials, formatDateTime } from '@/lib/utils';
+import { cn, initials, formatDateTime, formatDurationHM } from '@/lib/utils';
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -226,11 +226,11 @@ export function ReportsPage() {
                       <td className="px-4 py-3 text-sm text-slate-700">{proj?.project_name ?? s.project_code ?? '—'}</td>
                       <td className="px-4 py-3 text-sm text-slate-700">{formatDateTime(s.punch_in.punch_time)}</td>
                       <td className="px-4 py-3 text-sm text-slate-700">{s.punch_out ? formatDateTime(s.punch_out.punch_time) : <span className="text-slate-400">Incomplete</span>}</td>
-                      <td className="px-4 py-3 text-sm text-slate-700">{s.counted_minutes !== null ? `${(s.counted_minutes / 60).toFixed(1)}h` : '—'}</td>
-                      <td className="px-4 py-3 text-sm text-slate-500">{(s.threshold_minutes / 60).toFixed(1)}h <span className="text-xs text-slate-400">({s.threshold_source.replace(/_/g, ' ')})</span></td>
+                      <td className="px-4 py-3 text-sm text-slate-700">{s.counted_minutes !== null ? formatDurationHM(s.counted_minutes) : '—'}</td>
+                      <td className="px-4 py-3 text-sm text-slate-500">{formatDurationHM(s.threshold_minutes)} <span className="text-xs text-slate-400">({s.threshold_source.replace(/_/g, ' ')})</span></td>
                       <td className="px-4 py-3">
                         {s.is_overtime ? (
-                          <Badge variant="warning">+{((s.overtime_minutes ?? 0) / 60).toFixed(1)}h OT</Badge>
+                          <Badge variant="warning">+{formatDurationHM(s.overtime_minutes ?? 0)} OT</Badge>
                         ) : (
                           <span className="text-sm text-slate-400">—</span>
                         )}
@@ -275,7 +275,7 @@ export function ReportsPage() {
           { label: 'Total Employees', value: data.employees.length, icon: Users, color: 'teal' },
           { label: 'Total Tasks', value: data.tasks.length, icon: ClipboardList, color: 'sky' },
           { label: 'Total Punches', value: totalPunches, icon: Clock, color: 'amber' },
-          { label: 'Total Hours Logged', value: `${totalHours.toFixed(1)}h`, icon: TrendingUp, color: 'slate' },
+          { label: 'Total Hours Logged', value: formatDurationHM(totalHours * 60), icon: TrendingUp, color: 'slate' },
         ].map((s) => {
           const Icon = s.icon;
           const colorMap: Record<string, string> = {
@@ -314,7 +314,7 @@ export function ReportsPage() {
                 <div key={h.project}>
                   <div className="mb-1 flex items-center justify-between text-sm">
                     <span className="font-medium text-slate-700">{h.project}</span>
-                    <span className="text-slate-500">{h.hours.toFixed(1)}h</span>
+                    <span className="text-slate-500">{formatDurationHM(h.hours * 60)}</span>
                   </div>
                   <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
                     <div className="h-full rounded-full bg-teal-500 transition-all duration-500" style={{ width: `${(h.hours / maxProjectHours) * 100}%` }} />
@@ -366,7 +366,7 @@ export function ReportsPage() {
                     <p className="truncate text-sm font-medium text-slate-700">{h.employee!.name}</p>
                     <p className="text-xs text-slate-400">{h.employee!.designation ?? '—'}</p>
                   </div>
-                  <span className="text-sm font-semibold text-slate-900">{h.hours.toFixed(1)}h</span>
+                  <span className="text-sm font-semibold text-slate-900">{formatDurationHM(h.hours * 60)}</span>
                 </li>
               ))}
             </ul>

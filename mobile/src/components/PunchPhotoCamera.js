@@ -2,12 +2,13 @@ import { useRef, useState } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 
-// Revives the deleted CameraCapture.js (git history, replaced by the typed
-// { emp_id, login_code } form when face recognition was a stub) as the
-// low-level capture surface for the real Face ID feature. Reused by both
-// single-shot verification and the multi-step guided registration flow —
-// instructionText is the only thing that differs between steps.
-export default function FaceCaptureCamera({ visible, instructionText, onCapture, onCancel }) {
+// Plain rear-facing camera capture for a punch's in/out photo (2026-09-14)
+// — deliberately its own component rather than reusing FaceCaptureCamera:
+// that one is front-facing with a face-framing oval guide, both wrong here
+// (this photographs the work/site, not the employee, and 'back' is expo-
+// camera's facing value for the rear camera). Same Modal/instructionText/
+// capture-button shape otherwise, for a consistent feel across the app.
+export default function PunchPhotoCamera({ visible, instructionText, onCapture, onCancel }) {
   const cameraRef = useRef(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [isCameraReady, setIsCameraReady] = useState(false);
@@ -36,7 +37,7 @@ export default function FaceCaptureCamera({ visible, instructionText, onCapture,
           </View>
         ) : !permission.granted ? (
           <View style={styles.center}>
-            <Text style={styles.message}>Camera access is required for Face ID.</Text>
+            <Text style={styles.message}>Camera access is required to add this photo.</Text>
             <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
               <Text style={styles.primaryButtonText}>Grant Camera Access</Text>
             </TouchableOpacity>
@@ -49,21 +50,9 @@ export default function FaceCaptureCamera({ visible, instructionText, onCapture,
             <CameraView
               ref={cameraRef}
               style={styles.camera}
-              facing="front"
+              facing="back"
               onCameraReady={() => setIsCameraReady(true)}
             />
-            {/* Framing guide + a standing lighting/steadiness tip, always
-                visible during capture — added alongside the post-capture
-                quality checks in faceModel.js (2026-09-14): guiding a good
-                capture up front, not just rejecting a bad one after the
-                fact, address the real-data finding that inconsistent
-                capture conditions were the main driver of Face ID misses. */}
-            <View style={styles.frameGuideWrapper} pointerEvents="none">
-              <View style={styles.frameGuide} />
-            </View>
-            <View style={styles.tipBanner} pointerEvents="none">
-              <Text style={styles.tipText}>Face a light source · fill the oval · hold steady</Text>
-            </View>
             {instructionText ? (
               <View style={styles.instructionBanner}>
                 <Text style={styles.instructionText}>{instructionText}</Text>
@@ -105,31 +94,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   instructionText: { color: '#fff', fontSize: 15, fontWeight: '600', textAlign: 'center' },
-  frameGuideWrapper: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  frameGuide: {
-    width: 230,
-    height: 290,
-    borderRadius: 145,
-    borderWidth: 3,
-    borderColor: 'rgba(255,255,255,0.75)',
-  },
-  tipBanner: {
-    position: 'absolute',
-    bottom: 130,
-    left: 24,
-    right: 24,
-    alignItems: 'center',
-  },
-  tipText: {
-    color: 'rgba(255,255,255,0.85)',
-    fontSize: 13,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',

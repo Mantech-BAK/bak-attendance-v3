@@ -2,9 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { XCircle, Loader2 } from 'lucide-react';
 import { addAdminPunchCorrection, updatePunch, fetchPunchableTasks, ApiError } from '@/lib/api';
 import type { Employee, Punch, PunchableTask } from '@/lib/api';
-import { Modal, Button, Select, Input } from '@/components/ui';
+import { Modal, Button, Select, Input, Textarea } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
-import { formatDateTime } from '@/lib/utils';
+import { formatDateTime, googleMapsUrl } from '@/lib/utils';
 
 // Converts the date/time input's local wall-clock values (as the admin's
 // own browser understands "local") into a correct absolute-instant ISO
@@ -94,6 +94,7 @@ export function AddPunchModal({
   const [selectedKey, setSelectedKey] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
+  const [outRemark, setOutRemark] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,6 +104,11 @@ export function AddPunchModal({
   // an arbitrary task is selectable.
   const [punchableTasks, setPunchableTasks] = useState<PunchableTask[] | null>(null);
   const [loadingTasks, setLoadingTasks] = useState(false);
+  // Whichever task/project is currently open for this employee on this
+  // date, if any (from the same fetch as punchableTasks) — lets Add Punch
+  // require the closing remark exactly when this punch would close it.
+  const [openTaskId, setOpenTaskId] = useState<number | null>(null);
+  const [openProjectCode, setOpenProjectCode] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -123,8 +129,11 @@ export function AddPunchModal({
       setDate(defaultDate ?? nowDate);
       setTime(defaultDate ? '' : nowTime);
     }
+    setOutRemark('');
     setError(null);
     setPunchableTasks(null);
+    setOpenTaskId(null);
+    setOpenProjectCode(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultEmpId, defaultDate, defaultTaskId, defaultProjectCode, editingPunch]);
 
@@ -137,6 +146,8 @@ export function AddPunchModal({
   useEffect(() => {
     if (!open || !empId || !date) {
       setPunchableTasks(null);
+      setOpenTaskId(null);
+      setOpenProjectCode(null);
       return;
     }
     let cancelled = false;
@@ -144,6 +155,8 @@ export function AddPunchModal({
     fetchPunchableTasks(empId, date)
       .then((result) => {
         if (cancelled) return;
+        setOpenTaskId(result.open_task_id);
+        setOpenProjectCode(result.open_project_code);
         let tasks = result.tasks;
         if (editingPunch && !tasks.some((t) => taskKey(t) === selectedKey)) {
           tasks = [
@@ -196,10 +209,20 @@ export function AddPunchModal({
 
   const selectedTask = punchableTasks?.find((t) => taskKey(t) === selectedKey) ?? null;
 
+  // Whether the punch about to be added would CLOSE the currently-open
+  // task/project — same rule the backend enforces (2026-09-14), only ever
+  // asked when adding, never when editing an existing punch (out of scope
+  // for Edit Punch — that flow doesn't touch out_remark at all).
+  const isClosingPunch =
+    !isEditing &&
+    !!selectedTask &&
+    (selectedTask.id !== null ? selectedTask.id === openTaskId : selectedTask.project_code === openProjectCode);
+
   // Task, date, and time are all mandatory — a punch with any of them
   // missing is meaningless, so Submit stays disabled until the form is
-  // genuinely complete rather than only validating after the fact.
-  const isComplete = !!empId && !!selectedKey && !!date && !!time;
+  // genuinely complete rather than only validating after the fact. The
+  // closing remark joins that list exactly when this punch would close.
+  const isComplete = !!empId && !!selectedKey && !!date && !!time && (!isClosingPunch || !!outRemark.trim());
 
   async function submitPunch(punchTime: string, force: boolean) {
     const taskId = selectedTask?.id ?? null;
@@ -208,7 +231,14 @@ export function AddPunchModal({
     if (isEditing) {
       return updatePunch(editingPunch!.id, { taskId, projectCode, punchTime, force });
     }
-    return addAdminPunchCorrection({ empId, taskId, projectCode, punchTime, force });
+    return addAdminPunchCorrection({
+      empId,
+      taskId,
+      projectCode,
+      punchTime,
+      outRemark: isClosingPunch ? outRemark.trim() : undefined,
+      force,
+    });
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -222,6 +252,10 @@ export function AddPunchModal({
       setError('Employee, task, date, and time are all required.');
       return;
     }
+    if (isClosingPunch && !outRemark.trim()) {
+      setError('A remark is required to close this task.');
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -231,24 +265,19 @@ export function AddPunchModal({
         punch = await submitPunch(punchTime, false);
       } catch (err) {
         if (err instanceof ApiError && err.status === 409) {
-          const body = err.body as {
-            duplicate?: { punch_time: string };
-            conflicting_punch?: unknown;
-            open_project_code?: string;
-          } | null;
-          // A cross-task/project clash (identical timestamp) or something
-          // else already open that same day (only one task can be open at
-          // a time, globally) are both hard blocks on the backend — force
-          // cannot bypass either, since neither is a "might be intentional"
-          // case, just a broken invariant. Surface as a plain error, not a
+          const body = err.body as { duplicate?: { punch_time: string } } | null;
+          // Only the near-duplicate warning (same task/project, within the
+          // configurable window) is ever retry-with-force-eligible — its
+          // body always carries `duplicate`. Everything else 409s (a cross-
+          // task/project timestamp clash, something else already open that
+          // day, or — 2026-09-14 — editing a punch that's no longer pending,
+          // which force can never fix since retrying hits the exact same
+          // block) is a hard stop: surface as a plain error, never a
           // confirm-and-retry dialog.
-          if (body?.conflicting_punch || body?.open_project_code) {
+          if (!body?.duplicate) {
             throw err;
           }
-          // Otherwise it's the near-duplicate (same task/project, within
-          // the configurable window) warning — proceed only if the admin
-          // deliberately confirms it's not a mistake.
-          const when = body?.duplicate ? formatDateTime(body.duplicate.punch_time) : 'around this time';
+          const when = formatDateTime(body.duplicate.punch_time);
           const proceed = window.confirm(
             `${err.message}\n\nExisting punch: ${when}.\n\nSave this punch anyway?`
           );
@@ -329,6 +358,22 @@ export function AddPunchModal({
           </div>
         )}
 
+        {isClosingPunch && (
+          <>
+            <Textarea
+              value={outRemark}
+              onChange={setOutRemark}
+              label="Remarks"
+              id="add-punch-out-remark"
+              placeholder="e.g. Completed cable pull, tested and confirmed working"
+              rows={3}
+            />
+            <p className="-mt-2 text-xs text-slate-400">
+              Required — this punch closes the selected task, same as the mobile closing-punch prompt.
+            </p>
+          </>
+        )}
+
         <div className="flex flex-col gap-1.5">
           <span className="text-sm font-medium text-slate-700">Entered By</span>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
@@ -340,13 +385,26 @@ export function AddPunchModal({
           <div className="flex flex-col gap-1.5">
             <span className="text-sm font-medium text-slate-700">Location</span>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
-              {editingPunch!.resolved_address ?? `${editingPunch!.lat!.toFixed(5)}, ${editingPunch!.lng!.toFixed(5)}`}
+              {editingPunch!.lat !== null && editingPunch!.lng !== null ? (
+                <a
+                  href={googleMapsUrl(editingPunch!.lat, editingPunch!.lng)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-teal-700 underline decoration-dotted hover:text-teal-800"
+                >
+                  {editingPunch!.resolved_address ?? `${editingPunch!.lat.toFixed(5)}, ${editingPunch!.lng.toFixed(5)}`}
+                </a>
+              ) : (
+                editingPunch!.resolved_address
+              )}
             </div>
           </div>
         )}
 
         <p className="text-xs text-slate-400">
-          This punch is {isEditing ? 'saved' : 'added'} exactly at the date/time set above and is auto-approved immediately — no separate review.
+          {isEditing
+            ? "This punch is saved exactly at the date/time set above. Editing doesn't change its approval status — it stays pending until you separately approve or reject it."
+            : 'This punch is added exactly at the date/time set above and is auto-approved immediately — no separate review.'}
         </p>
 
         {error && (

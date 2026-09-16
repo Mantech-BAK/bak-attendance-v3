@@ -11,6 +11,10 @@ dist
 dist-ssr
 *.local
 
+# Real employee/timesheet source data dropped here for one-off migrations —
+# never belongs in git (real personal data).
+data/
+
 .vscode/*
 !.vscode/extensions.json
 .idea

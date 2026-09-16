@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Clock, Moon, Copy, CheckCircle2, XCircle, Loader2, CalendarRange, Trash2, AlertTriangle, Pencil, Power, PowerOff, Siren } from 'lucide-react';
+import { Clock, Moon, Sun, Copy, CheckCircle2, XCircle, Loader2, CalendarRange, Trash2, AlertTriangle, Pencil, Power, PowerOff, Siren } from 'lucide-react';
 import {
   fetchDailyWorkingHours,
   saveDailyWorkingHours,
@@ -9,6 +9,10 @@ import {
   deleteRamzanPeriod,
   fetchRamzanWorkingHours,
   saveRamzanWorkingHours,
+  fetchSummerBanPeriods,
+  declareSummerBanPeriod,
+  updateSummerBanPeriod,
+  deleteSummerBanPeriod,
   fetchDuplicatePunchWindow,
   saveDuplicatePunchWindow,
   fetchEmergencyTimeAllowance,
@@ -17,10 +21,10 @@ import {
   resetTestData,
   ApiError,
 } from '@/lib/api';
-import type { RamzanPeriod, Employee } from '@/lib/api';
+import type { RamzanPeriod, SummerBanPeriod, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from '@/components/ui';
-import { formatDate } from '@/lib/utils';
+import { formatDate, formatDurationHM } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 
 const RESET_TABLES_LABEL = 'punches, tasks, exceptions, overtime approvals, and confirmation-sheet records';
@@ -71,6 +75,25 @@ export function SettingsPage() {
 
   const [togglingPeriodId, setTogglingPeriodId] = useState<string | null>(null);
 
+  const [summerBanPeriods, setSummerBanPeriods] = useState<SummerBanPeriod[]>([]);
+  const [sbStartDate, setSbStartDate] = useState('');
+  const [sbEndDate, setSbEndDate] = useState('');
+  const [sbPeriodSubmitting, setSbPeriodSubmitting] = useState(false);
+  const [sbPeriodError, setSbPeriodError] = useState<string | null>(null);
+  const [sbPeriodSuccess, setSbPeriodSuccess] = useState(false);
+
+  const [editingSbPeriod, setEditingSbPeriod] = useState<SummerBanPeriod | null>(null);
+  const [editSbStartDate, setEditSbStartDate] = useState('');
+  const [editSbEndDate, setEditSbEndDate] = useState('');
+  const [editSbSubmitting, setEditSbSubmitting] = useState(false);
+  const [editSbError, setEditSbError] = useState<string | null>(null);
+
+  const [deletingSbPeriod, setDeletingSbPeriod] = useState<SummerBanPeriod | null>(null);
+  const [sbPeriodDeleting, setSbPeriodDeleting] = useState(false);
+  const [sbPeriodDeleteError, setSbPeriodDeleteError] = useState<string | null>(null);
+
+  const [togglingSbPeriodId, setTogglingSbPeriodId] = useState<string | null>(null);
+
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [resetting, setResetting] = useState(false);
@@ -83,10 +106,11 @@ export function SettingsPage() {
 
   async function load() {
     setLoading(true);
-    const [dwh, rp, rwh, dpw, eta, emp] = await Promise.all([
+    const [dwh, rp, rwh, sbp, dpw, eta, emp] = await Promise.all([
       fetchDailyWorkingHours(),
       fetchRamzanPeriods(),
       fetchRamzanWorkingHours(),
+      fetchSummerBanPeriods(),
       fetchDuplicatePunchWindow(),
       fetchEmergencyTimeAllowance(),
       fetchEmployees(),
@@ -96,6 +120,7 @@ export function SettingsPage() {
     setPeriods(rp.periods);
     setCurrentRamzanHours(rwh.hours);
     setRamzanHours(rwh.hours !== null ? String(rwh.hours) : '');
+    setSummerBanPeriods(sbp.periods);
     setCurrentDuplicateWindow(dpw.minutes);
     setDuplicateWindow(String(dpw.minutes));
     setEmergencyStart(eta.start);
@@ -222,6 +247,87 @@ export function SettingsPage() {
     }
   }
 
+  async function handleSbPeriodSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSbPeriodError(null);
+    setSbPeriodSuccess(false);
+
+    if (!sbStartDate || !sbEndDate) {
+      setSbPeriodError('Start date and end date are both required.');
+      return;
+    }
+
+    setSbPeriodSubmitting(true);
+    try {
+      const result = await declareSummerBanPeriod({ start_date: sbStartDate, end_date: sbEndDate });
+      setSummerBanPeriods(result.periods);
+      setSbStartDate('');
+      setSbEndDate('');
+      setSbPeriodSuccess(true);
+      setTimeout(() => setSbPeriodSuccess(false), 3000);
+    } catch (err) {
+      setSbPeriodError(err instanceof Error ? err.message : 'Could not declare the period. Please try again.');
+    } finally {
+      setSbPeriodSubmitting(false);
+    }
+  }
+
+  function openEditSbPeriod(p: SummerBanPeriod) {
+    setEditingSbPeriod(p);
+    setEditSbStartDate(p.start_date);
+    setEditSbEndDate(p.end_date);
+    setEditSbError(null);
+  }
+
+  async function handleEditSbSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!editingSbPeriod) return;
+    setEditSbError(null);
+
+    if (!editSbStartDate || !editSbEndDate) {
+      setEditSbError('Start date and end date are both required.');
+      return;
+    }
+
+    setEditSbSubmitting(true);
+    try {
+      const result = await updateSummerBanPeriod(editingSbPeriod.id, { start_date: editSbStartDate, end_date: editSbEndDate });
+      setSummerBanPeriods(result.periods);
+      setEditingSbPeriod(null);
+    } catch (err) {
+      setEditSbError(err instanceof ApiError ? err.message : 'Could not save changes. Please try again.');
+    } finally {
+      setEditSbSubmitting(false);
+    }
+  }
+
+  async function handleToggleSbActive(p: SummerBanPeriod) {
+    setTogglingSbPeriodId(p.id);
+    try {
+      const result = await updateSummerBanPeriod(p.id, { active: !p.active });
+      setSummerBanPeriods(result.periods);
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Could not update the period. Please try again.');
+    } finally {
+      setTogglingSbPeriodId(null);
+    }
+  }
+
+  async function handleConfirmDeleteSbPeriod() {
+    if (!deletingSbPeriod) return;
+    setSbPeriodDeleteError(null);
+    setSbPeriodDeleting(true);
+    try {
+      await deleteSummerBanPeriod(deletingSbPeriod.id);
+      setSummerBanPeriods((prev) => prev.filter((p) => p.id !== deletingSbPeriod.id));
+      setDeletingSbPeriod(null);
+    } catch (err) {
+      setSbPeriodDeleteError(err instanceof ApiError ? err.message : 'Could not delete the period. Please try again.');
+    } finally {
+      setSbPeriodDeleting(false);
+    }
+  }
+
   async function handleDuplicateWindowSubmit(e: FormEvent) {
     e.preventDefault();
     setDuplicateWindowError(null);
@@ -302,6 +408,7 @@ export function SettingsPage() {
   }
 
   const sortedPeriods = [...periods].sort((a, b) => (a.start_date < b.start_date ? -1 : a.start_date > b.start_date ? 1 : 0));
+  const sortedSbPeriods = [...summerBanPeriods].sort((a, b) => (a.start_date < b.start_date ? -1 : a.start_date > b.start_date ? 1 : 0));
 
   return (
     <div>
@@ -335,7 +442,7 @@ export function SettingsPage() {
               placeholder="e.g. 8.5"
             />
             {currentHours !== null && (
-              <p className="text-xs text-slate-400">Currently set to {currentHours}h for today.</p>
+              <p className="text-xs text-slate-400">Currently set to {formatDurationHM(currentHours * 60)} for today.</p>
             )}
 
             {hoursError && (
@@ -384,7 +491,7 @@ export function SettingsPage() {
               placeholder="e.g. 6"
             />
             <p className="text-xs text-slate-400">
-              {currentRamzanHours !== null ? `Currently set to ${currentRamzanHours}h.` : 'Not customized yet — defaults to 6h.'}
+              {currentRamzanHours !== null ? `Currently set to ${formatDurationHM(currentRamzanHours * 60)}.` : `Not customized yet — defaults to ${formatDurationHM(360)}.`}
             </p>
 
             {periodError && (
@@ -400,6 +507,44 @@ export function SettingsPage() {
 
             <Button type="submit" disabled={periodSubmitting} className="w-full">
               {periodSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Declaring…</>) : 'Declare Period'}
+            </Button>
+          </form>
+        </Card>
+
+        <Card className="p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Sun className="h-5 w-5 text-slate-400" />
+            <h2 className="text-base font-semibold text-slate-900">Declare Summer Ban Period</h2>
+          </div>
+          <p className="mb-4 text-sm text-slate-500">
+            While declared, Outdoor tasks cannot be punched in or out between 12:00pm–4:00pm, and any overlap with
+            that window is subtracted from an Outdoor task's counted working hours. Indoor tasks are never affected.
+            Start date cannot be earlier than today; no restriction on how far in the future or how long the period runs.
+          </p>
+
+          <form onSubmit={handleSbPeriodSubmit} className="space-y-4">
+            <Input value={sbStartDate} onChange={setSbStartDate} label="Start Date" id="summer-ban-start" type="date" />
+            <Input value={sbEndDate} onChange={setSbEndDate} label="End Date" id="summer-ban-end" type="date" />
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-slate-700">Declared By</span>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+                {session?.name ?? session?.empId}
+              </div>
+            </div>
+
+            {sbPeriodError && (
+              <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+                <XCircle className="h-4 w-4 shrink-0" />{sbPeriodError}
+              </div>
+            )}
+            {sbPeriodSuccess && (
+              <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />Period declared.
+              </div>
+            )}
+
+            <Button type="submit" disabled={sbPeriodSubmitting} className="w-full">
+              {sbPeriodSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Declaring…</>) : 'Declare Period'}
             </Button>
           </form>
         </Card>
@@ -555,6 +700,71 @@ export function SettingsPage() {
       </div>
 
       <div className="mt-6">
+        <div className="mb-4 flex items-center gap-2">
+          <Sun className="h-5 w-5 text-slate-400" />
+          <h2 className="text-base font-semibold text-slate-900">Declared Summer Ban Periods</h2>
+          <Badge variant="neutral">{sortedSbPeriods.length}</Badge>
+        </div>
+
+        {sortedSbPeriods.length === 0 ? (
+          <Card className="p-6">
+            <EmptyState icon={<Sun className="h-6 w-6" />} title="No periods declared" message="Declare a Summer Ban period using the form above." />
+          </Card>
+        ) : (
+          <Card className="divide-y divide-slate-100">
+            {sortedSbPeriods.map((p) => {
+              const declarer = employees.find((e) => e.emp_id === p.declared_by);
+              const isPast = p.end_date < TODAY;
+              const isActive = p.active && p.start_date <= TODAY && TODAY <= p.end_date;
+              const statusLabel = !p.active ? 'Deactivated' : isActive ? 'Active now' : isPast ? 'Past' : 'Upcoming';
+              const statusVariant = !p.active ? 'neutral' : isActive ? 'accent' : isPast ? 'neutral' : 'info';
+              return (
+                <div key={p.id} className="flex items-center justify-between gap-4 p-5">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">
+                      {formatDate(p.start_date)} – {formatDate(p.end_date)}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Declared by {declarer?.name ?? p.declared_by} · {formatDate(p.declared_at)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={statusVariant}>{statusLabel}</Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleToggleSbActive(p)}
+                      disabled={togglingSbPeriodId === p.id}
+                      className="!px-2 !py-1"
+                    >
+                      {togglingSbPeriodId === p.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : p.active ? (
+                        <PowerOff className="h-3.5 w-3.5" />
+                      ) : (
+                        <Power className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => openEditSbPeriod(p)} className="!px-2 !py-1">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setSbPeriodDeleteError(null); setDeletingSbPeriod(p); }}
+                      className="!px-2 !py-1 text-rose-600 hover:bg-rose-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </Card>
+        )}
+      </div>
+
+      <div className="mt-6">
         <Card className="border-rose-200 p-6">
           <div className="mb-2 flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-rose-500" />
@@ -629,6 +839,62 @@ export function SettingsPage() {
             className="flex-1 bg-rose-600 hover:bg-rose-700 focus-visible:outline-rose-600"
           >
             {periodDeleting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Deleting…</>) : (<><Trash2 className="h-4 w-4" /> Delete Period</>)}
+          </Button>
+        </div>
+      </Modal>
+
+      <Modal open={editingSbPeriod !== null} onClose={() => setEditingSbPeriod(null)} title="Edit Summer Ban Period">
+        <form onSubmit={handleEditSbSubmit} className="space-y-4">
+          <Input value={editSbStartDate} onChange={setEditSbStartDate} label="Start Date" id="edit-summer-ban-start" type="date" />
+          <Input value={editSbEndDate} onChange={setEditSbEndDate} label="End Date" id="edit-summer-ban-end" type="date" />
+          <p className="text-xs text-slate-400">
+            Editing doesn't retroactively change any confirmation-sheet rows already generated for dates in this
+            period — only reports generated after this edit reflect the new dates.
+          </p>
+
+          {editSbError && (
+            <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+              <XCircle className="h-4 w-4 shrink-0" />{editSbError}
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-1">
+            <Button type="button" variant="secondary" onClick={() => setEditingSbPeriod(null)} disabled={editSbSubmitting} className="flex-1">
+              Cancel
+            </Button>
+            <Button type="submit" disabled={editSbSubmitting} className="flex-1">
+              {editSbSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>) : 'Save Changes'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={deletingSbPeriod !== null} onClose={() => setDeletingSbPeriod(null)} title="Delete this Summer Ban period?">
+        <p className="mb-4 text-sm text-slate-600">
+          {deletingSbPeriod && (
+            <>This permanently removes the{' '}
+              <span className="font-medium text-slate-900">{formatDate(deletingSbPeriod.start_date)} – {formatDate(deletingSbPeriod.end_date)}</span>
+              {' '}period. Confirmation-sheet rows already generated for dates inside it are not affected — only future
+              report generation stops applying it. This cannot be undone.</>
+          )}
+        </p>
+
+        {sbPeriodDeleteError && (
+          <div className="mb-4 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+            <XCircle className="h-4 w-4 shrink-0" />{sbPeriodDeleteError}
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <Button variant="secondary" onClick={() => setDeletingSbPeriod(null)} disabled={sbPeriodDeleting} className="flex-1">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmDeleteSbPeriod}
+            disabled={sbPeriodDeleting}
+            className="flex-1 bg-rose-600 hover:bg-rose-700 focus-visible:outline-rose-600"
+          >
+            {sbPeriodDeleting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Deleting…</>) : (<><Trash2 className="h-4 w-4" /> Delete Period</>)}
           </Button>
         </div>
       </Modal>

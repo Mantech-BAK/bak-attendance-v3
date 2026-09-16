@@ -3,6 +3,7 @@ const multer = require('multer');
 const ExcelJS = require('exceljs');
 const pool = require('../db');
 const { getTodaysTasks, getTasksForDate, createTask, createTasksBulk, TaskValidationError } = require('../services/tasks');
+const { getOpenPunchForDate } = require('../services/attendance');
 const { buildTaskTemplateWorkbook, processBulkUpload } = require('../services/taskBulkUpload');
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 const { resolveBackofficeEmpId } = requireBackofficeAuth;
@@ -38,10 +39,10 @@ const uploadExcel = multer({
 // authenticated admin shouldn't be able to attribute a task to someone else.
 router.post('/', async (req, res, next) => {
   try {
-    const { emp_id, project_code, priority, description, location_site, source, created_by } = req.body;
+    const { emp_id, project_code, priority, description, location_site, source, created_by, is_outdoor, shift_type } = req.body;
     const backofficeEmpId = await resolveBackofficeEmpId(req);
     const task = await createTask({
-      emp_id, project_code, priority, description, location_site, source,
+      emp_id, project_code, priority, description, location_site, source, is_outdoor, shift_type,
       created_by: backofficeEmpId || created_by,
     });
     res.status(201).json(task);
@@ -183,6 +184,7 @@ router.get('/', requireBackofficeAuth, async (req, res, next) => {
     const result = await pool.query(
       `SELECT t.id, t.display_id, t.emp_id, e."EmpName" AS employee_name, t.project_code, p.project_name,
               t.task_date::text AS task_date, t.priority, t.description, t.location_site, t.status, t.source, t.created_by, t.created_at,
+              t.shift_type,
               (SELECT count(*)::int FROM punches pu WHERE pu.task_id = t.id AND pu.approval_status <> 'rejected') AS punch_count
        FROM tasks t
        LEFT JOIN employees e ON e."EmpId" = t.emp_id
@@ -288,9 +290,9 @@ router.post('/bulk-upload', requireBackofficeAuth, uploadExcel.single('file'), a
 // authenticated admin, never read from the request body.
 router.post('/bulk-assign', requireBackofficeAuth, async (req, res, next) => {
   try {
-    const { emp_ids, project_code, priority, description, location_site } = req.body;
+    const { emp_ids, project_code, priority, description, location_site, is_outdoor, shift_type } = req.body;
     const result = await createTasksBulk({
-      emp_ids, project_code, priority, description, location_site,
+      emp_ids, project_code, priority, description, location_site, is_outdoor, shift_type,
       source: 'backoffice',
       created_by: req.backofficeEmpId,
     });
@@ -309,9 +311,13 @@ router.post('/bulk-assign', requireBackofficeAuth, async (req, res, next) => {
 // never an arbitrary task/project off a free dropdown. Deliberately NOT
 // deduped by project_code — two tasks sharing a project are two separate,
 // independently punchable selections now that punches track task_id.
-router.get('/punchable-tasks', requireBackofficeAuth, async (req, res, next) => {
+// Dual-authorized (2026-09-14, same pattern as PATCH /:id/approve and PUT
+// /:id in routes/punches.js): a backoffice admin, or a supervisor fetching
+// their own direct report's tasks to power the mobile Review Attendance
+// Edit action's task picker, via supervisor_emp_id.
+router.get('/punchable-tasks', async (req, res, next) => {
   try {
-    const { emp_id, date } = req.query;
+    const { emp_id, date, supervisor_emp_id } = req.query;
     if (!emp_id) {
       return res.status(400).json({ error: 'emp_id is required' });
     }
@@ -319,13 +325,29 @@ router.get('/punchable-tasks', requireBackofficeAuth, async (req, res, next) => 
       return res.status(400).json({ error: 'date is required in YYYY-MM-DD format' });
     }
 
-    const employeeResult = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
+    const employeeResult = await pool.query('SELECT "EmpId" AS emp_id, "EmpReportMgrId" AS reporting_manager_emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
     if (employeeResult.rows.length === 0) {
       return res.status(404).json({ error: `employee ${emp_id} not found` });
     }
 
+    const backofficeEmpId = await resolveBackofficeEmpId(req);
+    if (!backofficeEmpId) {
+      if (!supervisor_emp_id) {
+        return res.status(400).json({ error: 'supervisor_emp_id is required' });
+      }
+      if (employeeResult.rows[0].reporting_manager_emp_id !== supervisor_emp_id) {
+        return res.status(403).json({ error: `${supervisor_emp_id} is not the reporting manager for ${emp_id}` });
+      }
+    }
+
     const tasks = await getTasksForDate(emp_id, date);
-    res.json({ emp_id, date, tasks });
+    // Lets the Add Punch modal (2026-09-14) determine, for whatever
+    // task/project it currently has selected, whether the punch about to be
+    // added would be a CLOSING one — the same fact POST /admin-correction
+    // itself re-derives and enforces server-side regardless of this hint,
+    // same relationship as GET /punches/today-status to mobile's POST /.
+    const open = await getOpenPunchForDate(emp_id, date);
+    res.json({ emp_id, date, tasks, open_task_id: open?.task_id ?? null, open_project_code: open?.project_code ?? null });
   } catch (err) {
     next(err);
   }

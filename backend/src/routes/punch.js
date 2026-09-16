@@ -2,7 +2,7 @@ const express = require('express');
 const { getTodaysTasks } = require('../services/tasks');
 const { verifyEmployeeCredentials, getEmployeeById } = require('../services/identify');
 const { identifyByFace, verifyFaceForEmployee } = require('../services/faceMatch');
-const { getEmergencyTimeAllowance, isWithinEmergencyWindow, utcHHMMToLocalHHMM } = require('../services/settings');
+const { getEmergencyTimeAllowance, isWithinEmergencyWindow, utcHHMMToLocalHHMM, getAllSettings, parseSummerBanPeriods, isWithinSummerBan, localDateKey } = require('../services/settings');
 
 const router = express.Router();
 
@@ -23,6 +23,23 @@ router.get('/emergency-window', async (req, res, next) => {
       isWithinEmergencyWindow(),
     ]);
     res.json({ start: utcHHMMToLocalHHMM(start), end: utcHHMMToLocalHHMM(end), is_open: isOpen });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Read-only, unauthenticated, same reasoning as /emergency-window above —
+// lets task-creation UIs (mobile Create Team Task / Emergency Task) know
+// whether to surface the Indoor/Outdoor question at all (2026-09-14): it's
+// only asked while a Summer Ban period is declared AND active for today's
+// real Asia/Riyadh calendar date, never otherwise. POST /api/tasks itself
+// re-derives this same fact server-side regardless of what the client saw.
+router.get('/summer-ban-status', async (req, res, next) => {
+  try {
+    const settingsMap = await getAllSettings();
+    const periods = parseSummerBanPeriods(settingsMap);
+    const active = isWithinSummerBan(localDateKey(new Date()), periods);
+    res.json({ active });
   } catch (err) {
     next(err);
   }
