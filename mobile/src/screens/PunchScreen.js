@@ -739,7 +739,7 @@ export default function PunchScreen() {
                 <Ionicons name="person-circle" size={26} color="#2563eb" />
               </TouchableOpacity>
             )}
-            <Text style={[styles.title, employee && styles.titleWithLogout]}>BAK Attendance</Text>
+            <Text style={[styles.title, employee && styles.titleWithLogout]}>BAK Manpower Management</Text>
           </View>
           {employee && (
             <TouchableOpacity style={styles.topLogoutButton} onPress={resetToIdle}>
