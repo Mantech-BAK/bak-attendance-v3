@@ -17,6 +17,7 @@
     "expo-image-manipulator": "~57.0.13",
     "expo-location": "~57.0.6",
     "expo-status-bar": "~57.0.1",
+    "expo-updates": "~57.0.22",
     "react": "19.2.3",
     "react-native": "0.86.0",
     "react-native-fast-tflite": "^3.0.1",
