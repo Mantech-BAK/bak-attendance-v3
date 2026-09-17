@@ -131,6 +131,7 @@ export default function FaceRegistrationModal({ visible, empId, onComplete, onCa
   return (
     <FaceCaptureCamera
       visible
+      showFrameGuide
       instructionText={`Step ${stepNumber} of ${totalSteps}: ${currentStep.label}${errorMessage ? `\n${errorMessage}` : ''}`}
       onCapture={handleCapture}
       onCancel={handleCancel}

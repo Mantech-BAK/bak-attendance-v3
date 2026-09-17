@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
+import useKeyboardHeight from '../hooks/useKeyboardHeight';
 
 // TEMPORARY TESTING MEASURE — typed { empId, loginCode } identification
 // standing in for real face capture. See backend/src/routes/punch.js for
@@ -32,6 +33,7 @@ import { Ionicons } from '@expo/vector-icons';
 // re-validation, where who's punching is already known and re-typing an id
 // that isn't itself secret would be pure friction with no security value.
 export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 'Enter Employee Code', directReports, fixedEmpId }) {
+  const keyboardHeight = useKeyboardHeight();
   const hasDirectReportsPicker = Array.isArray(directReports) && directReports.length > 0;
   const [empId, setEmpId] = useState('');
   const [loginCode, setLoginCode] = useState('');
@@ -72,7 +74,7 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
         style={styles.backdrop}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, Platform.OS === 'android' && { marginBottom: keyboardHeight }]}>
           <View style={styles.headingRow}>
             <Ionicons name="key-outline" size={20} color="#111827" />
             <Text style={styles.heading}>{title}</Text>

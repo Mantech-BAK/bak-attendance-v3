@@ -25,7 +25,6 @@ const multer = require('multer');
 const {
   uploadPunchPhoto,
   getSignedUrls,
-  OUT_PHOTO_WINDOW_HOURS,
 } = require('../services/punchPhotoStorage');
 
 const router = express.Router();
@@ -444,48 +443,17 @@ router.post('/', async (req, res, next) => {
       return res.status(400).json({ error: 'out_remark is only valid on the closing punch.' });
     }
 
-    // Mandatory in/out task photos (2026-09-14). Scoped to real tasks only
-    // (target.task_id set) — the department-default fallback (no task
-    // assigned that day) isn't "a task" in this feature's sense, so it's
-    // never gated either as the thing needing a photo or the thing being
-    // blocked from opening.
-    if (isClosingPunch && target.task_id) {
-      // The in-punch is whatever's currently open for this task — same row
-      // checkOpenConflict/getOpenPunchForDate above already confirmed is
-      // the one this punch is closing.
-      const inPunchResult = await pool.query(
-        'SELECT id, photo_path FROM punches WHERE task_id = $1 ORDER BY punch_time ASC LIMIT 1',
-        [target.task_id]
-      );
-      if (inPunchResult.rows.length > 0 && !inPunchResult.rows[0].photo_path) {
-        return res.status(403).json({
-          error: 'An in-photo is required before punching out. Upload it first.',
-          in_punch_id: inPunchResult.rows[0].id,
-        });
-      }
-    }
-    if (!isClosingPunch && target.task_id) {
-      // Blocks starting a DIFFERENT real task while a just-closed one's
-      // out-photo is still owed and its window hasn't lapsed yet. Once the
-      // window lapses, missingPunchPhotoCron raises a missing_punch_photo
-      // exception instead and this stops blocking anything — never carries
-      // into a future shift (see punchPhotoStorage.js's OUT_PHOTO_WINDOW_HOURS
-      // comment).
-      const owedPhotoResult = await pool.query(
-        `SELECT p.id FROM punches p
-         WHERE p.emp_id = $1 AND p.task_id IS NOT NULL AND p.photo_path IS NULL
-           AND p.punch_time > now() - ($2 || ' hours')::interval
-           AND EXISTS (SELECT 1 FROM punches p2 WHERE p2.task_id = p.task_id AND p2.punch_time < p.punch_time)
-         LIMIT 1`,
-        [emp_id, OUT_PHOTO_WINDOW_HOURS]
-      );
-      if (owedPhotoResult.rows.length > 0) {
-        return res.status(403).json({
-          error: `An out-photo is still owed for a recently closed task. Upload it within ${OUT_PHOTO_WINDOW_HOURS}h of closing, or before starting a different task.`,
-          out_punch_id: owedPhotoResult.rows[0].id,
-        });
-      }
-    }
+    // Task photos are optional (reversed 2026-09-16, real physical-device
+    // testing — previously mandatory here as of 2026-09-14). Punching in
+    // and out never blocks on a missing photo anymore; whether a photo can
+    // still be ADDED after the fact is instead enforced at upload time
+    // (POST /:id/photo below), scoped to exactly the two cases product
+    // called out: not after the task's own out-punch already happened
+    // (in-photo), not after a different task has since been punched into
+    // (out-photo). missingPunchPhotoCron still raises a missing_punch_photo
+    // exception for a photo that was never added — optional at punch time
+    // doesn't mean nobody should know it's missing, just that it no longer
+    // blocks anything.
 
     // A supervisor's own punch auto-approves exactly like one they enter on
     // a direct report's behalf — this branch was missing until a real
@@ -615,6 +583,33 @@ router.post('/:id/photo', uploadPhoto.single('photo'), async (req, res, next) =>
       [punch.task_id, punch.punch_time]
     );
     const role = priorCountResult.rows[0].cnt === 0 ? 'in' : 'out';
+
+    // Photos are optional at punch time (2026-09-16), but a photo can still
+    // only be added within the same window it always could — these are the
+    // two cases product called out explicitly, not a general time cutoff:
+    // an in-photo can't be added once the task's own out-punch already
+    // happened, and an out-photo can't be added once a different task has
+    // since been punched into.
+    if (role === 'in') {
+      const outPunchExistsResult = await pool.query(
+        `SELECT id FROM punches WHERE task_id = $1 AND approval_status <> 'rejected' AND punch_time > $2 LIMIT 1`,
+        [punch.task_id, punch.punch_time]
+      );
+      if (outPunchExistsResult.rows.length > 0) {
+        return res.status(409).json({ error: 'This task has already been closed — an in-photo can no longer be added.' });
+      }
+    } else {
+      const laterDifferentTaskResult = await pool.query(
+        `SELECT id FROM punches
+         WHERE emp_id = $1 AND approval_status <> 'rejected' AND task_id IS NOT NULL AND task_id <> $2
+           AND punch_time > $3
+         LIMIT 1`,
+        [punch.emp_id, punch.task_id, punch.punch_time]
+      );
+      if (laterDifferentTaskResult.rows.length > 0) {
+        return res.status(409).json({ error: 'A different task has already been started — this out-photo can no longer be added.' });
+      }
+    }
 
     const photoPath = await uploadPunchPhoto(punch.id, role, req.file.buffer, req.file.mimetype);
 

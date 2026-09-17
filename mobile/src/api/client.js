@@ -1,3 +1,4 @@
+import { File } from 'expo-file-system';
 import { API_BASE_URL } from '../config';
 
 /**
@@ -169,14 +170,16 @@ export function submitPunch({ empId, taskId, projectCode, lat, lng, enteredBy, o
 // from punch ordering, never trusts it from the client. React Native's
 // fetch/FormData accepts this { uri, name, type } shape directly — no Blob
 // conversion needed.
+// Appending a bare { uri, name, type } object (the pre-New-Architecture
+// pattern) throws "Unsupported FormDataPart implementation" on real
+// devices with the New Architecture's networking layer (confirmed
+// 2026-09-16, physical-device testing — never surfaced on the emulator).
+// expo-file-system's File class properly implements Blob, which RN's
+// native FormData serialization does recognize.
 export function uploadPunchPhoto(punchId, empId, photoUri) {
   const formData = new FormData();
   formData.append('emp_id', empId);
-  formData.append('photo', {
-    uri: photoUri,
-    name: 'punch-photo.jpg',
-    type: 'image/jpeg',
-  });
+  formData.append('photo', new File(photoUri), 'punch-photo.jpg');
   return request(`/api/punches/${punchId}/photo`, {
     method: 'POST',
     body: formData,

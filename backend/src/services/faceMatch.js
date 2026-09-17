@@ -10,7 +10,7 @@ const pool = require('../db');
 // than trying to migrate old data — confirmed empty on both DBs before this
 // change shipped.
 const EMBEDDING_LENGTH = 192;
-const MATCH_THRESHOLD = 0.75;
+const MATCH_THRESHOLD = 0.70; // lowered from 0.75 (2026-09-16, real physical-device testing)
 
 function isValidEmbedding(embedding) {
   return (

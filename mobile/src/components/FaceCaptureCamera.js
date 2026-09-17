@@ -5,9 +5,20 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 // Revives the deleted CameraCapture.js (git history, replaced by the typed
 // { emp_id, login_code } form when face recognition was a stub) as the
 // low-level capture surface for the real Face ID feature. Reused by both
-// single-shot verification and the multi-step guided registration flow —
-// instructionText is the only thing that differs between steps.
-export default function FaceCaptureCamera({ visible, instructionText, onCapture, onCancel }) {
+// single-shot verification/re-validation and the multi-step guided
+// registration flow — instructionText is the only thing that used to
+// differ between steps.
+//
+// showFrameGuide (2026-09-16, real physical-device testing): the oval
+// framing guide is now registration-only. On real devices it was
+// positioned too low relative to where the face actually appears (its
+// wrapper was centered against the FULL container height, including the
+// bottom controls bar's space, rather than just the camera-visible area
+// above it — see previewArea below) and wasn't actually helping identify/
+// re-validate captures, only adding visual noise; registration is where a
+// framing aid is worth the trouble, since it's a one-time guided flow, not
+// a repeated quick capture.
+export default function FaceCaptureCamera({ visible, instructionText, showFrameGuide = false, onCapture, onCancel }) {
   const cameraRef = useRef(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [isCameraReady, setIsCameraReady] = useState(false);
@@ -46,29 +57,36 @@ export default function FaceCaptureCamera({ visible, instructionText, onCapture,
           </View>
         ) : (
           <>
-            <CameraView
-              ref={cameraRef}
-              style={styles.camera}
-              facing="front"
-              onCameraReady={() => setIsCameraReady(true)}
-            />
-            {/* Framing guide + a standing lighting/steadiness tip, always
-                visible during capture — added alongside the post-capture
-                quality checks in faceModel.js (2026-09-14): guiding a good
-                capture up front, not just rejecting a bad one after the
-                fact, address the real-data finding that inconsistent
-                capture conditions were the main driver of Face ID misses. */}
-            <View style={styles.frameGuideWrapper} pointerEvents="none">
-              <View style={styles.frameGuide} />
-            </View>
-            <View style={styles.tipBanner} pointerEvents="none">
-              <Text style={styles.tipText}>Face a light source · fill the oval · hold steady</Text>
-            </View>
-            {instructionText ? (
-              <View style={styles.instructionBanner}>
-                <Text style={styles.instructionText}>{instructionText}</Text>
+            {/* previewArea (not the outer container) is what the framing
+                guide centers against — it's sized to exactly the space
+                above the controls bar, matching the CameraView's own
+                visible bounds. Centering against the outer container
+                instead (the previous bug) counted the controls bar's
+                height into the centering math, pushing the guide visibly
+                lower than where the camera image actually is. */}
+            <View style={styles.previewArea}>
+              <CameraView
+                ref={cameraRef}
+                style={styles.camera}
+                facing="front"
+                onCameraReady={() => setIsCameraReady(true)}
+              />
+              {showFrameGuide && (
+                <View style={styles.frameGuideWrapper} pointerEvents="none">
+                  <View style={styles.frameGuide} />
+                </View>
+              )}
+              <View style={styles.tipBanner} pointerEvents="none">
+                <Text style={styles.tipText}>
+                  {showFrameGuide ? 'Face a light source · fill the oval · hold steady' : 'Face a light source · hold steady'}
+                </Text>
               </View>
-            ) : null}
+              {instructionText ? (
+                <View style={styles.instructionBanner}>
+                  <Text style={styles.instructionText}>{instructionText}</Text>
+                </View>
+              ) : null}
+            </View>
             <View style={styles.controls}>
               <TouchableOpacity style={styles.secondaryButton} onPress={onCancel}>
                 <Text style={styles.secondaryButtonText}>Cancel</Text>
@@ -91,6 +109,7 @@ export default function FaceCaptureCamera({ visible, instructionText, onCapture,
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
+  previewArea: { flex: 1 },
   camera: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   message: { color: '#fff', fontSize: 16, textAlign: 'center', marginBottom: 16 },

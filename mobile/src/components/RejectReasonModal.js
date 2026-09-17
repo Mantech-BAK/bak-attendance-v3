@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import useKeyboardHeight from '../hooks/useKeyboardHeight';
 
 export default function RejectReasonModal({
   visible,
@@ -19,6 +20,7 @@ export default function RejectReasonModal({
   title = 'Reject Punch',
   placeholder = 'Why is this punch being rejected?',
 }) {
+  const keyboardHeight = useKeyboardHeight();
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -53,7 +55,7 @@ export default function RejectReasonModal({
         style={styles.backdrop}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, Platform.OS === 'android' && { marginBottom: keyboardHeight }]}>
           <View style={styles.headingRow}>
             <Ionicons name="close-circle-outline" size={20} color="#dc2626" />
             <Text style={styles.heading}>{title}</Text>

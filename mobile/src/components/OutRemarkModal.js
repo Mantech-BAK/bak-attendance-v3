@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import useKeyboardHeight from '../hooks/useKeyboardHeight';
 
 const MAX_LENGTH = 500;
 
@@ -21,6 +22,7 @@ const MAX_LENGTH = 500;
 // actual punch submission (and its error handling) happens after this
 // modal resolves, same pattern as the self-revalidation prompt.
 export default function OutRemarkModal({ visible, subjectName, onSubmit, onCancel }) {
+  const keyboardHeight = useKeyboardHeight();
   const [remark, setRemark] = useState('');
   const [error, setError] = useState(null);
 
@@ -50,7 +52,7 @@ export default function OutRemarkModal({ visible, subjectName, onSubmit, onCance
         style={styles.backdrop}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, Platform.OS === 'android' && { marginBottom: keyboardHeight }]}>
           <View style={styles.headingRow}>
             <Ionicons name="checkmark-done-circle-outline" size={20} color="#2563eb" />
             <Text style={styles.heading}>{subjectName ? `Closing Remark for ${subjectName}` : 'Closing Remark'}</Text>

@@ -39,7 +39,20 @@ function CurrentPage() {
 }
 
 function AppContent() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isInitializing } = useAuth();
+
+  // Neither logged-in nor logged-out yet — just checking localStorage for
+  // an existing session (see auth.tsx's isInitializing comment). A brief,
+  // obviously-a-spinner beat here reads as "loading"; falling through to
+  // LoginPage instead (the previous behavior) reads as "got logged out" or
+  // "stuck", even when the real session shows up moments later.
+  if (isInitializing) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-teal-600" />
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <LoginPage />;

@@ -3,6 +3,8 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
+  KeyboardAvoidingView,
+  Platform,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -727,7 +729,11 @@ export default function PunchScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <View style={[styles.headerRow, { justifyContent: employee ? 'space-between' : 'center' }]}>
           <View style={styles.headerLeft}>
             {employee && (
@@ -775,6 +781,7 @@ export default function PunchScreen() {
           </View>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <IdentifyMethodChooser
         visible={showIdentifyChooser}
@@ -882,6 +889,7 @@ export default function PunchScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#f3f4f6' },
+  keyboardAvoider: { flex: 1 },
   scrollContent: { flexGrow: 1, alignItems: 'center', padding: 20 },
   headerRow: {
     width: '100%',
