@@ -4,10 +4,8 @@ const {
   getEffectiveThreshold, applyNestedSubtraction, punchKey, buildSessionFromPunches,
   dateKey, fetchPunchRowsForDate,
 } = require('./attendance');
-const { getDefaultProjectByEmpIdMap } = require('./tasks');
 
 const DEFAULT_MAX_OT_MINUTES = 600; // 10 hours, used only if max_ot_minutes is somehow missing
-const UNASSIGNED_LABEL = 'UNASSIGNED — no default project configured';
 
 // Every OT display surface (mobile OvertimeApprovalsCard, backoffice
 // Dashboard Overtime Alerts, backoffice ApprovalsPage) rounds ot hours to
@@ -160,7 +158,7 @@ function buildSessionsForDay(punchRows, empId, date, { isOutdoorByTaskId, summer
  */
 function computeEmployeeDay({
   employee, date, punchRows, settingsMap, ramzanPeriods, isOutdoorByTaskId, summerBanPeriods, shiftTypeByTaskId,
-  sourceByTaskId = new Map(), defaultProject = null,
+  sourceByTaskId = new Map(),
 }) {
   const threshold = getEffectiveThreshold({
     religion: employee.religion,
@@ -215,45 +213,25 @@ function computeEmployeeDay({
       const next = topLevel[i + 1];
       const gapMinutes = Math.round((next.punch_in.punch_time - session.punch_out.punch_time) / 60000);
 
-      // Every gap, any length, becomes its own row — no gap-length
-      // threshold (2026-09-15). A non-positive gap (overlapping/adjacent
-      // punches) still produces nothing, same as before.
+      // Every gap, any length, becomes its own "Travelling Time" row — no
+      // gap-length threshold (2026-09-15). A non-positive gap (overlapping/
+      // adjacent punches) still produces nothing, same as before.
       //
-      // Two shapes, depending on what's on either side of the gap
-      // (2026-09-15): between two admin/supervisor-created tasks, it's a
-      // "Travelling Time" row carrying the SECOND task's own project. Next
-      // to an Emergency Task (source 'employee_self') on either side, it
-      // instead reverts to the ORIGINAL pre-2026-08-30 behavior — its own
-      // row attributed to the employee's department default project (or an
-      // UNASSIGNED placeholder if none is configured) — since an
-      // emergency-created task has no real "next scheduled task" to travel
-      // toward, the way an admin/supervisor-planned one does.
+      // Next to an Emergency Task (source 'employee_self') on either side,
+      // the gap is omitted entirely instead (2026-09-17 correction — the
+      // previous "attributed to default project" row here was reverting to
+      // pre-existing intended behavior for that case, not a bug; product
+      // then decided that gap shouldn't appear as a row, or count toward
+      // worked time, at all) — an emergency-created task has no real "next
+      // scheduled task" to travel toward, the way an admin/supervisor-
+      // planned one does, so there's nothing real to attribute this time to.
       if (gapMinutes > 0) {
-        totalWorkedMinutes += gapMinutes;
         const isEmergencyAdjacent =
           sourceByTaskId.get(session.task_id) === 'employee_self' ||
           sourceByTaskId.get(next.task_id) === 'employee_self';
 
-        if (isEmergencyAdjacent) {
-          rows.push({
-            // Real default project: project_name left null so the caller's
-            // existing generic fill (projectsByCode, same as every other
-            // row) populates both project_name and cost_center — no default
-            // project configured: no real project_code to look up, so the
-            // UNASSIGNED label is set directly here instead.
-            project_code: defaultProject ? defaultProject.project_code : null,
-            project_name: defaultProject ? null : UNASSIGNED_LABEL,
-            task_id: null,
-            cost_center: null,
-            start_time: session.punch_out.punch_time,
-            end_time: next.punch_in.punch_time,
-            working_minutes: gapMinutes,
-            remarks: `Gap of ${formatDurationShort(gapMinutes)} between projects — attributed to default project`,
-            out_remark: null,
-            is_ot_row: false,
-            ot_minutes: 0,
-          });
-        } else {
+        if (!isEmergencyAdjacent) {
+          totalWorkedMinutes += gapMinutes;
           rows.push({
             project_code: next.project_code,
             project_name: null, // filled in by the caller, same as any other row
@@ -425,7 +403,7 @@ async function ensureOtApproval({ empId, date, workedMinutes, thresholdMinutes, 
  * nightly cron.
  */
 async function generateConfirmationSheetRows(date) {
-  const [settingsMap, employeesResult, projectsResult, tasksResult, otApprovalsResult, defaultProjectByEmpId] = await Promise.all([
+  const [settingsMap, employeesResult, projectsResult, tasksResult, otApprovalsResult] = await Promise.all([
     getAllSettings(),
     pool.query(
       `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, g.designation_name AS designation,
@@ -440,7 +418,6 @@ async function generateConfirmationSheetRows(date) {
     pool.query('SELECT project_code, project_name, cost_center FROM projects'),
     pool.query('SELECT id, display_id, description, is_outdoor, shift_type, source FROM tasks'),
     pool.query('SELECT emp_id, status, approved_by FROM ot_approvals WHERE work_date = $1', [date]),
-    getDefaultProjectByEmpIdMap(),
   ]);
 
   const ramzanPeriods = parseRamzanPeriods(settingsMap);
@@ -450,8 +427,8 @@ async function generateConfirmationSheetRows(date) {
   const isOutdoorByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.is_outdoor === true]));
   const shiftTypeByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.shift_type]));
   // Source per task (2026-09-15) — a gap next to an Emergency Task (source
-  // 'employee_self') reverts to the original default-project gap handling
-  // instead of becoming a "Travelling Time" row; see computeEmployeeDay.
+  // 'employee_self') is omitted entirely instead of becoming a "Travelling
+  // Time" row; see computeEmployeeDay.
   const sourceByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.source]));
   const otStatusByEmp = new Map(otApprovalsResult.rows.map((o) => [o.emp_id, { status: o.status, approvedBy: o.approved_by }]));
 
@@ -475,7 +452,7 @@ async function generateConfirmationSheetRows(date) {
 
     const { rows, totalWorkedMinutes, thresholdMinutes, otMinutes } = computeEmployeeDay({
       employee, date, punchRows, settingsMap, ramzanPeriods, isOutdoorByTaskId, summerBanPeriods, shiftTypeByTaskId,
-      sourceByTaskId, defaultProject: defaultProjectByEmpId.get(employee.emp_id) ?? null,
+      sourceByTaskId,
     });
 
     for (const row of rows) {
