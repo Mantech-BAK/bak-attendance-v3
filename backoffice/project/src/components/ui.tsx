@@ -13,7 +13,11 @@ export function Card({
 }) {
   return (
     <div
-      className={cn('rounded-2xl border border-slate-200 bg-white shadow-sm', className)}
+      className={cn(
+        'rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/50 transition-shadow duration-200',
+        onClick && 'cursor-pointer',
+        className,
+      )}
       onClick={onClick}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}

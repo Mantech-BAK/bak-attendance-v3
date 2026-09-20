@@ -64,3 +64,21 @@ export function initials(name: string): string {
     .join('')
     .toUpperCase();
 }
+
+// The one place every widget's "status → color" mapping comes from —
+// donut chart segments, stat card accents, badges — so a status reads the
+// same color everywhere on the page instead of each widget picking its own
+// shade. success = done/approved, warning = in-progress/pending, danger =
+// rejected/blocked, info = scheduled/neutral-but-notable, neutral = plain.
+export type Grade = 'success' | 'warning' | 'danger' | 'info' | 'neutral';
+
+export const GRADE: Record<
+  Grade,
+  { dot: string; stroke: string; text: string; bg: string; ring: string }
+> = {
+  success: { dot: 'bg-emerald-500', stroke: 'stroke-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50', ring: 'ring-emerald-200' },
+  warning: { dot: 'bg-amber-500', stroke: 'stroke-amber-500', text: 'text-amber-700', bg: 'bg-amber-50', ring: 'ring-amber-200' },
+  danger: { dot: 'bg-rose-500', stroke: 'stroke-rose-500', text: 'text-rose-700', bg: 'bg-rose-50', ring: 'ring-rose-200' },
+  info: { dot: 'bg-sky-500', stroke: 'stroke-sky-500', text: 'text-sky-700', bg: 'bg-sky-50', ring: 'ring-sky-200' },
+  neutral: { dot: 'bg-slate-400', stroke: 'stroke-slate-400', text: 'text-slate-600', bg: 'bg-slate-100', ring: 'ring-slate-200' },
+};

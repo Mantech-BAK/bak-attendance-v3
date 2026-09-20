@@ -31,12 +31,14 @@ export function LoginPage() {
 
       <div className="relative w-full max-w-md">
         <div className="mb-8 text-center">
-          <img src="/Screenshot_2026-07-15_102148.png" alt="BAK Mantech" className="mx-auto mb-4 h-20 w-auto object-contain" />
+          <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-2xl bg-white shadow-lg shadow-teal-900/20 ring-1 ring-white/10">
+            <img src="/Screenshot_2026-07-15_102148.png" alt="BAK Mantech" className="h-14 w-auto object-contain" />
+          </div>
           <h1 className="text-2xl font-bold tracking-tight text-white">BAK Attendance V3</h1>
-          <p className="mt-1 text-sm text-slate-400">Admin Portal</p>
+          <p className="mt-1.5 text-sm font-medium uppercase tracking-wider text-teal-400">Admin Portal</p>
         </div>
 
-        <div className="rounded-2xl border border-slate-700/50 bg-slate-800/60 p-8 shadow-2xl backdrop-blur">
+        <div className="rounded-2xl border border-slate-700/50 bg-slate-800/60 p-8 shadow-2xl shadow-black/30 backdrop-blur">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label htmlFor="empId" className="mb-2 block text-sm font-medium text-slate-200">
