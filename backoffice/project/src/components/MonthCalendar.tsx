@@ -57,13 +57,13 @@ export function MonthCalendar({
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm font-semibold text-slate-900">{monthLabel}</p>
+      <div className="mb-5 flex items-center justify-between">
+        <p className="text-sm font-bold tracking-tight text-slate-900">{monthLabel}</p>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={goPrevMonth}
-            className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-lg p-1.5 text-slate-400 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-700"
             aria-label="Previous month"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -71,7 +71,7 @@ export function MonthCalendar({
           <button
             type="button"
             onClick={goNextMonth}
-            className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-lg p-1.5 text-slate-400 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-700"
             aria-label="Next month"
           >
             <ChevronRight className="h-4 w-4" />
@@ -79,9 +79,9 @@ export function MonthCalendar({
         </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-1 text-center">
+      <div className="grid grid-cols-7 gap-1.5 text-center">
         {WEEKDAYS.map((w) => (
-          <div key={w} className="py-1 text-xs font-medium text-slate-400">{w}</div>
+          <div key={w} className="py-1 text-xs font-semibold text-slate-400">{w}</div>
         ))}
         {cells.map((cell, i) => {
           if (!cell) return <div key={`blank-${i}`} />;
@@ -94,17 +94,17 @@ export function MonthCalendar({
               key={cell.key}
               onClick={() => onDayPress?.(cell.key)}
               className={cn(
-                'flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-sm transition',
-                isToday ? 'bg-teal-600 font-semibold text-white' : 'text-slate-700',
+                'flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-sm font-medium transition-all duration-150',
+                isToday ? 'bg-gradient-to-br from-teal-500 to-teal-600 font-bold text-white shadow-sm shadow-teal-600/30' : 'text-slate-700',
                 !isToday && count > 0 && 'bg-teal-50',
-                !isToday && 'hover:bg-slate-100',
+                !isToday && 'hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-sm',
                 isSelected && !isToday && 'ring-2 ring-teal-600 ring-inset',
                 isSelected && isToday && 'ring-2 ring-slate-900 ring-inset',
               )}
             >
               <span>{cell.day}</span>
               {count > 0 && (
-                <span className={cn('text-[10px] font-semibold', isToday ? 'text-teal-50' : 'text-teal-600')}>
+                <span className={cn('text-[10px] font-bold', isToday ? 'text-teal-50' : 'text-teal-600')}>
                   {count}
                 </span>
               )}

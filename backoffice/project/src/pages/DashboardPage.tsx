@@ -133,39 +133,40 @@ export function DashboardPage() {
         subtitle={`Showing ${formatDate(selectedDate)}${isToday ? ' (today)' : ''} — click any day on the calendar to view its own numbers.`}
       />
 
-      <div className="mb-5 flex items-center gap-3">
+      <div className="mb-6 flex items-center gap-3">
         <Badge variant={isToday ? 'accent' : 'info'}>{isToday ? 'Today' : formatDate(selectedDate)}</Badge>
         {!isToday && (
           <button
             type="button"
             onClick={() => setSelectedDate(todayKey())}
-            className="text-xs font-semibold text-teal-700 underline-offset-2 hover:underline"
+            className="text-xs font-semibold text-teal-700 underline-offset-2 transition-colors duration-150 hover:text-teal-800 hover:underline"
           >
             Back to today
           </button>
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {statCards.map((s) => {
           const Icon = s.icon;
           return (
             <Card
               key={s.label}
-              className="group relative overflow-hidden p-5 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
+              className="group relative overflow-hidden p-5 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-300/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
               onClick={() => navigate(s.route)}
             >
               <div className={cn('absolute inset-x-0 top-0 h-1 bg-gradient-to-r', s.from, s.to)} />
-              <div className="flex items-center justify-between">
+              <div className={cn('pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-gradient-to-br opacity-[0.07] blur-xl transition-opacity duration-300 group-hover:opacity-[0.14]', s.from, s.to)} />
+              <div className="relative flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-slate-500">{s.label}</p>
-                  <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{s.value}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{s.label}</p>
+                  <p className="mt-2 text-4xl font-extrabold tracking-tight text-slate-900">{s.value}</p>
                 </div>
-                <div className={cn('flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm', s.from, s.to)}>
+                <div className={cn('flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-md transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3', s.from, s.to)}>
                   <Icon className="h-6 w-6" />
                 </div>
               </div>
-              <div className="mt-3 flex items-center gap-1 text-xs font-medium text-slate-400 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+              <div className="relative mt-3 flex items-center gap-1 text-xs font-semibold text-teal-600 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
                 View details <ArrowUpRight className="h-3 w-3" />
               </div>
             </Card>
@@ -176,11 +177,13 @@ export function DashboardPage() {
       {/* Status breakdown donuts — the two things this page's numbers were
           hardest to read at a glance before: what shape are today's tasks
           in, and how much of today's punch activity still needs review. */}
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card className="p-6">
-          <div className="mb-5 flex items-center gap-2">
-            <PieChart className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Task Status</h2>
+      <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card className="p-7">
+          <div className="mb-6 flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-sky-50 to-sky-100 text-sky-600 ring-1 ring-sky-100">
+              <PieChart className="h-[18px] w-[18px]" />
+            </span>
+            <h2 className="text-base font-bold tracking-tight text-slate-900">Task Status</h2>
           </div>
           {scoped.dayTasks.length === 0 ? (
             <EmptyState icon={<ClipboardList className="h-6 w-6" />} title="No tasks on this date" message="Task status breakdown will appear here." />
@@ -197,10 +200,12 @@ export function DashboardPage() {
           )}
         </Card>
 
-        <Card className="p-6">
-          <div className="mb-5 flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Punch Approvals</h2>
+        <Card className="p-7">
+          <div className="mb-6 flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-50 to-emerald-100 text-emerald-600 ring-1 ring-emerald-100">
+              <ShieldCheck className="h-[18px] w-[18px]" />
+            </span>
+            <h2 className="text-base font-bold tracking-tight text-slate-900">Punch Approvals</h2>
           </div>
           {scoped.dayPunches.length === 0 ? (
             <EmptyState icon={<Clock className="h-6 w-6" />} title="No punches on this date" message="Approval status breakdown will appear here." />
@@ -218,11 +223,13 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card className="p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <CalendarDays className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Calendar</h2>
+      <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card className="p-7">
+          <div className="mb-5 flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-teal-50 to-teal-100 text-teal-600 ring-1 ring-teal-100">
+              <CalendarDays className="h-[18px] w-[18px]" />
+            </span>
+            <h2 className="text-base font-bold tracking-tight text-slate-900">Calendar</h2>
           </div>
           <MonthCalendar
             activityByDate={activityByDate}
@@ -231,24 +238,26 @@ export function DashboardPage() {
           />
         </Card>
 
-        <Card className="p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Timer className="h-5 w-5 text-amber-500" />
-            <h2 className="text-base font-semibold text-slate-900">Overtime Alerts</h2>
+        <Card className="p-7">
+          <div className="mb-5 flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-amber-50 to-amber-100 text-amber-600 ring-1 ring-amber-100">
+              <Timer className="h-[18px] w-[18px]" />
+            </span>
+            <h2 className="text-base font-bold tracking-tight text-slate-900">Overtime Alerts</h2>
             {data.otApprovals.length > 0 && <Badge variant="warning">{data.otApprovals.length}</Badge>}
-            <span className="text-xs font-normal text-slate-400">— all pending, any date</span>
+            <span className="text-xs font-medium text-slate-400">— all pending, any date</span>
           </div>
           {data.otApprovals.length === 0 ? (
-            <div className={cn('flex items-center gap-3 rounded-xl px-4 py-3 text-sm', GRADE.success.bg, GRADE.success.text)}>
+            <div className={cn('flex items-center gap-3 rounded-xl px-4 py-3.5 text-sm ring-1 ring-inset', GRADE.success.bg, GRADE.success.text, GRADE.success.ring)}>
               <CheckCircle2 className="h-4 w-4 shrink-0" />
               <span>No one has exceeded their working hours.</span>
             </div>
           ) : (
-            <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
+            <ul className="max-h-72 space-y-2.5 overflow-y-auto pr-1">
               {data.otApprovals.map((o) => (
-                <li key={o.id} className={cn('flex items-center justify-between gap-3 rounded-xl border-l-4 px-4 py-2.5 text-sm', GRADE.warning.bg, GRADE.warning.text, 'border-amber-400')}>
+                <li key={o.id} className={cn('flex items-center justify-between gap-3 rounded-xl border-l-4 px-4 py-3 text-sm shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md', GRADE.warning.bg, GRADE.warning.text, 'border-amber-400')}>
                   <div className="min-w-0">
-                    <p className="truncate font-medium">{o.employee_name}</p>
+                    <p className="truncate font-semibold">{o.employee_name}</p>
                     <p className="text-xs text-amber-700/80">{o.work_date} · {formatDurationHM(o.worked_minutes)} worked of {formatDurationHM(o.threshold_minutes)}</p>
                   </div>
                   <Badge variant="warning">+{formatDurationHM(o.ot_minutes)}</Badge>
@@ -259,16 +268,18 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card className="p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <ClipboardList className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Recent Tasks</h2>
+      <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card className="p-7">
+          <div className="mb-5 flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-slate-100 to-slate-50 text-slate-500 ring-1 ring-slate-200/70">
+              <ClipboardList className="h-[18px] w-[18px]" />
+            </span>
+            <h2 className="text-base font-bold tracking-tight text-slate-900">Recent Tasks</h2>
           </div>
           {scoped.dayTasks.length === 0 ? (
             <EmptyState icon={<ClipboardList className="h-6 w-6" />} title="No tasks on this date" message="Tasks for the selected day will appear here." />
           ) : (
-            <ul className="space-y-2.5">
+            <ul className="space-y-3">
               {scoped.dayTasks.slice(0, 10).map((t) => {
                 const priorityVariant = t.priority === 'high' ? 'error' : t.priority === 'medium' ? 'warning' : 'neutral';
                 const status = punchStatus(t);
@@ -276,19 +287,19 @@ export function DashboardPage() {
                 return (
                   <li
                     key={t.id}
-                    className={cn('flex items-start gap-3 rounded-xl border-l-4 border border-slate-100 p-3 transition-all duration-150 hover:border-slate-200 hover:bg-slate-50/80 hover:shadow-sm', grade.ring.replace('ring-', 'border-l-'))}
+                    className={cn('flex items-start gap-3 rounded-xl border border-slate-100 p-3.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-200 hover:bg-slate-50/60 hover:shadow-md', 'border-l-4', grade.ring.replace('ring-', 'border-l-'))}
                   >
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs font-semibold text-slate-600">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-slate-100 to-slate-50 text-xs font-bold text-slate-600 ring-1 ring-slate-200/60">
                       {t.employee_name ? initials(t.employee_name) : '—'}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-slate-900">{t.description}</p>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <p className="truncate text-sm font-semibold text-slate-900">{t.description}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         <Badge variant={priorityVariant}>{t.priority ?? 'none'}</Badge>
                         <Badge variant={status === 'completed' ? 'success' : status === 'pending' ? 'warning' : 'neutral'}>
                           {status === 'not_started' ? 'Not Started' : status[0].toUpperCase() + status.slice(1)}
                         </Badge>
-                        <span className="text-xs text-slate-400">{t.employee_name ?? 'Unassigned'}</span>
+                        <span className="text-xs font-medium text-slate-400">{t.employee_name ?? 'Unassigned'}</span>
                       </div>
                     </div>
                   </li>
@@ -298,39 +309,41 @@ export function DashboardPage() {
           )}
         </Card>
 
-        <Card className="p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Clock className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Recent Punches</h2>
+        <Card className="p-7">
+          <div className="mb-5 flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-slate-100 to-slate-50 text-slate-500 ring-1 ring-slate-200/70">
+              <Clock className="h-[18px] w-[18px]" />
+            </span>
+            <h2 className="text-base font-bold tracking-tight text-slate-900">Recent Punches</h2>
           </div>
           {scoped.dayPunches.length === 0 ? (
             <EmptyState icon={<Clock className="h-6 w-6" />} title="No punches on this date" message="Time entries for the selected day will appear here." />
           ) : (
             <>
-              <div className="mb-2 flex items-center justify-between px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              <div className="mb-2.5 flex items-center justify-between px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
                 <span>Name</span>
                 <span>Status</span>
               </div>
-              <ul className="space-y-2.5">
+              <ul className="space-y-3">
                 {scoped.dayPunches.slice(0, 10).map((p) => {
                   const grade = p.approval_status === 'approved' ? GRADE.success : p.approval_status === 'rejected' ? GRADE.danger : GRADE.warning;
                   return (
                     <li
                       key={p.id}
-                      className={cn('flex items-center gap-3 rounded-xl border-l-4 border border-slate-100 p-3 transition-all duration-150 hover:border-slate-200 hover:bg-slate-50/80 hover:shadow-sm', grade.ring.replace('ring-', 'border-l-'))}
+                      className={cn('flex items-center gap-3 rounded-xl border border-slate-100 p-3.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-200 hover:bg-slate-50/60 hover:shadow-md', 'border-l-4', grade.ring.replace('ring-', 'border-l-'))}
                     >
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs font-semibold text-slate-600">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-slate-100 to-slate-50 text-xs font-bold text-slate-600 ring-1 ring-slate-200/60">
                         {p.employee_name ? initials(p.employee_name) : '—'}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-slate-900">{p.employee_name ?? 'Unknown'}</p>
+                        <p className="truncate text-sm font-semibold text-slate-900">{p.employee_name ?? 'Unknown'}</p>
                         <p className="truncate text-xs text-slate-500">{p.project_name ?? 'No project'}</p>
                       </div>
                       <div className="text-right">
                         <Badge variant={p.approval_status === 'approved' ? 'success' : p.approval_status === 'rejected' ? 'error' : 'warning'}>
                           {p.approval_status}
                         </Badge>
-                        <p className="mt-1 text-xs text-slate-400">{formatDateTime(p.punch_time)}</p>
+                        <p className="mt-1.5 text-xs font-medium text-slate-400">{formatDateTime(p.punch_time)}</p>
                       </div>
                     </li>
                   );
@@ -341,26 +354,28 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      <Card className="mt-6 p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <TrendingUp className="h-5 w-5 text-slate-400" />
-          <h2 className="text-base font-semibold text-slate-900">Department Overview</h2>
+      <Card className="mt-8 p-7">
+        <div className="mb-5 flex items-center gap-2.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-violet-50 to-violet-100 text-violet-600 ring-1 ring-violet-100">
+            <TrendingUp className="h-[18px] w-[18px]" />
+          </span>
+          <h2 className="text-base font-bold tracking-tight text-slate-900">Department Overview</h2>
         </div>
         {scoped.departments.length === 0 ? (
           <EmptyState icon={<TrendingUp className="h-6 w-6" />} title="No one present on this date" message="Department breakdown reflects who punched in on the selected day." />
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {scoped.departments.map((d) => {
               const count = scoped.presentEmployees.filter((e) => e.department === d).length;
               const pct = scoped.presentEmployees.length ? (count / scoped.presentEmployees.length) * 100 : 0;
               return (
-                <div key={d} className="rounded-xl border border-slate-100 p-4 transition-colors duration-150 hover:border-slate-200 hover:bg-slate-50/60">
+                <div key={d} className="rounded-xl border border-slate-100 p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-200 hover:bg-slate-50/60 hover:shadow-md">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-slate-700">{d}</p>
-                    <span className="text-sm font-semibold text-slate-900">{count}</span>
+                    <p className="text-sm font-semibold text-slate-700">{d}</p>
+                    <span className="text-base font-bold tabular-nums text-slate-900">{count}</span>
                   </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
-                    <div className="h-full rounded-full bg-gradient-to-r from-teal-500 to-sky-500 transition-all duration-500" style={{ width: `${pct}%` }} />
+                  <div className="mt-2.5 h-2.5 overflow-hidden rounded-full bg-slate-100 shadow-inner">
+                    <div className="h-full rounded-full bg-gradient-to-r from-teal-500 via-sky-500 to-sky-500 shadow-sm transition-all duration-700 ease-out" style={{ width: `${pct}%` }} />
                   </div>
                 </div>
               );
@@ -369,23 +384,25 @@ export function DashboardPage() {
         )}
       </Card>
 
-      <Card className="mt-6 p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <AlertTriangle className="h-5 w-5 text-amber-500" />
-          <h2 className="text-base font-semibold text-slate-900">Needs Attention</h2>
+      <Card className="mt-8 p-7">
+        <div className="mb-5 flex items-center gap-2.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-rose-50 to-rose-100 text-rose-600 ring-1 ring-rose-100">
+            <AlertTriangle className="h-[18px] w-[18px]" />
+          </span>
+          <h2 className="text-base font-bold tracking-tight text-slate-900">Needs Attention</h2>
         </div>
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {scoped.dayExceptions.map((e) => (
-            <div key={e.id} className={cn('flex items-center gap-3 rounded-xl border-l-4 border-rose-400 px-4 py-3 text-sm', GRADE.danger.bg, GRADE.danger.text)}>
+            <div key={e.id} className={cn('flex items-center gap-3 rounded-xl border-l-4 border-rose-400 px-4 py-3.5 text-sm shadow-sm ring-1 ring-inset transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md', GRADE.danger.bg, GRADE.danger.text, GRADE.danger.ring)}>
               <AlertTriangle className="h-4 w-4 shrink-0" />
               <span>
-                {e.employee_name && <strong>{e.employee_name}: </strong>}
+                {e.employee_name && <strong className="font-semibold">{e.employee_name}: </strong>}
                 {e.details}
               </span>
             </div>
           ))}
           {scoped.dayExceptions.length === 0 && (
-            <div className={cn('flex items-center gap-3 rounded-xl px-4 py-3 text-sm', GRADE.success.bg, GRADE.success.text)}>
+            <div className={cn('flex items-center gap-3 rounded-xl px-4 py-3.5 text-sm ring-1 ring-inset', GRADE.success.bg, GRADE.success.text, GRADE.success.ring)}>
               <CheckCircle2 className="h-4 w-4 shrink-0" />
               <span>All clear — no exceptions raised on this date.</span>
             </div>

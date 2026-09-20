@@ -31,7 +31,7 @@ export function DonutChart({
 
   return (
     <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-center sm:gap-7">
-      <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <div className="relative shrink-0 drop-shadow-[0_4px_12px_rgba(15,23,42,0.08)]" style={{ width: size, height: size }}>
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
           {/* Track — shown whenever there's no data at all, so the chart
               never renders as a blank void. */}
@@ -69,20 +69,20 @@ export function DonutChart({
               })}
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-bold tabular-nums tracking-tight text-slate-900">{centerValue}</span>
-          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{centerLabel}</span>
+          <span className="text-[28px] font-extrabold tabular-nums tracking-tight text-slate-900">{centerValue}</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{centerLabel}</span>
         </div>
       </div>
 
-      <ul className="w-full min-w-0 space-y-2.5 sm:w-auto">
+      <ul className="w-full min-w-0 space-y-3 sm:w-auto">
         {segments.map((s) => {
           const pct = total > 0 ? Math.round((s.value / total) * 100) : 0;
           return (
-            <li key={s.label} className="flex items-center gap-2.5 text-sm">
-              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.dotClass}`} />
+            <li key={s.label} className="flex items-center gap-2.5 text-sm transition-transform duration-150 hover:translate-x-0.5">
+              <span className={`h-2.5 w-2.5 shrink-0 rounded-full shadow-sm ${s.dotClass}`} />
               <span className="min-w-0 flex-1 truncate font-medium text-slate-700">{s.label}</span>
-              <span className="font-semibold tabular-nums text-slate-900">{s.value}</span>
-              <span className="w-9 shrink-0 text-right text-xs tabular-nums text-slate-400">{pct}%</span>
+              <span className="font-bold tabular-nums text-slate-900">{s.value}</span>
+              <span className="w-9 shrink-0 text-right text-xs font-medium tabular-nums text-slate-400">{pct}%</span>
             </li>
           );
         })}
