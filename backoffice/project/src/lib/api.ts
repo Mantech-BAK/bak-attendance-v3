@@ -264,8 +264,18 @@ export function fetchTasks(): Promise<Task[]> {
   return request('/api/tasks');
 }
 
-export function tasksExportUrl(date: string): string {
-  return `${API_BASE_URL}/api/tasks/export?date=${encodeURIComponent(date)}`;
+// No date = every task (Tasks page); with a date = that day only (Reports).
+export function tasksExportUrl(date?: string): string {
+  return `${API_BASE_URL}/api/tasks/export${date ? `?date=${encodeURIComponent(date)}` : ''}`;
+}
+
+// No date = every punch (Punches page); with a date = that day only (Reports).
+export function punchesExportUrl(date?: string): string {
+  return `${API_BASE_URL}/api/punches/export${date ? `?date=${encodeURIComponent(date)}` : ''}`;
+}
+
+export function attendanceExportUrl(date: string): string {
+  return `${API_BASE_URL}/api/attendance/export?date=${encodeURIComponent(date)}`;
 }
 
 export function tasksTemplateUrl(): string {
@@ -321,6 +331,25 @@ export function fetchPunchableTasks(empId: string, date: string): Promise<{
 export function authHeaders(): HeadersInit {
   const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// Fetches an authenticated .xlsx export and triggers the browser download.
+// Throws an Error carrying the server's message on failure.
+export async function downloadExport(url: string, filename: string): Promise<void> {
+  const response = await fetch(url, { headers: authHeaders() });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error || `Request failed (${response.status})`);
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(objectUrl);
 }
 
 // created_by is never sent — the backend derives it from the session token.

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { ClipboardList, Plus, CheckCircle2, XCircle, AlertTriangle, Loader2, MapPin, Calendar, Download, Upload, Filter, X, Pencil, Trash2 } from 'lucide-react';
-import { fetchTasks, fetchEmployees, fetchProjects, fetchSummerBanPeriods, assignTaskBulk, deleteTask, tasksExportUrl, authHeaders, ApiError } from '@/lib/api';
+import { fetchTasks, fetchEmployees, fetchProjects, fetchSummerBanPeriods, assignTaskBulk, deleteTask, tasksExportUrl, downloadExport, ApiError } from '@/lib/api';
 import type { Task, Employee, Project, BulkAssignTaskResult } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Select, Textarea, Input, Spinner, EmptyState, Modal } from '@/components/ui';
@@ -71,7 +71,6 @@ export function TasksPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkAssignTaskResult | null>(null);
   const [activeTab, setActiveTab] = useState<PunchStatus | 'all'>('all');
-  const [exportDate, setExportDate] = useState(todayDate());
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
@@ -169,22 +168,9 @@ export function TasksPage() {
     setExportError(null);
     setExporting(true);
     try {
-      const response = await fetch(tasksExportUrl(exportDate), { headers: authHeaders() });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error || `Request failed (${response.status})`);
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `tasks-${exportDate}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      await downloadExport(tasksExportUrl(), 'tasks-all.xlsx');
     } catch (err) {
-      setExportError(err instanceof Error ? err.message : 'Could not export tasks for this date.');
+      setExportError(err instanceof Error ? err.message : 'Could not export tasks.');
     } finally {
       setExporting(false);
     }
@@ -419,11 +405,8 @@ export function TasksPage() {
 
           <Card className="mb-4 p-4">
             <div className="flex flex-wrap items-end gap-3">
-              <div className="w-44">
-                <Input value={exportDate} onChange={setExportDate} label="Export by Date" id="task-export-date" type="date" />
-              </div>
-              <Button variant="secondary" onClick={handleExport} disabled={exporting || !exportDate}>
-                {exporting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Exporting…</>) : (<><Download className="h-4 w-4" /> Export to Excel</>)}
+              <Button variant="secondary" onClick={handleExport} disabled={exporting}>
+                {exporting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Exporting…</>) : (<><Download className="h-4 w-4" /> Export All Tasks to Excel</>)}
               </Button>
             </div>
             {exportError && (

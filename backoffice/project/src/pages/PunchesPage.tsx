@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Clock, Calendar, Filter, X, Plus, Pencil, Trash2, XCircle, Loader2, Image as ImageIcon } from 'lucide-react';
-import { fetchPunches, fetchProjects, fetchEmployees, deletePunch, ApiError } from '@/lib/api';
+import { Clock, Calendar, Filter, X, Plus, Pencil, Trash2, XCircle, Loader2, Download, Image as ImageIcon } from 'lucide-react';
+import { fetchPunches, fetchProjects, fetchEmployees, deletePunch, punchesExportUrl, downloadExport, ApiError } from '@/lib/api';
 import type { Punch, Project, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Spinner, EmptyState, Select, Button, Modal } from '@/components/ui';
@@ -17,6 +17,8 @@ export function PunchesPage() {
   const [deletingPunch, setDeletingPunch] = useState<Punch | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const [dateFilter, setDateFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('all');
@@ -35,6 +37,18 @@ export function PunchesPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function handleExport() {
+    setExportError(null);
+    setExporting(true);
+    try {
+      await downloadExport(punchesExportUrl(), 'punches-all.xlsx');
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Could not export punches.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function handleConfirmDelete() {
     if (!deletingPunch) return;
@@ -102,11 +116,22 @@ export function PunchesPage() {
         title="Punches"
         subtitle="Review time and attendance entries"
         action={
-          <Button onClick={() => setShowAddPunch(true)}>
-            <Plus className="h-4 w-4" /> Add Punch
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="secondary" onClick={handleExport} disabled={exporting}>
+              {exporting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Exporting…</>) : (<><Download className="h-4 w-4" /> Export All Punches to Excel</>)}
+            </Button>
+            <Button onClick={() => setShowAddPunch(true)}>
+              <Plus className="h-4 w-4" /> Add Punch
+            </Button>
+          </div>
         }
       />
+
+      {exportError && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+          <XCircle className="h-4 w-4 shrink-0" />{exportError}
+        </div>
+      )}
 
       <AddPunchModal
         open={showAddPunch}

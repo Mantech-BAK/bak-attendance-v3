@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Clock, ClipboardList, Users, Building2, TrendingUp, CalendarSearch, FileSpreadsheet, Download, Loader2, XCircle } from 'lucide-react';
-import { fetchEmployees, fetchTasks, fetchProjects, fetchAttendance, confirmationSheetUrl, authHeaders } from '@/lib/api';
+import { fetchEmployees, fetchTasks, fetchProjects, fetchAttendance, confirmationSheetUrl, authHeaders, attendanceExportUrl, punchesExportUrl, tasksExportUrl, downloadExport } from '@/lib/api';
 import type { Employee, Task, Project, AttendanceSession } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Spinner, Input, EmptyState } from '@/components/ui';
@@ -50,6 +50,26 @@ export function ReportsPage() {
   const [confirmationDate, setConfirmationDate] = useState(today());
   const [downloadingConfirmation, setDownloadingConfirmation] = useState(false);
   const [confirmationError, setConfirmationError] = useState<string | null>(null);
+
+  // One shared single-date picker for the Attendance / Punches / Tasks
+  // exports — deliberately separate from the Confirmation Sheet's own date
+  // above, which keeps its own filter.
+  const [exportDate, setExportDate] = useState(today());
+  const [exportingKind, setExportingKind] = useState<'attendance' | 'punches' | 'tasks' | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  async function handleExport(kind: 'attendance' | 'punches' | 'tasks') {
+    setExportError(null);
+    setExportingKind(kind);
+    try {
+      const url = kind === 'attendance' ? attendanceExportUrl(exportDate) : kind === 'punches' ? punchesExportUrl(exportDate) : tasksExportUrl(exportDate);
+      await downloadExport(url, `${kind}-${exportDate}.xlsx`);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : `Could not export ${kind}.`);
+    } finally {
+      setExportingKind(null);
+    }
+  }
 
   async function handleDownloadConfirmationSheet() {
     setConfirmationError(null);
@@ -242,6 +262,32 @@ export function ReportsPage() {
             </table>
           </div>
         )}
+      </Card>
+
+      <Card className="mb-6 max-w-xl p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <Download className="h-5 w-5 text-slate-400" />
+          <h2 className="text-base font-semibold text-slate-900">Export by Date</h2>
+        </div>
+        <p className="mb-4 text-sm text-slate-500">
+          Pick a single date, then export that day's attendance, punches, or tasks as an Excel file.
+        </p>
+
+        <Input value={exportDate} onChange={setExportDate} label="Date" id="report-export-date" type="date" />
+
+        {exportError && (
+          <div className="mt-4 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+            <XCircle className="h-4 w-4 shrink-0" />{exportError}
+          </div>
+        )}
+
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {([['attendance', 'Attendance'], ['punches', 'Punches'], ['tasks', 'Tasks']] as const).map(([kind, label]) => (
+            <Button key={kind} variant="secondary" onClick={() => handleExport(kind)} disabled={exportingKind !== null || !exportDate}>
+              {exportingKind === kind ? (<><Loader2 className="h-4 w-4 animate-spin" /> Exporting…</>) : (<><Download className="h-4 w-4" /> {label}</>)}
+            </Button>
+          ))}
+        </div>
       </Card>
 
       <Card className="mb-6 max-w-xl p-6">

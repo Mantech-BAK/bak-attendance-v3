@@ -197,30 +197,33 @@ router.get('/', requireBackofficeAuth, async (req, res, next) => {
   }
 });
 
-// Date-wise export — every task whose task_date matches, as a downloadable
-// .xlsx. Generated on-demand, same convention as the confirmation-sheet
-// report (never pushed anywhere automatically). Backoffice-only.
+// Task export as a downloadable .xlsx. With ?date=YYYY-MM-DD it's scoped to
+// tasks whose task_date matches (Reports page); with no date at all it
+// exports every task (Tasks page's one-click export). Generated on-demand,
+// same convention as the confirmation-sheet report. Backoffice-only.
 router.get('/export', requireBackofficeAuth, async (req, res, next) => {
   try {
     const { date } = req.query;
-    if (!date || !DATE_PATTERN.test(date)) {
-      return res.status(400).json({ error: 'date is required in YYYY-MM-DD format' });
+    if (date && !DATE_PATTERN.test(date)) {
+      return res.status(400).json({ error: 'date must be in YYYY-MM-DD format' });
     }
 
     const result = await pool.query(
-      `SELECT t.id, t.emp_id, e."EmpName" AS employee_name, t.project_code, p.project_name,
-              t.priority, t.description, t.location_site, t.status, t.source, t.created_by, t.created_at
+      `SELECT t.id, t.display_id, t.emp_id, e."EmpName" AS employee_name, t.project_code, p.project_name,
+              t.task_date::text AS task_date, t.priority, t.description, t.location_site, t.status, t.source, t.created_by, t.created_at
        FROM tasks t
        LEFT JOIN employees e ON e."EmpId" = t.emp_id
        LEFT JOIN projects p ON p.project_code = t.project_code
-       WHERE t.task_date = $1
-       ORDER BY t.created_at ASC`,
-      [date]
+       ${date ? 'WHERE t.task_date = $1' : ''}
+       ORDER BY t.task_date ASC, t.created_at ASC`,
+      date ? [date] : []
     );
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Tasks');
     sheet.columns = [
+      { header: 'Task ID', key: 'display_id', width: 20 },
+      { header: 'Date', key: 'task_date', width: 12 },
       { header: 'Employee ID', key: 'emp_id', width: 12 },
       { header: 'Employee', key: 'employee_name', width: 22 },
       { header: 'Project', key: 'project_name', width: 24 },
@@ -235,7 +238,7 @@ router.get('/export', requireBackofficeAuth, async (req, res, next) => {
     for (const row of result.rows) sheet.addRow(row);
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="tasks-${date}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="tasks-${date || 'all'}.xlsx"`);
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {

@@ -5,6 +5,7 @@ const {
   getOpenPunchForToday,
   getOpenPunchForDate,
   dateKey,
+  getBahrainDayBounds,
   punchKey,
   syncTaskSinglePunchException,
   resolveSinglePunchException,
@@ -21,6 +22,7 @@ const {
 const requireBackofficeAuth = require('../middleware/requireBackofficeAuth');
 const { resolveBackofficeEmpId } = requireBackofficeAuth;
 const { verifyFaceForEmployee } = require('../services/faceMatch');
+const ExcelJS = require('exceljs');
 const multer = require('multer');
 const {
   uploadPunchPhoto,
@@ -104,6 +106,69 @@ router.get('/', requireBackofficeAuth, async (req, res, next) => {
     }));
 
     res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+// Punch export as a downloadable .xlsx. With ?date=YYYY-MM-DD it's scoped to
+// punches on that Asia/Riyadh business day (Reports page); with no date at
+// all it exports every punch (Punches page's one-click export). Times are
+// written in Asia/Riyadh local time, matching how the rest of the app
+// reads a day. Must be declared before any parameterised GET route.
+router.get('/export', requireBackofficeAuth, async (req, res, next) => {
+  try {
+    const { date } = req.query;
+    if (date && !DATE_PATTERN.test(date)) {
+      return res.status(400).json({ error: 'date must be in YYYY-MM-DD format' });
+    }
+
+    const params = [];
+    let where = '';
+    if (date) {
+      const { start, end } = getBahrainDayBounds(date);
+      params.push(start, end);
+      where = 'WHERE p.punch_time >= $1 AND p.punch_time < $2';
+    }
+
+    const result = await pool.query(
+      `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, p.project_code, pr.project_name,
+              t.display_id AS task_display_id, t.description AS task_description,
+              to_char((p.punch_time AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Riyadh', 'YYYY-MM-DD HH24:MI:SS') AS punch_time_local,
+              p.entry_method, p.approval_status, p.rejection_reason, p.out_remark, p.resolved_address
+       FROM punches p
+       LEFT JOIN employees e ON e."EmpId" = p.emp_id
+       LEFT JOIN projects pr ON pr.project_code = p.project_code
+       LEFT JOIN tasks t ON t.id = p.task_id
+       ${where}
+       ORDER BY p.punch_time ASC`,
+      params
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Punches');
+    sheet.columns = [
+      { header: 'Employee ID', key: 'emp_id', width: 12 },
+      { header: 'Employee', key: 'employee_name', width: 24 },
+      { header: 'Project', key: 'project_name', width: 26 },
+      { header: 'Task ID', key: 'task_display_id', width: 20 },
+      { header: 'Task', key: 'task_description', width: 36 },
+      { header: 'Punch Time (Asia/Riyadh)', key: 'punch_time_local', width: 24 },
+      { header: 'Entry Method', key: 'entry_method', width: 16 },
+      { header: 'Approval', key: 'approval_status', width: 12 },
+      { header: 'Rejection Reason', key: 'rejection_reason', width: 28 },
+      { header: 'Out Remark', key: 'out_remark', width: 30 },
+      { header: 'Address', key: 'resolved_address', width: 40 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    for (const row of result.rows) sheet.addRow(row);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="punches-${date || 'all'}.xlsx"`);
+    await workbook.xlsx.write(res);
+    res.end();
   } catch (err) {
     next(err);
   }
