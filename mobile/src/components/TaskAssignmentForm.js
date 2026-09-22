@@ -10,6 +10,7 @@ import {
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchSummerBanStatus } from '../api/client';
+import ProjectSelect from './ProjectSelect';
 
 const PRIORITIES = ['low', 'medium', 'high'];
 
@@ -83,6 +84,14 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit, 
         ...(summerBanActive ? { isOutdoor } : {}),
         shiftType,
       });
+      // Reset the whole form back to empty/default after a successful
+      // create — nothing from this submission should carry over into the
+      // next one, including who it was assigned to and which project.
+      if (!isSelfMode) {
+        setAssignedEmpId(null);
+      }
+      setProjectCode(null);
+      setPriority('medium');
       setDescription('');
       setLocationSite('');
       setIsOutdoor(null);
@@ -116,17 +125,7 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit, 
       )}
 
       <Text style={styles.label}>Project</Text>
-      <View style={styles.pickerWrapper}>
-        <Picker selectedValue={projectCode} onValueChange={setProjectCode}>
-          {(projects || []).map((project) => (
-            <Picker.Item
-              key={project.project_code}
-              label={project.project_name || project.project_code}
-              value={project.project_code}
-            />
-          ))}
-        </Picker>
-      </View>
+      <ProjectSelect projects={projects} value={projectCode} onChange={setProjectCode} />
 
       <Text style={styles.label}>Priority</Text>
       <View style={styles.pickerWrapper}>
