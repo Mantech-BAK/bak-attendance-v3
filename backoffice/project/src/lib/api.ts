@@ -478,14 +478,17 @@ export function addAdminPunchCorrection(input: {
   });
 }
 
-// Admin-only punch edit — same validation as creating one, with this
-// punch's own id excluded from every check so a small time correction
-// doesn't spuriously conflict with itself. emp_id is never editable — a
-// different employee is a different punch, not a correction.
+// Admin-only punch edit — task/project only. punch_time is never sent here
+// (2026-09-22) and never accepted by the backend either way — the recorded
+// punch time is permanent, editable by no one, at no stage, approved or
+// not. Only what the punch was FOR can still be corrected before approval.
+// Same validation as creating one (keyed off the punch's own real,
+// unchangeable time), with this punch's own id excluded from every check.
+// emp_id is never editable — a different employee is a different punch,
+// not a correction.
 export function updatePunch(id: number, input: {
   taskId?: number | null;
   projectCode?: string | null;
-  punchTime: string;
   force?: boolean;
 }): Promise<Punch> {
   return request(`/api/punches/${encodeURIComponent(id)}`, {
@@ -494,7 +497,6 @@ export function updatePunch(id: number, input: {
     body: JSON.stringify({
       task_id: input.taskId ?? null,
       project_code: input.taskId ? null : (input.projectCode ?? null),
-      punch_time: input.punchTime,
       force: input.force ?? false,
     }),
   });

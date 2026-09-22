@@ -267,7 +267,7 @@ router.get('/history', async (req, res, next) => {
 // needed too, so it's reused rather than re-implemented.
 async function loadPunchForApproval(punchId, actingEmpId, { bypassManagerCheck } = {}) {
   const punchResult = await pool.query(
-    `SELECT p.id, p.emp_id, p.task_id, p.approval_status, e."EmpReportMgrId" AS reporting_manager_emp_id,
+    `SELECT p.id, p.emp_id, p.task_id, p.punch_time, p.approval_status, e."EmpReportMgrId" AS reporting_manager_emp_id,
             (p.task_id IS NOT NULL AND NOT EXISTS (
                SELECT 1 FROM punches p2 WHERE p2.task_id = p.task_id AND p2.punch_time < p.punch_time
              )) AS is_in_punch
@@ -796,28 +796,38 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
 });
 
 /**
- * Punch edit — corrects an existing PENDING punch's date/time/task/project.
- * Dual-authorized exactly like PATCH /:id/approve above: a backoffice
- * admin, or (2026-09-14) a supervisor editing their own direct report's
- * punch before deciding whether to approve it, via supervisor_emp_id.
- * loadPunchForApproval enforces both who's allowed to touch this punch AND
- * that it's still 'pending' — once approved (or rejected), this 409s for
- * everyone, admin included, with no separate check to bypass. That's the
- * actual lock-once-approved rule; there is no other gate on this route.
+ * Punch edit — corrects an existing PENDING punch's task/project (and
+ * nothing else). Dual-authorized exactly like PATCH /:id/approve above: a
+ * backoffice admin, or (2026-09-14) a supervisor editing their own direct
+ * report's punch before deciding whether to approve it, via
+ * supervisor_emp_id. loadPunchForApproval enforces both who's allowed to
+ * touch this punch AND that it's still 'pending' — once approved (or
+ * rejected), this 409s for everyone, admin included, with no separate check
+ * to bypass. That's the actual lock-once-approved rule; there is no other
+ * gate on this route.
  *
- * Editing no longer force-approves the punch as a side effect (2026-09-14
- * behavior change from the old admin-only version of this route) —
- * approval_status is left exactly as it was (pending stays pending).
- * Approve/reject are their own deliberate, separate actions; an edit is
- * just correcting what's being reviewed, not a review decision itself.
+ * punch_time is never editable here, full stop (2026-09-22) — not "locked
+ * once approved," locked always, for admin and supervisor alike. The
+ * factual moment someone punched is never alterable after the fact; what
+ * the punch was FOR (project/task) can still be reasonably corrected before
+ * approval, which is the entire remaining point of this route. A request
+ * that includes a punch_time key at all is rejected outright (400) rather
+ * than silently ignored, so a stale client still trying to send one fails
+ * loudly instead of quietly no-opping. (A genuinely new backfilled punch —
+ * POST /api/punches/admin-correction — is a different thing: it's
+ * recording the first and only timestamp for an event that was never
+ * electronically captured, not altering an already-recorded one, so it
+ * legitimately still takes an explicit time.)
  *
  * Goes through the exact same validation as creating a punch
  * (resolvePunchTarget, checkOpenConflict, checkCrossKeyTimestampClash,
- * checkNearDuplicate), with the punch's own id excluded from every check so
- * editing a punch's time by five minutes doesn't spuriously conflict with
- * itself. emp_id is never editable here — moving a punch to a different
- * employee isn't a "correction," it's a different punch; delete and
- * re-create instead.
+ * checkNearDuplicate), keyed off the punch's own real, immutable
+ * punch_time (loaded from the row itself, never from the request) — with
+ * the punch's own id excluded from every check so re-validating its
+ * existing time against a new task/project doesn't spuriously conflict
+ * with itself. emp_id is never editable here either — moving a punch to a
+ * different employee isn't a "correction," it's a different punch; delete
+ * and re-create instead.
  *
  * entry_method is only relabeled 'admin_correction' when a backoffice
  * admin is the one editing — a supervisor's edit leaves it as whatever it
@@ -830,6 +840,10 @@ router.put('/:id', async (req, res, next) => {
     const { task_id, project_code, punch_time, force, supervisor_emp_id } = req.body;
     const backofficeEmpId = await resolveBackofficeEmpId(req);
     const actingEmpId = backofficeEmpId || supervisor_emp_id;
+
+    if (punch_time !== undefined) {
+      return res.status(400).json({ error: 'punch_time cannot be edited — the recorded punch time is permanent and never editable, by anyone, at any stage.' });
+    }
 
     if (!actingEmpId) {
       return res.status(400).json({ error: 'supervisor_emp_id is required' });
@@ -847,41 +861,35 @@ router.put('/:id', async (req, res, next) => {
     }
     const empId = punch.emp_id;
     const oldTaskId = punch.task_id;
+    const existingPunchTime = punch.punch_time;
 
     if (!task_id && !project_code) {
       return res.status(400).json({ error: 'task_id or project_code is required' });
     }
-    if (!punch_time) {
-      return res.status(400).json({ error: 'punch_time is required' });
-    }
-    const parsedPunchTime = new Date(punch_time);
-    if (Number.isNaN(parsedPunchTime.getTime())) {
-      return res.status(400).json({ error: 'punch_time is not a valid timestamp' });
-    }
 
     const target = await resolvePunchTarget({ emp_id: empId, task_id, project_code });
-    const punchDate = dateKey(parsedPunchTime);
+    const punchDate = dateKey(existingPunchTime);
     const punchId = Number(id);
 
     await checkTaskPunchCap({ task_id: target.task_id, excludePunchId: punchId });
     await checkOpenConflict({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, date: punchDate, excludePunchId: punchId });
-    await checkCrossKeyTimestampClash({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime, excludePunchId: punchId });
-    await checkNearDuplicate({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, punchTime: parsedPunchTime, excludePunchId: punchId, force });
+    await checkCrossKeyTimestampClash({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, punchTime: existingPunchTime, excludePunchId: punchId });
+    await checkNearDuplicate({ emp_id: empId, task_id: target.task_id, project_code: target.project_code, punchTime: existingPunchTime, excludePunchId: punchId, force });
     // Summer Ban block applies to edits too (2026-09-14) — same absolute
     // rule as admin-correction above.
-    await checkOutdoorBanWindow({ task_id: target.task_id, punchTime: parsedPunchTime });
+    await checkOutdoorBanWindow({ task_id: target.task_id, punchTime: existingPunchTime });
 
     const result = await pool.query(
       backofficeEmpId
         ? `UPDATE punches
-           SET project_code = $1, task_id = $2, punch_time = $3, entry_method = 'admin_correction'
-           WHERE id = $4
+           SET project_code = $1, task_id = $2, entry_method = 'admin_correction'
+           WHERE id = $3
            RETURNING ${PUNCH_SELECT_RETURNING}`
         : `UPDATE punches
-           SET project_code = $1, task_id = $2, punch_time = $3
-           WHERE id = $4
+           SET project_code = $1, task_id = $2
+           WHERE id = $3
            RETURNING ${PUNCH_SELECT_RETURNING}`,
-      [target.project_code, target.task_id, parsedPunchTime, punchId]
+      [target.project_code, target.task_id, punchId]
     );
 
     // Resolve first in case this punch's own id was the ref for an open

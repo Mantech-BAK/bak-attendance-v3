@@ -224,12 +224,15 @@ export function AddPunchModal({
   // closing remark joins that list exactly when this punch would close.
   const isComplete = !!empId && !!selectedKey && !!date && !!time && (!isClosingPunch || !!outRemark.trim());
 
+  // punchTime is only ever meaningful for a genuinely new backfilled punch
+  // (admin-correction) — editing an existing one never touches its time at
+  // all (2026-09-22), so this parameter is simply unused on that branch.
   async function submitPunch(punchTime: string, force: boolean) {
     const taskId = selectedTask?.id ?? null;
     const projectCode = taskId ? null : selectedTask?.project_code ?? null;
 
     if (isEditing) {
-      return updatePunch(editingPunch!.id, { taskId, projectCode, punchTime, force });
+      return updatePunch(editingPunch!.id, { taskId, projectCode, force });
     }
     return addAdminPunchCorrection({
       empId,
@@ -318,10 +321,26 @@ export function AddPunchModal({
           </Select>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
-          <Input value={date} onChange={setDate} label="Date" id="add-punch-date" type="date" />
-          <Input value={time} onChange={setTime} label="Time" id="add-punch-time" type="time" lang="en-US" />
-        </div>
+        {isEditing ? (
+          // Punch time is never editable, at any stage, by anyone
+          // (2026-09-22) — shown read-only for reference only. What the
+          // punch was FOR (task/project below) is still correctable; when
+          // it happened is permanent.
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-slate-700">Punch Time</span>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+              {formatDateTime(editingPunch!.punch_time)}
+            </div>
+            <p className="text-xs text-slate-400">
+              Never editable — the recorded moment is permanent. Only the task/project can be corrected.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <Input value={date} onChange={setDate} label="Date" id="add-punch-date" type="date" />
+            <Input value={time} onChange={setTime} label="Time" id="add-punch-time" type="time" lang="en-US" />
+          </div>
+        )}
 
         <Select
           value={selectedKey}
@@ -403,7 +422,7 @@ export function AddPunchModal({
 
         <p className="text-xs text-slate-400">
           {isEditing
-            ? "This punch is saved exactly at the date/time set above. Editing doesn't change its approval status — it stays pending until you separately approve or reject it."
+            ? "Its recorded time never changes. Editing doesn't change its approval status either — it stays pending until you separately approve or reject it."
             : 'This punch is added exactly at the date/time set above and is auto-approved immediately — no separate review.'}
         </p>
 

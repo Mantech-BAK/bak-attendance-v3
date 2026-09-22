@@ -78,7 +78,6 @@ export default function EditApprovalTaskModal({ visible, punch, supervisorEmpId,
       const updated = await editPunch(punch.id, {
         taskId: selected.id,
         projectCode: selected.id ? null : selected.project_code,
-        punchTime: punch.punch_time,
         supervisorEmpId,
       });
       onSaved(updated);

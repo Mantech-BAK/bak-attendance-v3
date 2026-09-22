@@ -244,14 +244,17 @@ export function rejectPunch(punchId, supervisorEmpId, reason) {
 // error, never retried, since force can't fix that. Editing never changes
 // approval_status itself; a separate approvePunch/rejectPunch call is still
 // needed after.
-export function editPunch(punchId, { taskId, projectCode, punchTime, supervisorEmpId, force }) {
+// punch_time is never sent here (2026-09-22) — the recorded punch time is
+// permanent and the backend now rejects the request outright if the key is
+// even present, regardless of value. This route only ever reassigns which
+// task/project a pending punch counts against.
+export function editPunch(punchId, { taskId, projectCode, supervisorEmpId, force }) {
   return request(`/api/punches/${encodeURIComponent(punchId)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       task_id: taskId ?? null,
       project_code: taskId ? undefined : (projectCode ?? undefined),
-      punch_time: punchTime,
       supervisor_emp_id: supervisorEmpId,
       force: force ?? false,
     }),

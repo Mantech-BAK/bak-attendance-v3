@@ -117,6 +117,18 @@ function shiftDateString(dateStr, deltaDays) {
  * there's no task to hold one) has no such cap, so it deliberately stays
  * scoped to the exact literal day, unchanged from this app's original
  * behavior, to avoid conflating separate daily sessions across days.
+ *
+ * approval_status = 'approved' only (2026-09-22 fix) — this feeds the
+ * official Confirmation Sheet (dailyConfirmation.js) and the nightly OT
+ * sweep (otApprovals.js), both of which must reflect verified attendance
+ * only. Previously this filtered merely `<> 'rejected'`, which let a still-
+ * 'pending' (unreviewed) punch appear in the report exactly like an
+ * approved one — defeating the point of the approval workflow, since a row
+ * on the sheet is supposed to mean a supervisor/admin has actually signed
+ * off on it. A pending punch simply doesn't exist for report purposes yet;
+ * once approved, the next generation run for that date picks it up
+ * normally (same as this app's other settings/period changes, nothing
+ * retroactively rewrites an already-persisted record on its own).
  */
 async function fetchPunchRowsForDate(date) {
   const windowStart = getBahrainDayBounds(shiftDateString(date, -1)).start;
@@ -126,7 +138,7 @@ async function fetchPunchRowsForDate(date) {
   const candidateResult = await pool.query(
     `SELECT id, emp_id, project_code, task_id, punch_time, out_remark, extra_ot_minutes, extra_ot_granted_by
      FROM punches
-     WHERE approval_status <> 'rejected' AND punch_time >= $1 AND punch_time < $2
+     WHERE approval_status = 'approved' AND punch_time >= $1 AND punch_time < $2
      ORDER BY emp_id, project_code, task_id, punch_time`,
     [windowStart, windowEnd]
   );
@@ -141,7 +153,7 @@ async function fetchPunchRowsForDate(date) {
     const completeTaskResult = await pool.query(
       `SELECT id, emp_id, project_code, task_id, punch_time, out_remark, extra_ot_minutes, extra_ot_granted_by
        FROM punches
-       WHERE approval_status <> 'rejected' AND task_id = ANY($1)
+       WHERE approval_status = 'approved' AND task_id = ANY($1)
        ORDER BY emp_id, project_code, task_id, punch_time`,
       [taskIds]
     );
