@@ -441,6 +441,22 @@ export function deleteTask(id: number): Promise<void> {
   return request(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+// Corrects which project a task itself is linked to — leaves priority/
+// description/location_site/task_date untouched (2026-09-22). Powers the
+// Edit Punch modal's Project field: the punch's own task_id never changes,
+// but the task's project_code does, and the backend syncs that onto every
+// punch already recorded against this task too, not just this response.
+// Blocked (409) only once BOTH of the task's punches are already approved
+// — a deliberately looser rule than updateTask's, specifically so this
+// still works while the punch you're looking at is itself still pending.
+export function updateTaskProject(taskId: number, projectCode: string): Promise<{ task: Task; punches_updated: number }> {
+  return request(`/api/tasks/${encodeURIComponent(taskId)}/project`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_code: projectCode }),
+  });
+}
+
 export function fetchPunches(): Promise<Punch[]> {
   return request('/api/punches');
 }

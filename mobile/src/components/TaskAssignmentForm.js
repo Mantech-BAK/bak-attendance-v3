@@ -7,10 +7,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchSummerBanStatus } from '../api/client';
 import ProjectSelect from './ProjectSelect';
+import PersonSelect from './PersonSelect';
+import OptionSelect from './OptionSelect';
 
 const PRIORITIES = ['low', 'medium', 'high'];
 
@@ -114,13 +115,7 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit, 
       {!isSelfMode && (
         <>
           <Text style={styles.label}>Assign To</Text>
-          <View style={styles.pickerWrapper}>
-            <Picker selectedValue={assignedEmpId} onValueChange={setAssignedEmpId}>
-              {(directReports || []).map((report) => (
-                <Picker.Item key={report.emp_id} label={report.name} value={report.emp_id} />
-              ))}
-            </Picker>
-          </View>
+          <PersonSelect people={directReports} value={assignedEmpId} onChange={setAssignedEmpId} placeholder="Select a team member" />
         </>
       )}
 
@@ -128,35 +123,33 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit, 
       <ProjectSelect projects={projects} value={projectCode} onChange={setProjectCode} />
 
       <Text style={styles.label}>Priority</Text>
-      <View style={styles.pickerWrapper}>
-        <Picker selectedValue={priority} onValueChange={setPriority}>
-          {PRIORITIES.map((p) => (
-            <Picker.Item key={p} label={p} value={p} />
-          ))}
-        </Picker>
-      </View>
+      <OptionSelect
+        options={PRIORITIES.map((p) => ({ label: p.charAt(0).toUpperCase() + p.slice(1), value: p }))}
+        value={priority}
+        onChange={setPriority}
+      />
 
       <Text style={styles.label}>Shift Type</Text>
-      <View style={styles.pickerWrapper}>
-        <Picker selectedValue={shiftType} onValueChange={setShiftType}>
-          <Picker.Item label="Regular" value="regular" />
-          <Picker.Item label="Night" value="night" />
-        </Picker>
-      </View>
+      <OptionSelect
+        options={[
+          { label: 'Regular', value: 'regular' },
+          { label: 'Night', value: 'night' },
+        ]}
+        value={shiftType}
+        onChange={setShiftType}
+      />
 
       {summerBanActive && (
         <>
           <Text style={styles.label}>Indoor / Outdoor</Text>
-          <View style={styles.pickerWrapper}>
-            <Picker
-              selectedValue={isOutdoor === null ? '' : isOutdoor ? 'outdoor' : 'indoor'}
-              onValueChange={(v) => setIsOutdoor(v === '' ? null : v === 'outdoor')}
-            >
-              <Picker.Item label="Select…" value="" />
-              <Picker.Item label="Indoor" value="indoor" />
-              <Picker.Item label="Outdoor" value="outdoor" />
-            </Picker>
-          </View>
+          <OptionSelect
+            options={[
+              { label: 'Indoor', value: 'indoor' },
+              { label: 'Outdoor', value: 'outdoor' },
+            ]}
+            value={isOutdoor === null ? '' : isOutdoor ? 'outdoor' : 'indoor'}
+            onChange={(v) => setIsOutdoor(v === '' ? null : v === 'outdoor')}
+          />
         </>
       )}
 
@@ -222,7 +215,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   textArea: { minHeight: 70, textAlignVertical: 'top' },
-  pickerWrapper: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8 },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   successRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   error: { color: '#dc2626', fontSize: 13 },

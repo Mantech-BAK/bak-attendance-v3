@@ -56,34 +56,48 @@ router.post('/', async (req, res, next) => {
 
 /**
  * Admin-only task edit — same validation as creating one (project must
- * exist, description required, the same emp_id+day+project+description
- * duplicate rule), with this task's own id excluded from the duplicate
- * check so saving without actually changing anything doesn't collide with
- * itself. emp_id is never editable here — reassigning a task to a
- * different employee isn't a "correction," it's a different task; delete
- * and re-create instead (same reasoning as punch edit's emp_id lock).
+ * exist and be OPEN — 2026-09-22 fix, this had drifted from createTask's
+ * own rule and silently let a task be corrected onto a closed project;
+ * description required, the same emp_id+day+project+description duplicate
+ * rule), with this task's own id excluded from the duplicate check so
+ * saving without actually changing anything doesn't collide with itself.
+ * emp_id is never editable here — reassigning a task to a different
+ * employee isn't a "correction," it's a different task; delete and
+ * re-create instead (same reasoning as punch edit's emp_id lock).
  * display_id is also never regenerated on edit — it's a permanent
  * reference id fixed at creation, even if task_date is later corrected.
+ *
+ * project_code is denormalized onto every punches row against this task
+ * (resolvePunchTarget copies it at punch-creation time, never re-synced on
+ * its own) — changing it here without also updating those rows would leave
+ * every already-recorded punch silently showing the OLD project everywhere
+ * punches.project_code is read directly (the Punches page, exports, the
+ * Confirmation Sheet), while the task record itself shows the new one.
+ * Fixed 2026-09-22 alongside PATCH /:id/project below: both now sync
+ * punches.project_code for every non-deleted punch under this task_id, in
+ * the same transaction as the tasks row update.
  *
  * Blocked outright (409) once the task is Completed — has reached its
  * 2-punch cap (see checkTaskPunchCap in punchValidation.js). Not Started
  * (0 punches) and Pending (1 punch) tasks stay editable; only Completed
  * ones are locked, since a task with a real open+close pair recorded
  * against it shouldn't have its project/description rewritten out from
- * under that attendance data.
+ * under that attendance data. (PATCH /:id/project below uses a DELIBERATELY
+ * looser version of this same rule — see its own comment.)
  */
 router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
+  const client = await pool.connect();
   try {
     const { id } = req.params;
     const { project_code, priority, description, location_site, task_date } = req.body;
 
-    const existingResult = await pool.query('SELECT id, emp_id FROM tasks WHERE id = $1', [id]);
+    const existingResult = await client.query('SELECT id, emp_id FROM tasks WHERE id = $1', [id]);
     if (existingResult.rows.length === 0) {
       return res.status(404).json({ error: `task ${id} not found` });
     }
     const empId = existingResult.rows[0].emp_id;
 
-    const punchCountResult = await pool.query(
+    const punchCountResult = await client.query(
       `SELECT count(*)::int AS cnt FROM punches WHERE task_id = $1 AND approval_status <> 'rejected'`,
       [id]
     );
@@ -101,12 +115,15 @@ router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'task_date is required in YYYY-MM-DD format' });
     }
 
-    const projectResult = await pool.query('SELECT project_code FROM projects WHERE project_code = $1', [project_code]);
+    const projectResult = await client.query('SELECT project_code, status FROM projects WHERE project_code = $1', [project_code]);
     if (projectResult.rows.length === 0) {
       return res.status(400).json({ error: `project ${project_code} not found` });
     }
+    if (projectResult.rows[0].status !== 'OPEN') {
+      return res.status(400).json({ error: `project ${project_code} is closed and cannot be assigned to a task` });
+    }
 
-    const duplicateResult = await pool.query(
+    const duplicateResult = await client.query(
       `SELECT id FROM tasks
        WHERE emp_id = $1 AND project_code = $2 AND task_date = $3::date AND description = $4 AND id != $5`,
       [empId, project_code, task_date, description, id]
@@ -115,7 +132,8 @@ router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
       return res.status(409).json({ error: 'This task already exists.' });
     }
 
-    const result = await pool.query(
+    await client.query('BEGIN');
+    const result = await client.query(
       `UPDATE tasks
        SET project_code = $1, priority = $2, description = $3, location_site = $4, task_date = $5::date
        WHERE id = $6
@@ -123,10 +141,108 @@ router.put('/:id', requireBackofficeAuth, async (req, res, next) => {
                  location_site, status, source, created_by, created_at`,
       [project_code, priority || null, description, location_site || null, task_date, id]
     );
+    await client.query('UPDATE punches SET project_code = $1 WHERE task_id = $2', [project_code, id]);
+    await client.query('COMMIT');
 
     res.json(result.rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     next(err);
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * Project-only task correction (2026-09-22) — powers the backoffice's Edit
+ * Punch modal: correcting which PROJECT a punch's CURRENT task is linked to
+ * (e.g. TASK-22092026-005 stays the same task, just gets a corrected
+ * project), as opposed to PUT /api/punches/:id's own task_id, which
+ * reassigns a punch to a DIFFERENT task entirely. This is a genuine task
+ * edit — same underlying row PUT /:id above edits — just scoped to touch
+ * only project_code, leaving priority/description/location_site/task_date
+ * exactly as they already are, so the Edit Punch modal never has to fetch
+ * (and risk resubmitting stale copies of) fields it has no reason to touch.
+ * Same project-must-exist-and-be-OPEN check and duplicate-task check as
+ * PUT /:id, and the same punches.project_code sync (see PUT /:id's comment
+ * on why that sync is necessary at all).
+ *
+ * Deliberately a LOOSER completion lock than PUT /:id's "any 2 non-rejected
+ * punches" rule: blocked only once BOTH of this task's punches are
+ * 'approved' — genuinely confirmed attendance, not just recorded-and-still-
+ * under-review. The whole point of this endpoint is correcting a task's
+ * project from the Edit Punch modal while looking at one of that task's own
+ * PENDING punches; if the task already has its second (closing) punch
+ * recorded but this one is still pending, PUT /:id's stricter rule would
+ * 409 before the correction could ever happen, which would defeat the
+ * feature entirely. Flagged as a deliberate product decision, not an
+ * oversight — the two routes now disagree on purpose.
+ */
+router.patch('/:id/project', requireBackofficeAuth, async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    const { project_code } = req.body;
+
+    if (!project_code) {
+      return res.status(400).json({ error: 'project_code is required' });
+    }
+
+    const existingResult = await client.query(
+      'SELECT id, emp_id, task_date::text AS task_date, description FROM tasks WHERE id = $1',
+      [id]
+    );
+    if (existingResult.rows.length === 0) {
+      return res.status(404).json({ error: `task ${id} not found` });
+    }
+    const task = existingResult.rows[0];
+
+    const approvedCountResult = await client.query(
+      `SELECT count(*)::int AS cnt FROM punches WHERE task_id = $1 AND approval_status = 'approved'`,
+      [id]
+    );
+    if (approvedCountResult.rows[0].cnt >= 2) {
+      return res.status(409).json({
+        error: 'This task\'s attendance is already fully confirmed (both punches approved) and its project can no longer be corrected.',
+      });
+    }
+
+    const projectResult = await client.query('SELECT project_code, status FROM projects WHERE project_code = $1', [project_code]);
+    if (projectResult.rows.length === 0) {
+      return res.status(400).json({ error: `project ${project_code} not found` });
+    }
+    if (projectResult.rows[0].status !== 'OPEN') {
+      return res.status(400).json({ error: `project ${project_code} is closed and cannot be assigned to a task` });
+    }
+
+    const duplicateResult = await client.query(
+      `SELECT id FROM tasks
+       WHERE emp_id = $1 AND project_code = $2 AND task_date = $3::date AND description = $4 AND id != $5`,
+      [task.emp_id, project_code, task.task_date, task.description, id]
+    );
+    if (duplicateResult.rows.length > 0) {
+      return res.status(409).json({ error: 'This task already exists.' });
+    }
+
+    await client.query('BEGIN');
+    const result = await client.query(
+      `UPDATE tasks SET project_code = $1 WHERE id = $2
+       RETURNING id, display_id, emp_id, task_date::text AS task_date, project_code, priority, description,
+                 location_site, status, source, created_by, created_at`,
+      [project_code, id]
+    );
+    const punchesResult = await client.query(
+      'UPDATE punches SET project_code = $1 WHERE task_id = $2 RETURNING id',
+      [project_code, id]
+    );
+    await client.query('COMMIT');
+
+    res.json({ task: result.rows[0], punches_updated: punchesResult.rows.length });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(err);
+  } finally {
+    client.release();
   }
 });
 

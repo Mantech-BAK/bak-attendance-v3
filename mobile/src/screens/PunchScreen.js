@@ -50,16 +50,21 @@ import {
   createTask,
 } from '../api/client';
 
+// Renamed from "Emergency Tasks" (itself previously renamed from "My
+// Tasks") to just "Task Creation" (2026-09-22) — same underlying screen
+// (EmergencyTaskTab, still genuinely gated to the Emergency Time Allowance
+// window server-side, unchanged), both roles see the identical label since
+// it's the identical screen either way.
 const EMPLOYEE_TABS = [
   { key: 'punch', label: 'Punch' },
-  { key: 'my-tasks', label: 'Emergency Tasks' },
+  { key: 'my-tasks', label: 'Task Creation' },
   { key: 'punch-history', label: 'Punch History' },
   { key: 'scan-another', label: 'Scan Another Employee' },
 ];
 
 const SUPERVISOR_TABS = [
   { key: 'punch', label: 'Punch' },
-  { key: 'my-tasks', label: 'Emergency Tasks' },
+  { key: 'my-tasks', label: 'Task Creation' },
   { key: 'task-assignment', label: 'Create Team Task' },
   { key: 'scan-team-member', label: 'Scan Team Member' },
   { key: 'review-attendance', label: 'Review Attendance' },
@@ -745,7 +750,9 @@ export default function PunchScreen() {
                 <Ionicons name="person-circle" size={26} color="#2563eb" />
               </TouchableOpacity>
             )}
-            <Text style={[styles.title, employee && styles.titleWithLogout]}>BAK Manpower Management</Text>
+            <Text style={[styles.title, employee && styles.titleWithLogout]} numberOfLines={1} ellipsizeMode="tail">
+              BAK Manpower Management
+            </Text>
           </View>
           {employee && (
             <TouchableOpacity style={styles.topLogoutButton} onPress={resetToIdle}>
@@ -888,7 +895,19 @@ export default function PunchScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#f3f4f6' },
+  // Core React Native's own SafeAreaView (imported above) is iOS-only —
+  // on Android it does nothing, no real inset handling (this app has no
+  // react-native-safe-area-context dependency at all, which would be the
+  // real fix but needs a native rebuild; this is the JS-only stopgap for
+  // an eas-update-eligible fix, 2026-09-22). Without it, content can start
+  // right under the status bar with no margin. Bottom gesture-nav-bar
+  // insets still aren't covered by this — that part genuinely needs
+  // react-native-safe-area-context in the next native build.
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#f3f4f6',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0,
+  },
   keyboardAvoider: { flex: 1 },
   scrollContent: { flexGrow: 1, alignItems: 'center', padding: 20 },
   headerRow: {
@@ -899,8 +918,15 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 24,
   },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  title: { fontSize: 24, fontWeight: '800', color: '#111827' },
+  // headerLeft must shrink (2026-09-22 fix) — without flexShrink, its
+  // intrinsic content width (icon + the full title text) could exceed the
+  // row's available space, and a row with no shrinkable sibling just
+  // overflows past the screen edge rather than wrapping: exactly what was
+  // pushing topLogoutButton off-screen/cut off. title itself also needs
+  // flexShrink plus numberOfLines so the TEXT node is what gives way first,
+  // not the row silently overflowing around it.
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+  title: { fontSize: 24, fontWeight: '800', color: '#111827', flexShrink: 1 },
   titleWithLogout: { fontSize: 20 },
   profileIconButton: {
     width: 34,
@@ -908,7 +934,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  topLogoutButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 10 },
+  topLogoutButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 10, flexShrink: 0 },
   topLogoutText: { color: '#dc2626', fontSize: 14, fontWeight: '600' },
   idleContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 60 },
   idleIcon: { marginBottom: 4 },

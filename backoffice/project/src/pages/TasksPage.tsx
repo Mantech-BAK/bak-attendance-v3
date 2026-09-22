@@ -5,6 +5,7 @@ import type { Task, Employee, Project, BulkAssignTaskResult } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Select, Textarea, Input, Spinner, EmptyState, Modal } from '@/components/ui';
 import { EmployeeMultiSelect } from '@/components/EmployeeMultiSelect';
+import { SearchableSelect } from '@/components/SearchableSelect';
 import { BulkUploadTasksModal } from '@/components/BulkUploadTasksModal';
 import { EditTaskModal } from '@/components/EditTaskModal';
 import { formatDate, initials, cn } from '@/lib/utils';
@@ -239,10 +240,16 @@ export function TasksPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <EmployeeMultiSelect employees={employees} selected={form.empIds} onChange={(empIds) => setForm({ ...form, empIds })} label="Employees" id="task-employees" />
 
-              <Select value={form.projectCode} onChange={(v) => setForm({ ...form, projectCode: v })} label="Project" id="task-project">
-                <option value="">Select project…</option>
-                {projects.map((p) => (<option key={p.project_code} value={p.project_code}>{p.project_name ?? p.project_code}</option>))}
-              </Select>
+              <SearchableSelect
+                value={form.projectCode}
+                onChange={(v) => setForm({ ...form, projectCode: v })}
+                label="Project"
+                id="task-project"
+                placeholder="Select project…"
+                searchPlaceholder="Search by code or name…"
+                emptyMessage="No projects match."
+                options={projects.map((p) => ({ value: p.project_code, label: p.project_code, sublabel: p.project_name }))}
+              />
 
               <Select value={form.priority} onChange={(v) => setForm({ ...form, priority: v })} label="Priority" id="task-priority">
                 <option value="low">Low</option>
@@ -382,18 +389,36 @@ export function TasksPage() {
                   />
                 </div>
               </div>
-              <Select value={projectFilter} onChange={setProjectFilter} label="Project" id="task-project-filter">
-                <option value="all">All projects</option>
-                {projects.map((p) => (<option key={p.project_code} value={p.project_code}>{p.project_name ?? p.project_code}</option>))}
-              </Select>
+              <SearchableSelect
+                value={projectFilter}
+                onChange={setProjectFilter}
+                label="Project"
+                id="task-project-filter"
+                placeholder="All projects"
+                searchPlaceholder="Search by code or name…"
+                emptyMessage="No projects match."
+                options={[
+                  { value: 'all', label: 'All projects' },
+                  ...projects.map((p) => ({ value: p.project_code, label: p.project_code, sublabel: p.project_name })),
+                ]}
+              />
               <Select value={departmentFilter} onChange={setDepartmentFilter} label="Department" id="task-dept-filter">
                 <option value="all">All departments</option>
                 {departments.map((d) => (<option key={d} value={d}>{d}</option>))}
               </Select>
-              <Select value={employeeFilter} onChange={setEmployeeFilter} label="Employee" id="task-emp-filter">
-                <option value="all">All employees</option>
-                {employees.map((e) => (<option key={e.emp_id} value={e.emp_id}>{e.name}</option>))}
-              </Select>
+              <SearchableSelect
+                value={employeeFilter}
+                onChange={setEmployeeFilter}
+                label="Employee"
+                id="task-emp-filter"
+                placeholder="All employees"
+                searchPlaceholder="Search by name or ID…"
+                emptyMessage="No employees match."
+                options={[
+                  { value: 'all', label: 'All employees' },
+                  ...employees.map((e) => ({ value: e.emp_id, label: e.name, sublabel: e.emp_id })),
+                ]}
+              />
               <Select value={priorityFilter} onChange={setPriorityFilter} label="Priority" id="task-priority-filter">
                 <option value="all">All priorities</option>
                 <option value="high">High</option>

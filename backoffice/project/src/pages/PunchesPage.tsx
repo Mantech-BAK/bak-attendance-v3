@@ -5,6 +5,7 @@ import type { Punch, Project, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Spinner, EmptyState, Select, Button, Modal } from '@/components/ui';
 import { AddPunchModal } from '@/components/AddPunchModal';
+import { SearchableSelect } from '@/components/SearchableSelect';
 import { formatDateTime, initials, googleMapsUrl } from '@/lib/utils';
 
 export function PunchesPage() {
@@ -144,6 +145,7 @@ export function PunchesPage() {
         open={editingPunch !== null}
         onClose={() => setEditingPunch(null)}
         employees={employees}
+        projects={projects}
         editingPunch={editingPunch}
         onSuccess={() => {
           setEditingPunch(null);
@@ -190,18 +192,36 @@ export function PunchesPage() {
               />
             </div>
           </div>
-          <Select value={projectFilter} onChange={setProjectFilter} label="Project" id="punch-project-filter">
-            <option value="all">All projects</option>
-            {projects.map((p) => (<option key={p.project_code} value={p.project_code}>{p.project_name ?? p.project_code}</option>))}
-          </Select>
+          <SearchableSelect
+            value={projectFilter}
+            onChange={setProjectFilter}
+            label="Project"
+            id="punch-project-filter"
+            placeholder="All projects"
+            searchPlaceholder="Search by code or name…"
+            emptyMessage="No projects match."
+            options={[
+              { value: 'all', label: 'All projects' },
+              ...projects.map((p) => ({ value: p.project_code, label: p.project_code, sublabel: p.project_name })),
+            ]}
+          />
           <Select value={departmentFilter} onChange={setDepartmentFilter} label="Department" id="punch-dept-filter">
             <option value="all">All departments</option>
             {departments.map((d) => (<option key={d} value={d}>{d}</option>))}
           </Select>
-          <Select value={employeeFilter} onChange={setEmployeeFilter} label="Employee" id="punch-emp-filter">
-            <option value="all">All employees</option>
-            {employees.map((e) => (<option key={e.emp_id} value={e.emp_id}>{e.name}</option>))}
-          </Select>
+          <SearchableSelect
+            value={employeeFilter}
+            onChange={setEmployeeFilter}
+            label="Employee"
+            id="punch-emp-filter"
+            placeholder="All employees"
+            searchPlaceholder="Search by name or ID…"
+            emptyMessage="No employees match."
+            options={[
+              { value: 'all', label: 'All employees' },
+              ...employees.map((e) => ({ value: e.emp_id, label: e.name, sublabel: e.emp_id })),
+            ]}
+          />
           <Select value={statusFilter} onChange={setStatusFilter} label="Status" id="punch-status-filter">
             <option value="all">All statuses</option>
             <option value="pending">Pending</option>

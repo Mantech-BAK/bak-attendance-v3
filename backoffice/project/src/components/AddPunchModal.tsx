@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { XCircle, Loader2 } from 'lucide-react';
-import { addAdminPunchCorrection, updatePunch, fetchPunchableTasks, ApiError } from '@/lib/api';
-import type { Employee, Punch, PunchableTask } from '@/lib/api';
+import { addAdminPunchCorrection, updatePunch, updateTaskProject, fetchPunchableTasks, ApiError } from '@/lib/api';
+import type { Employee, Punch, PunchableTask, Project } from '@/lib/api';
 import { Modal, Button, Select, Input, Textarea } from '@/components/ui';
+import { SearchableSelect } from '@/components/SearchableSelect';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime, googleMapsUrl } from '@/lib/utils';
 
@@ -62,6 +63,7 @@ export function AddPunchModal({
   open,
   onClose,
   employees,
+  projects,
   defaultEmpId,
   defaultDate,
   defaultTaskId,
@@ -73,6 +75,10 @@ export function AddPunchModal({
   open: boolean;
   onClose: () => void;
   employees: Employee[];
+  // Only needed for the Project field below (2026-09-22) — omitted
+  // entirely by callers (e.g. Exceptions) that never edit an existing punch
+  // against a real task, so that field simply never renders there.
+  projects?: Project[];
   defaultEmpId?: string;
   defaultDate?: string;
   // Pre-selects (and force-includes, even if not in the fetched punchable
@@ -95,6 +101,12 @@ export function AddPunchModal({
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [outRemark, setOutRemark] = useState('');
+  // The currently-selected TASK's own project — independent of, and saved
+  // separately from, which task the punch itself is against (2026-09-22).
+  // Reassigning the punch to a different task (the Task field below) never
+  // touches this; correcting it here never touches which task the punch is
+  // against. Reset below whenever the Task selection itself changes.
+  const [taskProjectCode, setTaskProjectCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -209,6 +221,25 @@ export function AddPunchModal({
 
   const selectedTask = punchableTasks?.find((t) => taskKey(t) === selectedKey) ?? null;
 
+  // Resets the Project field to whichever task is now selected any time
+  // that selection changes (2026-09-22) — picking a DIFFERENT task must
+  // never carry over a project edit that was meant for the previous one.
+  // Only real tasks (a non-null id) have a project independently correctable
+  // this way; the department-default fallback has no task record to correct
+  // — editing that one's project is still just editing the punch itself,
+  // via the Task field above, unchanged.
+  useEffect(() => {
+    setTaskProjectCode(selectedTask?.id !== null && selectedTask?.id !== undefined ? selectedTask.project_code : '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey]);
+
+  // True only when editing an existing punch against a real task (not the
+  // department-default fallback) and the admin has actually picked a
+  // different project for that task than the one it currently has.
+  const taskProjectChanged =
+    isEditing && selectedTask?.id !== null && selectedTask?.id !== undefined &&
+    !!taskProjectCode && taskProjectCode !== selectedTask.project_code;
+
   // Whether the punch about to be added would CLOSE the currently-open
   // task/project — same rule the backend enforces (2026-09-14), only ever
   // asked when adding, never when editing an existing punch (out of scope
@@ -262,6 +293,16 @@ export function AddPunchModal({
 
     setSubmitting(true);
     try {
+      // Runs first, and deliberately NOT inside the near-duplicate-retry
+      // try/catch below (2026-09-22) — this is an entirely separate write
+      // (the task's own project_code, not the punch), so its own errors
+      // (closed project, duplicate task, already-fully-approved) must
+      // surface as plain messages, never get mistaken for submitPunch's
+      // near-duplicate-punch 409 and offered that confirm-and-retry dialog.
+      if (taskProjectChanged && selectedTask?.id !== null && selectedTask?.id !== undefined) {
+        await updateTaskProject(selectedTask.id, taskProjectCode);
+      }
+
       const punchTime = localDateTimeToIso(date, time);
       let punch;
       try {
@@ -313,12 +354,16 @@ export function AddPunchModal({
             </div>
           </div>
         ) : (
-          <Select value={empId} onChange={setEmpId} label="Employee" id="add-punch-emp">
-            <option value="">Select employee…</option>
-            {employees.map((e) => (
-              <option key={e.emp_id} value={e.emp_id}>{e.name} ({e.emp_id})</option>
-            ))}
-          </Select>
+          <SearchableSelect
+            value={empId}
+            onChange={setEmpId}
+            label="Employee"
+            id="add-punch-emp"
+            placeholder="Select employee…"
+            searchPlaceholder="Search by name or ID…"
+            emptyMessage="No employees match."
+            options={employees.map((e) => ({ value: e.emp_id, label: e.name, sublabel: e.emp_id }))}
+          />
         )}
 
         {isEditing ? (
@@ -368,13 +413,48 @@ export function AddPunchModal({
           Required. Only tasks the employee is assigned on this date (or their department default, if none) are selectable.
         </p>
 
-        {selectedTask && (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-slate-700">Project</span>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
-              {selectedTask.project_code}{selectedTask.is_default ? ' (department default)' : ''}
+        {selectedTask && isEditing && selectedTask.id !== null ? (
+          // Corrects the TASK's own project — independent of, and saved
+          // separately from, the Task field above (2026-09-22). This is
+          // NOT "which project is this punch against" (that's what
+          // reassigning Task itself does); it's "this task was logged
+          // against the wrong project, fix the task record." Restricted to
+          // OPEN projects, same restriction task creation already enforces
+          // — plus the task's own current project, even if that one has
+          // since closed, so the field never looks like it's showing
+          // nothing selected.
+          <SearchableSelect
+            value={taskProjectCode}
+            onChange={setTaskProjectCode}
+            label="Project"
+            id="add-punch-task-project"
+            placeholder="Select project…"
+            searchPlaceholder="Search by code or name…"
+            emptyMessage="No projects match."
+            options={(projects ?? [])
+              .filter((p) => p.status === 'OPEN' || p.project_code === selectedTask.project_code)
+              .map((p) => ({
+                value: p.project_code,
+                label: p.project_code,
+                sublabel: (p.project_name ?? '') + (p.status !== 'OPEN' ? ' (closed)' : ''),
+              }))}
+          />
+        ) : (
+          selectedTask && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-slate-700">Project</span>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+                {selectedTask.project_code}{selectedTask.is_default ? ' (department default)' : ''}
+              </div>
             </div>
-          </div>
+          )
+        )}
+        {selectedTask && isEditing && selectedTask.id !== null && (
+          <p className="-mt-2 text-xs text-slate-400">
+            Corrects this task's own project — {selectedTask.display_id ?? 'this task'} stays the same task, everywhere
+            it's referenced (Tasks page, any other punch already recorded against it) picks up the correction too.
+            To move this punch to a genuinely different task instead, use the Task field above.
+          </p>
         )}
 
         {isClosingPunch && (

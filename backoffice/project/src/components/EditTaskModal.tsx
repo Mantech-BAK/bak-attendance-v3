@@ -3,6 +3,7 @@ import { XCircle, Loader2 } from 'lucide-react';
 import { updateTask, ApiError } from '@/lib/api';
 import type { Task, Project } from '@/lib/api';
 import { Modal, Button, Select, Textarea, Input } from '@/components/ui';
+import { SearchableSelect } from '@/components/SearchableSelect';
 
 // Admin-only task edit — same validation as creating one (project must
 // exist, description required, the emp_id+day+project+description
@@ -82,12 +83,16 @@ export function EditTaskModal({
           </div>
         </div>
 
-        <Select value={projectCode} onChange={setProjectCode} label="Project" id="edit-task-project">
-          <option value="">Select project…</option>
-          {projects.map((p) => (
-            <option key={p.project_code} value={p.project_code}>{p.project_name ?? p.project_code}</option>
-          ))}
-        </Select>
+        <SearchableSelect
+          value={projectCode}
+          onChange={setProjectCode}
+          label="Project"
+          id="edit-task-project"
+          placeholder="Select project…"
+          searchPlaceholder="Search by code or name…"
+          emptyMessage="No projects match."
+          options={projects.map((p) => ({ value: p.project_code, label: p.project_code, sublabel: p.project_name }))}
+        />
 
         <Input value={taskDate} onChange={setTaskDate} label="Task Date" id="edit-task-date" type="date" />
 
