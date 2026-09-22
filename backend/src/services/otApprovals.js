@@ -52,7 +52,14 @@ async function runDailyOtJob(date = yesterday()) {
   const shiftTypeByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.shift_type]));
   const sourceByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.source]));
 
-  const widenedPunchRows = await fetchPunchRowsForDate(date);
+  // approvedOnly: false (2026-09-22 fix) — OT must be DETECTED from real
+  // worked time regardless of whether the underlying punches have been
+  // approved yet; requiring approval first is circular, since reviewing a
+  // flagged OT day is exactly how those punches get approved. See
+  // fetchPunchRowsForDate's own comment for the real-data confirmation of
+  // the bug this fixes (OT silently never flagged whenever approval landed
+  // after this cron had already run for that date).
+  const widenedPunchRows = await fetchPunchRowsForDate(date, { approvedOnly: false });
   const punchesByEmp = new Map();
   for (const row of widenedPunchRows) {
     if (!punchesByEmp.has(row.emp_id)) punchesByEmp.set(row.emp_id, []);

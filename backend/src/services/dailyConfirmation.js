@@ -436,11 +436,27 @@ async function generateConfirmationSheetRows(date) {
   // fetchPunchRowsForDate's own doc comment (attendance.js) for exactly what
   // it fetches and why it's safe to widen for task-based punches but not the
   // department-default fallback.
-  const widenedPunchRows = await fetchPunchRowsForDate(date);
+  //
+  // Two separate fetches, deliberately (2026-09-22 fix): the sheet's own
+  // DISPLAYED rows must stay approved-only (default), but OT detection
+  // (ensureOtApproval below) must see pending punches too — otherwise an
+  // employee whose punches for the day simply haven't been approved YET
+  // never gets flagged for real overtime at all, which is circular (review/
+  // approval is how a flagged day gets approved in the first place). See
+  // fetchPunchRowsForDate's own comment for the real-data confirmation.
+  const [widenedPunchRows, otDetectionPunchRows] = await Promise.all([
+    fetchPunchRowsForDate(date),
+    fetchPunchRowsForDate(date, { approvedOnly: false }),
+  ]);
   const punchesByEmp = new Map();
   for (const row of widenedPunchRows) {
     if (!punchesByEmp.has(row.emp_id)) punchesByEmp.set(row.emp_id, []);
     punchesByEmp.get(row.emp_id).push(row);
+  }
+  const otPunchesByEmp = new Map();
+  for (const row of otDetectionPunchRows) {
+    if (!otPunchesByEmp.has(row.emp_id)) otPunchesByEmp.set(row.emp_id, []);
+    otPunchesByEmp.get(row.emp_id).push(row);
   }
 
   const reportRows = [];
@@ -448,9 +464,36 @@ async function generateConfirmationSheetRows(date) {
 
   for (const employee of employeesResult.rows) {
     const punchRows = punchesByEmp.get(employee.emp_id) || [];
+
+    // OT detection runs independently of whether this employee has any
+    // APPROVED punches yet (2026-09-22 fix) — previously this whole
+    // per-employee block, OT detection included, was skipped outright
+    // whenever punchRows (approved-only) was empty, so an employee whose
+    // punches for the day were ALL still pending was never even considered
+    // for OT, on top of the fetchPunchRowsForDate issue above. Uses its own
+    // computeEmployeeDay call over the broader otPunchRows — never reused
+    // for the sheet's own rows, which stay approved-only below.
+    const otPunchRows = otPunchesByEmp.get(employee.emp_id) || [];
+    if (otPunchRows.length > 0) {
+      const otComputation = computeEmployeeDay({
+        employee, date, punchRows: otPunchRows, settingsMap, ramzanPeriods, isOutdoorByTaskId, summerBanPeriods,
+        shiftTypeByTaskId, sourceByTaskId,
+      });
+      if (otComputation.otMinutes > 0) {
+        await ensureOtApproval({
+          empId: employee.emp_id,
+          date,
+          workedMinutes: otComputation.totalWorkedMinutes,
+          thresholdMinutes: otComputation.thresholdMinutes,
+          otMinutes: otComputation.otMinutes,
+          reportingManagerEmpId: employee.reporting_manager_emp_id,
+        });
+      }
+    }
+
     if (punchRows.length === 0) continue;
 
-    const { rows, totalWorkedMinutes, thresholdMinutes, otMinutes } = computeEmployeeDay({
+    const { rows } = computeEmployeeDay({
       employee, date, punchRows, settingsMap, ramzanPeriods, isOutdoorByTaskId, summerBanPeriods, shiftTypeByTaskId,
       sourceByTaskId,
     });
@@ -471,17 +514,6 @@ async function generateConfirmationSheetRows(date) {
           row.remarks = row.remarks ? `${taskNote}. ${row.remarks}` : taskNote;
         }
       }
-    }
-
-    if (otMinutes > 0) {
-      await ensureOtApproval({
-        empId: employee.emp_id,
-        date,
-        workedMinutes: totalWorkedMinutes,
-        thresholdMinutes,
-        otMinutes,
-        reportingManagerEmpId: employee.reporting_manager_emp_id,
-      });
     }
 
     const timed = rows.filter((r) => r.start_time).sort((a, b) => a.start_time - b.start_time);

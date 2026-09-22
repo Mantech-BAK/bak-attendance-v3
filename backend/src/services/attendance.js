@@ -118,27 +118,39 @@ function shiftDateString(dateStr, deltaDays) {
  * scoped to the exact literal day, unchanged from this app's original
  * behavior, to avoid conflating separate daily sessions across days.
  *
- * approval_status = 'approved' only (2026-09-22 fix) — this feeds the
- * official Confirmation Sheet (dailyConfirmation.js) and the nightly OT
- * sweep (otApprovals.js), both of which must reflect verified attendance
- * only. Previously this filtered merely `<> 'rejected'`, which let a still-
- * 'pending' (unreviewed) punch appear in the report exactly like an
- * approved one — defeating the point of the approval workflow, since a row
- * on the sheet is supposed to mean a supervisor/admin has actually signed
- * off on it. A pending punch simply doesn't exist for report purposes yet;
- * once approved, the next generation run for that date picks it up
- * normally (same as this app's other settings/period changes, nothing
- * retroactively rewrites an already-persisted record on its own).
+ * approvedOnly (default true, 2026-09-22 fix + 2026-09-22 correction) —
+ * approval_status = 'approved' only when true, else the original broader
+ * `<> 'rejected'` (approved OR still-pending; a rejected punch never counts
+ * toward anything, either way). The DISPLAYED/persisted Confirmation Sheet
+ * rows (dailyConfirmation.js) must stay approved-only — a row on the sheet
+ * is supposed to mean a supervisor/admin has actually signed off on it, a
+ * pending punch simply doesn't exist for report purposes yet.
+ *
+ * But OT DETECTION is a different question from "what does the sheet show"
+ * — both the nightly cron (otApprovals.js's runDailyOtJob) and the
+ * Confirmation Sheet's own "ensure a pending ot_approvals row exists" side
+ * effect exist specifically to FLAG a likely-overtime day for a
+ * supervisor/admin to go review — and reviewing is exactly how those
+ * underlying punches get approved in the first place. Requiring them to
+ * already be approved before OT is even detected is circular, and is
+ * exactly what caused real, confirmed overtime to silently never get
+ * flagged whenever approval happened to land after the nightly cron had
+ * already run for that date (confirmed 2026-09-22 with real data: a fresh
+ * 9-hour pending punch pair produced 0 ot_approvals created; approving the
+ * same two punches and re-running the exact same job for the exact same
+ * date then created 1). Both OT-detection call sites now explicitly pass
+ * approvedOnly: false; only the sheet-row fetch keeps the default.
  */
-async function fetchPunchRowsForDate(date) {
+async function fetchPunchRowsForDate(date, { approvedOnly = true } = {}) {
   const windowStart = getBahrainDayBounds(shiftDateString(date, -1)).start;
   const windowEnd = getBahrainDayBounds(shiftDateString(date, 1)).end;
   const { start: dayStart, end: dayEnd } = getBahrainDayBounds(date);
+  const approvalClause = approvedOnly ? "approval_status = 'approved'" : "approval_status <> 'rejected'";
 
   const candidateResult = await pool.query(
     `SELECT id, emp_id, project_code, task_id, punch_time, out_remark, extra_ot_minutes, extra_ot_granted_by
      FROM punches
-     WHERE approval_status = 'approved' AND punch_time >= $1 AND punch_time < $2
+     WHERE ${approvalClause} AND punch_time >= $1 AND punch_time < $2
      ORDER BY emp_id, project_code, task_id, punch_time`,
     [windowStart, windowEnd]
   );
@@ -153,7 +165,7 @@ async function fetchPunchRowsForDate(date) {
     const completeTaskResult = await pool.query(
       `SELECT id, emp_id, project_code, task_id, punch_time, out_remark, extra_ot_minutes, extra_ot_granted_by
        FROM punches
-       WHERE approval_status = 'approved' AND task_id = ANY($1)
+       WHERE ${approvalClause} AND task_id = ANY($1)
        ORDER BY emp_id, project_code, task_id, punch_time`,
       [taskIds]
     );
