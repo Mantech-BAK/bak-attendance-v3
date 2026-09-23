@@ -24,25 +24,24 @@ const PRIORITIES = ['low', 'medium', 'high'];
 // exactly as before — a supervisor assigning to one of directReports.
 export default function TaskAssignmentForm({ directReports, projects, onSubmit, selfEmpId, heading, submitLabel }) {
   const isSelfMode = !!selfEmpId;
+  // Every field genuinely starts blank (2026-09-23) — previously
+  // assignedEmpId/projectCode auto-picked the first team member/project
+  // from the fetched lists, and priority/shiftType pre-selected 'medium'/
+  // 'regular', so the form looked already-filled-in on first open and an
+  // admin who didn't look closely could submit a task for the wrong person
+  // or project. selfEmpId is the one exception — it's not a user-facing
+  // field at all in that mode (the "Assign To" picker doesn't even render).
   const [assignedEmpId, setAssignedEmpId] = useState(selfEmpId ?? null);
   const [projectCode, setProjectCode] = useState(null);
-  const [priority, setPriority] = useState('medium');
+  const [priority, setPriority] = useState(null);
   const [description, setDescription] = useState('');
   const [locationSite, setLocationSite] = useState('');
   const [isOutdoor, setIsOutdoor] = useState(null);
-  const [shiftType, setShiftType] = useState('regular');
+  const [shiftType, setShiftType] = useState(null);
   const [summerBanActive, setSummerBanActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
-
-  useEffect(() => {
-    if (!isSelfMode) {
-      setAssignedEmpId((prev) => prev ?? directReports?.[0]?.emp_id ?? null);
-    }
-    setProjectCode((prev) => prev ?? projects?.[0]?.project_code ?? null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [directReports, projects]);
 
   // Indoor/Outdoor is only ever asked while a Summer Ban period is
   // currently declared/active — outside one, task creation stays exactly
@@ -62,6 +61,14 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit, 
     }
     if (!projectCode) {
       setError('Choose a project');
+      return;
+    }
+    if (!priority) {
+      setError('Choose a priority');
+      return;
+    }
+    if (!shiftType) {
+      setError('Choose a shift type');
       return;
     }
     if (!description.trim()) {
@@ -92,11 +99,11 @@ export default function TaskAssignmentForm({ directReports, projects, onSubmit, 
         setAssignedEmpId(null);
       }
       setProjectCode(null);
-      setPriority('medium');
+      setPriority(null);
       setDescription('');
       setLocationSite('');
       setIsOutdoor(null);
-      setShiftType('regular');
+      setShiftType(null);
       setSuccess(true);
     } catch (err) {
       setError(err.message);

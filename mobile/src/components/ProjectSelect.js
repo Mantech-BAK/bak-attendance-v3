@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { FlatList, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import useKeyboardHeight from '../hooks/useKeyboardHeight';
 
 // Searchable project picker used everywhere a project is chosen (Create Team
 // Task and Emergency Task, both employee and supervisor sides) — replaces
@@ -19,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 export default function ProjectSelect({ projects, value, onChange, placeholder = 'Select a project' }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const keyboardHeight = useKeyboardHeight();
 
   const list = projects || [];
   const selected = list.find((p) => p.project_code === value) || null;
@@ -29,7 +31,8 @@ export default function ProjectSelect({ projects, value, onChange, placeholder =
     return list.filter(
       (p) =>
         (p.project_code || '').toLowerCase().includes(q) ||
-        (p.project_name || '').toLowerCase().includes(q)
+        (p.project_name || '').toLowerCase().includes(q) ||
+        (p.company || '').toLowerCase().includes(q)
     );
   }, [list, query]);
 
@@ -47,10 +50,17 @@ export default function ProjectSelect({ projects, value, onChange, placeholder =
     <>
       <TouchableOpacity style={styles.field} onPress={handleOpen}>
         {selected ? (
-          <Text style={styles.fieldText} numberOfLines={1}>
-            <Text style={styles.fieldCode}>{selected.project_code}</Text>
-            {selected.project_name ? `  —  ${selected.project_name}` : ''}
-          </Text>
+          <View style={styles.fieldTextWrap}>
+            <Text style={styles.fieldText} numberOfLines={1}>
+              <Text style={styles.fieldCode}>{selected.project_code}</Text>
+              {selected.project_name ? `  —  ${selected.project_name}` : ''}
+            </Text>
+            {selected.company ? (
+              <Text style={styles.fieldCompany} numberOfLines={1}>
+                {selected.company}
+              </Text>
+            ) : null}
+          </View>
         ) : (
           <Text style={styles.fieldPlaceholder}>{list.length ? placeholder : 'No projects available'}</Text>
         )}
@@ -58,8 +68,8 @@ export default function ProjectSelect({ projects, value, onChange, placeholder =
       </TouchableOpacity>
 
       <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
-        <View style={styles.backdrop}>
-          <View style={styles.sheet}>
+        <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={[styles.sheet, Platform.OS === 'android' && { marginBottom: keyboardHeight }]}>
             <View style={styles.headingRow}>
               <Text style={styles.heading}>Select a Project</Text>
               <TouchableOpacity onPress={() => setOpen(false)}>
@@ -73,7 +83,7 @@ export default function ProjectSelect({ projects, value, onChange, placeholder =
                 style={styles.searchInput}
                 value={query}
                 onChangeText={setQuery}
-                placeholder="Search by code or name"
+                placeholder="Search by code, name, or customer"
                 autoFocus
               />
               {query.length > 0 && (
@@ -101,13 +111,14 @@ export default function ProjectSelect({ projects, value, onChange, placeholder =
                   <View style={styles.optionText}>
                     <Text style={styles.optionCode}>{item.project_code}</Text>
                     {item.project_name ? <Text style={styles.optionName}>{item.project_name}</Text> : null}
+                    {item.company ? <Text style={styles.optionCompany}>{item.company}</Text> : null}
                   </View>
                   {item.project_code === value && <Ionicons name="checkmark" size={18} color="#2563eb" />}
                 </TouchableOpacity>
               )}
             />
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );
@@ -124,8 +135,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
   },
-  fieldText: { flex: 1, fontSize: 15, color: '#111827', marginRight: 8 },
+  fieldTextWrap: { flex: 1, marginRight: 8 },
+  fieldText: { fontSize: 15, color: '#111827' },
   fieldCode: { fontWeight: '700' },
+  fieldCompany: { fontSize: 12, color: '#6b7280', marginTop: 2 },
   fieldPlaceholder: { flex: 1, fontSize: 15, color: '#9ca3af', marginRight: 8 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, maxHeight: '75%' },
@@ -157,4 +170,5 @@ const styles = StyleSheet.create({
   optionText: { flex: 1, marginRight: 8 },
   optionCode: { fontSize: 14, fontWeight: '700', color: '#111827' },
   optionName: { fontSize: 13, color: '#6b7280', marginTop: 2 },
+  optionCompany: { fontSize: 12, color: '#9ca3af', marginTop: 1 },
 });

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { FlatList, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import useKeyboardHeight from '../hooks/useKeyboardHeight';
 
 // Searchable person picker (name + emp_id) — same modal+search pattern as
 // ProjectSelect.js, built for the same reason: replaces a native <Picker>
@@ -9,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 export default function PersonSelect({ people, value, onChange, placeholder = 'Select a person' }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const keyboardHeight = useKeyboardHeight();
 
   const list = people || [];
   const selected = list.find((p) => p.emp_id === value) || null;
@@ -47,8 +49,8 @@ export default function PersonSelect({ people, value, onChange, placeholder = 'S
       </TouchableOpacity>
 
       <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
-        <View style={styles.backdrop}>
-          <View style={styles.sheet}>
+        <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={[styles.sheet, Platform.OS === 'android' && { marginBottom: keyboardHeight }]}>
             <View style={styles.headingRow}>
               <Text style={styles.heading}>Select a Person</Text>
               <TouchableOpacity onPress={() => setOpen(false)}>
@@ -96,7 +98,7 @@ export default function PersonSelect({ people, value, onChange, placeholder = 'S
               )}
             />
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );
