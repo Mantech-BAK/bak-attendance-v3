@@ -68,7 +68,38 @@ export type Employee = {
   login_code: string | null;
   created_at: string;
   has_face_registered: boolean;
+  // Raw FK codes, alongside the already-joined display names above
+  // (department/designation/company) — the edit form's dropdowns need the
+  // code to pre-select the right option, not just the friendly name shown
+  // everywhere else. department itself has no separate code: EmpDeptId
+  // stores department_name directly (see routes/employees.js).
+  division_code: string | null;
+  designation_code: string | null;
+  religion_code: string | null;
+  religion: string | null;
+  cpr: string | null;
 };
+
+export type DepartmentRef = { department_name: string; company_dept_id: string | null; default_project_code: string | null };
+export type DesignationRef = { designation_code: string; designation_name: string };
+export type DivisionRef = { division_code: string; division_name: string };
+export type ReligionRef = { religion_code: string; religion_name: string };
+
+export function fetchDepartments(): Promise<DepartmentRef[]> {
+  return request('/api/departments');
+}
+
+export function fetchDesignations(): Promise<DesignationRef[]> {
+  return request('/api/designations');
+}
+
+export function fetchDivisions(): Promise<DivisionRef[]> {
+  return request('/api/divisions');
+}
+
+export function fetchReligions(): Promise<ReligionRef[]> {
+  return request('/api/religions');
+}
 
 export type Project = {
   project_code: string;
@@ -225,6 +256,14 @@ export type UpdateEmployeeResult = {
   ot_eligible: 'Y' | 'N';
   is_supervisor: boolean;
   reporting_manager_emp_id: string | null;
+  department: string | null;
+  designation_code: string | null;
+  division_code: string | null;
+  religion_code: string | null;
+  cpr: string | null;
+  designation: string | null;
+  company: string | null;
+  religion: string | null;
 };
 
 // currentEmpId addresses the row being edited (the URL path param); newEmpId
@@ -240,6 +279,11 @@ export function updateEmployee(currentEmpId: string, input: {
   otEligible: boolean;
   isSupervisor: boolean;
   reportingManagerEmpId: string | null;
+  department: string | null;
+  designationCode: string | null;
+  divisionCode: string | null;
+  religionCode: string | null;
+  cpr: string | null;
 }): Promise<UpdateEmployeeResult> {
   return request(`/api/employees/${encodeURIComponent(currentEmpId)}`, {
     method: 'PUT',
@@ -252,6 +296,11 @@ export function updateEmployee(currentEmpId: string, input: {
       ot_eligible: input.otEligible,
       is_supervisor: input.isSupervisor,
       reporting_manager_emp_id: input.reportingManagerEmpId,
+      department: input.department,
+      designation_code: input.designationCode,
+      division_code: input.divisionCode,
+      religion_code: input.religionCode,
+      cpr: input.cpr,
     }),
   });
 }
@@ -594,6 +643,16 @@ export type PendingPunch = {
 
 export function fetchAllPendingPunches(): Promise<PendingPunch[]> {
   return request('/api/punches/pending');
+}
+
+// Full Punch shape for a single punch — backs the Approvals page's Edit
+// action (2026-09-23), which reuses AddPunchModal exactly as the Punches
+// page's Edit Punch does. PendingPunch above doesn't carry the fields
+// AddPunchModal needs (task_description, out_remark, photo, etc.), so this
+// fetches the same full row GET /api/punches (list) already returns, just
+// for one id instead of the whole table.
+export function fetchPunchById(id: number): Promise<Punch> {
+  return request(`/api/punches/${encodeURIComponent(id)}`);
 }
 
 export function approvePunchAdmin(id: number, extraOtMinutes?: number): Promise<Punch> {

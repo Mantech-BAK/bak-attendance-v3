@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Clock, Timer, CheckCircle2, XCircle, Loader2, Inbox, Calendar, Filter, X } from 'lucide-react';
+import { Clock, Timer, CheckCircle2, XCircle, Loader2, Inbox, Calendar, Filter, X, Pencil } from 'lucide-react';
 import {
   fetchAllPendingPunches,
   approvePunchAdmin,
@@ -9,12 +9,14 @@ import {
   rejectOtApprovalAdmin,
   fetchProjects,
   fetchEmployees,
+  fetchPunchById,
   ApiError,
 } from '@/lib/api';
-import type { PendingPunch, OtApproval, Project, Employee } from '@/lib/api';
+import type { PendingPunch, OtApproval, Project, Employee, Punch } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Button, Badge, EmptyState, Spinner, Modal, Textarea, Select } from '@/components/ui';
 import { SearchableSelect } from '@/components/SearchableSelect';
+import { AddPunchModal } from '@/components/AddPunchModal';
 import { formatDateTime, formatDate, formatDurationHM } from '@/lib/utils';
 
 // Item 3 — company-wide approval, straight from the backoffice, using the
@@ -44,6 +46,13 @@ export function ApprovalsPage() {
   // handleApprovePunch below); an opening punch's entry, if any, is just
   // never sent.
   const [extraOtHoursByPunchId, setExtraOtHoursByPunchId] = useState<Record<number, string>>({});
+
+  // Edit Punch (2026-09-23) — the same task-master project-edit flow the
+  // Punches page's Edit Punch already has, reusing AddPunchModal exactly as
+  // that page does. PendingPunch doesn't carry every field the modal needs,
+  // so opening it fetches the full Punch row for that one id first.
+  const [editingPunch, setEditingPunch] = useState<Punch | null>(null);
+  const [loadingEditId, setLoadingEditId] = useState<number | null>(null);
 
   // Filters — matching the Punches page's filter bar for consistency. Project
   // only applies to the Pending Punches list (OT approvals aren't
@@ -147,6 +156,18 @@ export function ApprovalsPage() {
       setError(err instanceof ApiError ? err.message : 'Could not approve the OT request. Please try again.');
     } finally {
       setProcessingId(null);
+    }
+  }
+
+  async function handleOpenEdit(id: number) {
+    setLoadingEditId(id);
+    setError(null);
+    try {
+      setEditingPunch(await fetchPunchById(id));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not load this punch for editing. Please try again.');
+    } finally {
+      setLoadingEditId(null);
     }
   }
 
@@ -300,6 +321,15 @@ export function ApprovalsPage() {
                     )}
                     <Button
                       size="sm"
+                      variant="secondary"
+                      onClick={() => handleOpenEdit(p.id)}
+                      disabled={loadingEditId === p.id}
+                    >
+                      {loadingEditId === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />}
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
                       onClick={() => handleApprovePunch(p.id)}
                       disabled={processingId === `punch:${p.id}`}
                       className="!bg-emerald-600 hover:!bg-emerald-700"
@@ -376,6 +406,18 @@ export function ApprovalsPage() {
           )}
         </div>
       </div>
+
+      <AddPunchModal
+        open={editingPunch !== null}
+        onClose={() => setEditingPunch(null)}
+        employees={employees}
+        projects={projects}
+        editingPunch={editingPunch}
+        onSuccess={() => {
+          setEditingPunch(null);
+          load();
+        }}
+      />
 
       <Modal open={rejectTarget !== null} onClose={() => setRejectTarget(null)} title="Reject">
         <div className="space-y-4">
