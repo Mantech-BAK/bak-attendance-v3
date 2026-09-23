@@ -20,10 +20,14 @@ router.get('/', requireBackofficeAuth, async (req, res, next) => {
               CASE WHEN e."EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
               e.is_supervisor,
               e.login_code, e."EmpCreatedOn" AS created_at,
-              e."EmpFaceId" IS NOT NULL AS has_face_registered
+              e."EmpFaceId" IS NOT NULL AS has_face_registered,
+              e."EmpDivision" AS division_code, e."EmpDesigId" AS designation_code,
+              e."EmpReligionId" AS religion_code, r.religion_name AS religion,
+              e."EmpCpr" AS cpr
        FROM employees e
        LEFT JOIN divisions d ON e."EmpDivision" = d.division_code
        LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
+       LEFT JOIN religions r ON e."EmpReligionId" = r.religion_code
        ORDER BY e."EmpName"`
     );
     res.json(result.rows);
@@ -76,10 +80,14 @@ router.get('/:emp_id', async (req, res, next) => {
               CASE WHEN e."EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
               e.is_supervisor,
               e.login_code, e."EmpCreatedOn" AS created_at,
-              e."EmpFaceId" IS NOT NULL AS has_face_registered
+              e."EmpFaceId" IS NOT NULL AS has_face_registered,
+              e."EmpDivision" AS division_code, e."EmpDesigId" AS designation_code,
+              e."EmpReligionId" AS religion_code, r.religion_name AS religion,
+              e."EmpCpr" AS cpr
        FROM employees e
        LEFT JOIN divisions d ON e."EmpDivision" = d.division_code
        LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
+       LEFT JOIN religions r ON e."EmpReligionId" = r.religion_code
        WHERE e."EmpId" = $1`,
       [emp_id]
     );
@@ -203,25 +211,31 @@ const LOGIN_CODE_PATTERN = /^[A-Z]{5}$/;
 
 /**
  * Full-record edit from the backoffice Employees page — name, status
- * (active/inactive), login code, OT eligibility, is_supervisor, and
- * reporting manager, plus EmpId itself. EmpId is the primary key: renaming
- * it is safe only because
- * of the 2026-08-23 migration adding ON UPDATE CASCADE to every FK that
- * references employees.EmpId (punches, tasks, ot_approvals,
- * confirmation_sheet_records) and adding one for the first time on
- * EmpReportMgrId (previously unconstrained) — a single UPDATE here is all
- * that's needed; Postgres propagates the rename everywhere automatically.
+ * (active/inactive), login code, OT eligibility, is_supervisor, reporting
+ * manager, department/designation/division/religion, and CPR, plus EmpId
+ * itself. EmpId is the primary key: renaming it is safe only because of the
+ * 2026-08-23 migration adding ON UPDATE CASCADE to every FK that references
+ * employees.EmpId (punches, tasks, ot_approvals, confirmation_sheet_records)
+ * and adding one for the first time on EmpReportMgrId (previously
+ * unconstrained) — a single UPDATE here is all that's needed; Postgres
+ * propagates the rename everywhere automatically.
  *
- * Deliberately does NOT cover department/designation/division/religion —
- * those are FK-coded fields with no list-fetching endpoint anywhere in this
- * app yet (the Employees table only ever shows their already-joined display
- * names), so editing them here would need new reference-data endpoints this
- * change doesn't add. Scoped to the fields this form can actually validate.
+ * department is stored as employees."EmpDeptId" = departments.department_name
+ * directly — confirmed every non-null EmpDeptId matches a department_name
+ * exactly; company_dept_id is NOT what this FK-less field references (it
+ * repeats across departments, so it can't be). designation/division/religion
+ * DO have real DB-level FK constraints (employees_EmpDesigId_fkey etc.), so
+ * an invalid code there fails at the database (23503) same as an invalid
+ * reporting_manager_emp_id already did; department gets its own explicit
+ * existence check below since nothing else would catch a bad value.
  */
 router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
   try {
     const { emp_id } = req.params;
-    const { new_emp_id, name, status, login_code, ot_eligible, is_supervisor, reporting_manager_emp_id } = req.body;
+    const {
+      new_emp_id, name, status, login_code, ot_eligible, is_supervisor, reporting_manager_emp_id,
+      department, designation_code, division_code, religion_code, cpr,
+    } = req.body;
 
     if (!new_emp_id || !String(new_emp_id).trim()) {
       return res.status(400).json({ error: 'new_emp_id is required' });
@@ -249,6 +263,21 @@ router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
     if (trimmedManagerId && trimmedManagerId === trimmedNewEmpId) {
       return res.status(400).json({ error: 'an employee cannot report to themselves' });
     }
+    const trimmedDepartment = department ? String(department).trim() : null;
+    const trimmedDesignationCode = designation_code ? String(designation_code).trim() : null;
+    const trimmedDivisionCode = division_code ? String(division_code).trim() : null;
+    const trimmedReligionCode = religion_code ? String(religion_code).trim() : null;
+    const trimmedCpr = cpr ? String(cpr).trim() : null;
+
+    if (trimmedDepartment) {
+      const deptExists = await pool.query(
+        'SELECT 1 FROM departments WHERE department_name = $1 LIMIT 1',
+        [trimmedDepartment]
+      );
+      if (deptExists.rows.length === 0) {
+        return res.status(400).json({ error: `department "${trimmedDepartment}" not found` });
+      }
+    }
 
     const existing = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
     if (existing.rows.length === 0) {
@@ -259,15 +288,38 @@ router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
       const result = await pool.query(
         `UPDATE employees
          SET "EmpId" = $1, "EmpName" = $2, "EmpStatus" = $3, login_code = $4,
-             "EmpOtStatus" = $5, is_supervisor = $6, "EmpReportMgrId" = $7
-         WHERE "EmpId" = $8
+             "EmpOtStatus" = $5, is_supervisor = $6, "EmpReportMgrId" = $7,
+             "EmpDeptId" = $8, "EmpDesigId" = $9, "EmpDivision" = $10, "EmpReligionId" = $11, "EmpCpr" = $12
+         WHERE "EmpId" = $13
          RETURNING "EmpId" AS emp_id, "EmpName" AS name, "EmpStatus" AS status, login_code,
                    CASE WHEN "EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
                    is_supervisor,
-                   "EmpReportMgrId" AS reporting_manager_emp_id`,
-        [trimmedNewEmpId, trimmedName, status, trimmedLoginCode, ot_eligible, is_supervisor, trimmedManagerId, emp_id]
+                   "EmpReportMgrId" AS reporting_manager_emp_id,
+                   "EmpDeptId" AS department, "EmpDesigId" AS designation_code,
+                   "EmpDivision" AS division_code, "EmpReligionId" AS religion_code,
+                   "EmpCpr" AS cpr`,
+        [
+          trimmedNewEmpId, trimmedName, status, trimmedLoginCode, ot_eligible, is_supervisor, trimmedManagerId,
+          trimmedDepartment, trimmedDesignationCode, trimmedDivisionCode, trimmedReligionCode, trimmedCpr,
+          emp_id,
+        ]
       );
-      res.json(result.rows[0]);
+
+      // designation_name/division_name/religion_name for display — a plain
+      // UPDATE...RETURNING can't join, and the frontend needs the friendly
+      // names immediately (not just codes) to merge into its employee list
+      // row without a full refetch.
+      const joined = await pool.query(
+        `SELECT g.designation_name AS designation, d.division_name AS company, r.religion_name AS religion
+         FROM employees e
+         LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
+         LEFT JOIN divisions d ON e."EmpDivision" = d.division_code
+         LEFT JOIN religions r ON e."EmpReligionId" = r.religion_code
+         WHERE e."EmpId" = $1`,
+        [trimmedNewEmpId]
+      );
+
+      res.json({ ...result.rows[0], ...joined.rows[0] });
     } catch (err) {
       if (err.code === '23505') {
         if (err.constraint === 'employees_pkey') {
@@ -279,6 +331,15 @@ router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
         return res.status(409).json({ error: 'that value is already in use by another employee' });
       }
       if (err.code === '23503') {
+        if (err.constraint === 'employees_EmpDesigId_fkey') {
+          return res.status(400).json({ error: `designation "${trimmedDesignationCode}" not found` });
+        }
+        if (err.constraint === 'employees_EmpDivision_fkey') {
+          return res.status(400).json({ error: `division "${trimmedDivisionCode}" not found` });
+        }
+        if (err.constraint === 'employees_EmpReligionId_fkey') {
+          return res.status(400).json({ error: `religion "${trimmedReligionCode}" not found` });
+        }
         return res.status(400).json({ error: `reporting_manager_emp_id ${trimmedManagerId} not found` });
       }
       throw err;

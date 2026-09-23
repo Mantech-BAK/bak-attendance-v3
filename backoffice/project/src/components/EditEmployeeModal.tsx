@@ -1,15 +1,21 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { XCircle, Loader2 } from 'lucide-react';
-import { updateEmployee, ApiError } from '@/lib/api';
-import type { Employee } from '@/lib/api';
+import {
+  updateEmployee, fetchDepartments, fetchDesignations, fetchDivisions, fetchReligions, ApiError,
+} from '@/lib/api';
+import type { Employee, DepartmentRef, DesignationRef, DivisionRef, ReligionRef } from '@/lib/api';
 import { Modal, Button, Input, Select } from '@/components/ui';
+import { SearchableSelect } from '@/components/SearchableSelect';
 
-// Full-record edit — name, status, login code, OT eligibility, reporting
-// manager, and EmpId itself. Department/designation/division/religion are
-// deliberately not editable here: they're FK-coded fields with no
-// reference-list endpoint anywhere in this app yet, so this form only
-// covers what it can actually validate against real data (an employee ID
-// for the reporting manager, a 5-letter login code).
+// Full-record edit — every real employee master-data field, not just the
+// ones the earlier version of this form could self-validate. Department,
+// Designation, Division, and Religion are FK-coded (Designation/Division/
+// Religion have real DB constraints; Department doesn't — see
+// routes/employees.js's own comment on why department_name IS the value,
+// not company_dept_id) and now use the same SearchableSelect dropdown
+// pattern already used for Project/Employee pickers elsewhere in this app,
+// backed by the new GET /api/departments|designations|divisions|religions
+// reference endpoints (2026-09-23).
 export function EditEmployeeModal({
   open,
   onClose,
@@ -28,8 +34,35 @@ export function EditEmployeeModal({
   const [otEligible, setOtEligible] = useState('N');
   const [isSupervisor, setIsSupervisor] = useState('N');
   const [reportingManagerEmpId, setReportingManagerEmpId] = useState('');
+  const [department, setDepartment] = useState('');
+  const [designationCode, setDesignationCode] = useState('');
+  const [divisionCode, setDivisionCode] = useState('');
+  const [religionCode, setReligionCode] = useState('');
+  const [cpr, setCpr] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [departments, setDepartments] = useState<DepartmentRef[]>([]);
+  const [designations, setDesignations] = useState<DesignationRef[]>([]);
+  const [divisions, setDivisions] = useState<DivisionRef[]>([]);
+  const [religions, setReligions] = useState<ReligionRef[]>([]);
+
+  useEffect(() => {
+    if (open) {
+      Promise.all([fetchDepartments(), fetchDesignations(), fetchDivisions(), fetchReligions()])
+        .then(([dept, desig, div, rel]) => {
+          setDepartments(dept);
+          setDesignations(desig);
+          setDivisions(div);
+          setReligions(rel);
+        })
+        .catch(() => {
+          // Reference lists failing to load just means those four dropdowns
+          // show no options — the rest of the form (and every field it
+          // already handled before this change) still works.
+        });
+    }
+  }, [open]);
 
   useEffect(() => {
     if (open && employee) {
@@ -40,6 +73,11 @@ export function EditEmployeeModal({
       setOtEligible(employee.ot_eligible ?? 'N');
       setIsSupervisor(employee.is_supervisor ? 'Y' : 'N');
       setReportingManagerEmpId(employee.reporting_manager_emp_id ?? '');
+      setDepartment(employee.department ?? '');
+      setDesignationCode(employee.designation_code ?? '');
+      setDivisionCode(employee.division_code ?? '');
+      setReligionCode(employee.religion_code ?? '');
+      setCpr(employee.cpr ?? '');
       setError(null);
     }
   }, [open, employee]);
@@ -64,6 +102,11 @@ export function EditEmployeeModal({
         otEligible: otEligible === 'Y',
         isSupervisor: isSupervisor === 'Y',
         reportingManagerEmpId: reportingManagerEmpId.trim() || null,
+        department: department || null,
+        designationCode: designationCode || null,
+        divisionCode: divisionCode || null,
+        religionCode: religionCode || null,
+        cpr: cpr.trim() || null,
       });
       onSuccess({
         ...employee,
@@ -74,6 +117,14 @@ export function EditEmployeeModal({
         ot_eligible: updated.ot_eligible,
         is_supervisor: updated.is_supervisor,
         reporting_manager_emp_id: updated.reporting_manager_emp_id,
+        department: updated.department,
+        designation_code: updated.designation_code,
+        division_code: updated.division_code,
+        religion_code: updated.religion_code,
+        cpr: updated.cpr,
+        designation: updated.designation,
+        company: updated.company,
+        religion: updated.religion,
       });
       onClose();
     } catch (err) {
@@ -120,6 +171,52 @@ export function EditEmployeeModal({
           id="edit-emp-manager"
           placeholder="e.g. E1007 (leave blank for none)"
         />
+
+        <SearchableSelect
+          value={department}
+          onChange={setDepartment}
+          label="Department"
+          id="edit-emp-department"
+          placeholder="Select department…"
+          searchPlaceholder="Search by name…"
+          emptyMessage="No departments match."
+          options={departments.map((d) => ({ value: d.department_name, label: d.department_name }))}
+        />
+
+        <SearchableSelect
+          value={designationCode}
+          onChange={setDesignationCode}
+          label="Designation"
+          id="edit-emp-designation"
+          placeholder="Select designation…"
+          searchPlaceholder="Search by name…"
+          emptyMessage="No designations match."
+          options={designations.map((d) => ({ value: d.designation_code, label: d.designation_name }))}
+        />
+
+        <SearchableSelect
+          value={divisionCode}
+          onChange={setDivisionCode}
+          label="Division"
+          id="edit-emp-division"
+          placeholder="Select division…"
+          searchPlaceholder="Search by name…"
+          emptyMessage="No divisions match."
+          options={divisions.map((d) => ({ value: d.division_code, label: d.division_name }))}
+        />
+
+        <SearchableSelect
+          value={religionCode}
+          onChange={setReligionCode}
+          label="Religion"
+          id="edit-emp-religion"
+          placeholder="Select religion… (optional)"
+          searchPlaceholder="Search by name…"
+          emptyMessage="No religions match."
+          options={religions.map((r) => ({ value: r.religion_code, label: r.religion_name }))}
+        />
+
+        <Input value={cpr} onChange={setCpr} label="CPR" id="edit-emp-cpr" placeholder="National ID / CPR number (optional)" />
 
         <Input
           value={loginCode}
