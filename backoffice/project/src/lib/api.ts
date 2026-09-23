@@ -845,3 +845,25 @@ export function resetTestData(): Promise<{ cleared: string[] }> {
     body: JSON.stringify({ confirm: 'RESET' }),
   });
 }
+
+// Report Leave (2026-09-23) — submitted from the mobile app only; the
+// backoffice's "Reported Leaves" page is read-only (view + photo download),
+// same spirit as it never creates punches directly either.
+export type LeaveReport = {
+  id: number;
+  emp_id: string;
+  employee_name: string | null;
+  employee_designation: string | null;
+  leave_date: string;
+  leave_type: string;
+  remarks: string | null;
+  photo_path: string | null;
+  photo_uploaded_at: string | null;
+  photo_url: string | null;
+  reported_by: string;
+  created_at: string;
+};
+
+export function fetchLeaveReports(): Promise<LeaveReport[]> {
+  return request('/api/leaves');
+}

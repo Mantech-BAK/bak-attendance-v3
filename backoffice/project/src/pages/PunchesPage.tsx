@@ -73,7 +73,7 @@ export function PunchesPage() {
   );
 
   const filtered = useMemo(() => {
-    return punches.filter((p) => {
+    const rows = punches.filter((p) => {
       if (projectFilter !== 'all' && p.project_code !== projectFilter) return false;
       if (employeeFilter !== 'all' && p.emp_id !== employeeFilter) return false;
       if (statusFilter !== 'all' && p.approval_status !== statusFilter) return false;
@@ -86,6 +86,18 @@ export function PunchesPage() {
         if (punchDate !== dateFilter) return false;
       }
       return true;
+    });
+
+    // Grouped alphabetically by employee name — everyone starting with "A"
+    // together, then "B", and so on — with entries WITHIN each name group
+    // kept ascending (oldest first), matching the ascending order the
+    // backend already returns punches in (2026-09-23). A compound sort
+    // (rather than relying on sort stability alone) makes both parts of
+    // that ordering explicit here.
+    return [...rows].sort((a, b) => {
+      const nameCompare = (a.employee_name ?? '').localeCompare(b.employee_name ?? '');
+      if (nameCompare !== 0) return nameCompare;
+      return new Date(a.punch_time).getTime() - new Date(b.punch_time).getTime();
     });
   }, [punches, projectFilter, employeeFilter, departmentFilter, statusFilter, dateFilter, employeeDeptMap]);
 
@@ -240,17 +252,25 @@ export function PunchesPage() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
+                {/* Two-level header (2026-09-23) — "Site Photo" spans both the
+                    Before (in-punch) and After (out-punch) columns as a single
+                    group label, with each column's own role underneath. Every
+                    other column rowSpans both header rows so it still lines up
+                    with its body column. */}
                 <tr className="border-b border-slate-200 bg-slate-50 text-left">
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Employee</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Task / Project</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Punch Time</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Entry Method</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Location</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Remarks</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Site In Photo</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Site Out Photo</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500"></th>
+                  <th rowSpan={2} className="px-6 py-3 align-bottom text-xs font-semibold uppercase tracking-wide text-slate-500">Employee</th>
+                  <th rowSpan={2} className="px-6 py-3 align-bottom text-xs font-semibold uppercase tracking-wide text-slate-500">Task / Project</th>
+                  <th rowSpan={2} className="px-6 py-3 align-bottom text-xs font-semibold uppercase tracking-wide text-slate-500">Punch Time</th>
+                  <th rowSpan={2} className="px-6 py-3 align-bottom text-xs font-semibold uppercase tracking-wide text-slate-500">Entry Method</th>
+                  <th rowSpan={2} className="px-6 py-3 align-bottom text-xs font-semibold uppercase tracking-wide text-slate-500">Location</th>
+                  <th rowSpan={2} className="px-6 py-3 align-bottom text-xs font-semibold uppercase tracking-wide text-slate-500">Remarks</th>
+                  <th colSpan={2} className="border-b border-slate-200 px-6 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">Site Photo</th>
+                  <th rowSpan={2} className="px-6 py-3 align-bottom text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
+                  <th rowSpan={2} className="px-6 py-3 align-bottom text-xs font-semibold uppercase tracking-wide text-slate-500"></th>
+                </tr>
+                <tr className="border-b border-slate-200 bg-slate-50 text-left">
+                  <th className="px-6 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Before</th>
+                  <th className="px-6 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">After</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">

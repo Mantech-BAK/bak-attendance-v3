@@ -10,6 +10,7 @@ import { ApprovalsPage } from '@/pages/ApprovalsPage';
 import { ProjectsPage } from '@/pages/ProjectsPage';
 import { ReportsPage } from '@/pages/ReportsPage';
 import { ExceptionsPage } from '@/pages/ExceptionsPage';
+import { ReportedLeavesPage } from '@/pages/ReportedLeavesPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 
 function CurrentPage() {
@@ -29,6 +30,8 @@ function CurrentPage() {
       return <ProjectsPage />;
     case 'exceptions':
       return <ExceptionsPage />;
+    case 'reported-leaves':
+      return <ReportedLeavesPage />;
     case 'reports':
       return <ReportsPage />;
     case 'settings':

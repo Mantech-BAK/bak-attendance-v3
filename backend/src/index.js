@@ -17,6 +17,7 @@ const settingsRoutes = require('./routes/settings');
 const reportsRoutes = require('./routes/reports');
 const otApprovalsRoutes = require('./routes/otApprovals');
 const referenceRoutes = require('./routes/reference');
+const leavesRoutes = require('./routes/leaves');
 const { startTeamsCron } = require('./jobs/teamsCron');
 const { startOtApprovalCron } = require('./jobs/otApprovalCron');
 
@@ -52,6 +53,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/ot-approvals', otApprovalsRoutes);
 app.use('/api', referenceRoutes);
+app.use('/api/leaves', leavesRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);

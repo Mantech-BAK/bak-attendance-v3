@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Settings,
   CheckSquare,
+  CalendarOff,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { useRouter, type RouteName } from '@/lib/router';
@@ -24,6 +25,7 @@ const NAV: { name: RouteName; label: string; icon: typeof LayoutDashboard }[] = 
   { name: 'approvals', label: 'Approvals', icon: CheckSquare },
   { name: 'projects', label: 'Projects', icon: Building2 },
   { name: 'exceptions', label: 'Exceptions', icon: AlertTriangle },
+  { name: 'reported-leaves', label: 'Reported Leaves', icon: CalendarOff },
   { name: 'reports', label: 'Reports', icon: BarChart3 },
   { name: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -34,7 +36,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-slate-50">
-      <aside className="relative flex w-64 shrink-0 flex-col border-r border-slate-200/80 bg-white shadow-[1px_0_0_rgba(15,23,42,0.02),4px_0_24px_-8px_rgba(15,23,42,0.06)]">
+      {/* sticky + self-start + h-screen (2026-09-23) — without self-start, a
+          flex child defaults to align-items: stretch and gets forced to
+          match <main>'s full (often page-length) height, at which point
+          "sticky" has nothing left to stick within and the sidebar scrolls
+          away with the page exactly like a plain "relative" one would. */}
+      <aside className="sticky top-0 flex h-screen w-64 shrink-0 self-start flex-col border-r border-slate-200/80 bg-white shadow-[1px_0_0_rgba(15,23,42,0.02),4px_0_24px_-8px_rgba(15,23,42,0.06)]">
         <div className="flex items-center gap-3 px-6 py-6">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200 transition-transform duration-200 hover:scale-105">
             <img src="/Screenshot_2026-07-15_102148.png" alt="BAK Mantech" className="h-7 w-auto object-contain" />

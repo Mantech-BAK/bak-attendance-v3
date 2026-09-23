@@ -25,6 +25,7 @@ import TabBar from '../components/TabBar';
 import PunchProjectList from '../components/PunchProjectList';
 import TaskAssignmentForm from '../components/TaskAssignmentForm';
 import EmergencyTaskTab from '../components/EmergencyTaskTab';
+import ReportLeaveTab from '../components/ReportLeaveTab';
 import ReviewAttendanceTab from '../components/ReviewAttendanceTab';
 import PunchHistoryTab from '../components/PunchHistoryTab';
 import ProfileOverlay from '../components/ProfileOverlay';
@@ -58,6 +59,7 @@ import {
 const EMPLOYEE_TABS = [
   { key: 'punch', label: 'Punch' },
   { key: 'my-tasks', label: 'Task Creation' },
+  { key: 'report-leave', label: 'Report Leave' },
   { key: 'punch-history', label: 'Punch History' },
   { key: 'scan-another', label: 'Scan Another Employee' },
 ];
@@ -65,6 +67,7 @@ const EMPLOYEE_TABS = [
 const SUPERVISOR_TABS = [
   { key: 'punch', label: 'Punch' },
   { key: 'my-tasks', label: 'Task Creation' },
+  { key: 'report-leave', label: 'Report Leave' },
   { key: 'task-assignment', label: 'Create Team Task' },
   { key: 'scan-team-member', label: 'Scan Team Member' },
   { key: 'review-attendance', label: 'Review Attendance' },
@@ -628,6 +631,10 @@ export default function PunchScreen() {
       return (
         <EmergencyTaskTab empId={employee.emp_id} projects={projects} onTaskCreated={handleCreateSelfTask} />
       );
+    }
+
+    if (activeTab === 'report-leave') {
+      return <ReportLeaveTab empId={employee.emp_id} />;
     }
 
     if (activeTab === 'punch-history') {

@@ -377,3 +377,25 @@ export function rejectOt(otApprovalId, supervisorEmpId, reason) {
     body: JSON.stringify({ supervisor_emp_id: supervisorEmpId, reason }),
   });
 }
+
+// Report Leave (2026-09-23) — both roles report their own leave (never on
+// behalf of someone else), so reported_by always equals empId here.
+// photoUri is optional — the form offers camera or gallery, but neither is
+// required to submit, same "optional" spirit as punch photos pre-2026-09-16.
+// Same { uri, name, type } File-wrapping as uploadPunchPhoto above, for the
+// same New-Architecture FormData reason.
+export function submitLeaveReport({ empId, leaveDate, leaveType, remarks, photoUri }) {
+  const formData = new FormData();
+  formData.append('emp_id', empId);
+  formData.append('leave_date', leaveDate);
+  formData.append('leave_type', leaveType);
+  if (remarks) formData.append('remarks', remarks);
+  formData.append('reported_by', empId);
+  if (photoUri) {
+    formData.append('photo', new File(photoUri), 'leave-photo.jpg');
+  }
+  return request('/api/leaves', {
+    method: 'POST',
+    body: formData,
+  });
+}

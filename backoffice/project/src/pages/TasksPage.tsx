@@ -203,7 +203,7 @@ export function TasksPage() {
   }, [tasks]);
 
   const filtered = useMemo(() => {
-    return tasks.filter((t) => {
+    const rows = tasks.filter((t) => {
       if (activeTab !== 'all' && punchStatus(t) !== activeTab) return false;
       if (projectFilter !== 'all' && t.project_code !== projectFilter) return false;
       if (employeeFilter !== 'all' && t.emp_id !== employeeFilter) return false;
@@ -214,6 +214,14 @@ export function TasksPage() {
       }
       if (dateFilter && t.task_date !== dateFilter) return false;
       return true;
+    });
+
+    // Same grouping as the Punches page (2026-09-23) — alphabetical by
+    // employee name, ascending (oldest first) within each name's group.
+    return [...rows].sort((a, b) => {
+      const nameCompare = (a.employee_name ?? '').localeCompare(b.employee_name ?? '');
+      if (nameCompare !== 0) return nameCompare;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     });
   }, [tasks, activeTab, projectFilter, employeeFilter, priorityFilter, departmentFilter, dateFilter, employeeDeptMap]);
 

@@ -400,7 +400,7 @@ async function ensureOtApproval({ empId, date, workedMinutes, thresholdMinutes, 
  * nightly cron.
  */
 async function generateConfirmationSheetRows(date) {
-  const [settingsMap, employeesResult, projectsResult, tasksResult, otApprovalsResult] = await Promise.all([
+  const [settingsMap, employeesResult, projectsResult, tasksResult, otApprovalsResult, leaveReportsResult] = await Promise.all([
     getAllSettings(),
     pool.query(
       `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, g.designation_name AS designation,
@@ -415,6 +415,7 @@ async function generateConfirmationSheetRows(date) {
     pool.query('SELECT project_code, project_name, cost_center FROM projects'),
     pool.query('SELECT id, display_id, description, is_outdoor, shift_type, source FROM tasks'),
     pool.query('SELECT emp_id, status, approved_by FROM ot_approvals WHERE work_date = $1', [date]),
+    pool.query('SELECT emp_id, leave_type, remarks FROM leave_reports WHERE leave_date = $1', [date]),
   ]);
 
   const ramzanPeriods = parseRamzanPeriods(settingsMap);
@@ -457,6 +458,20 @@ async function generateConfirmationSheetRows(date) {
     otPunchesByEmp.get(row.emp_id).push(row);
   }
 
+  // Report Leave integration (2026-09-23): a reported leave for this date
+  // gets its OWN row — blank in/out/hours, TASK NAME shows the leave type,
+  // Remarks shows the leave's entered remarks — ADDED alongside whatever
+  // real punch rows the employee also has that day, never replacing or
+  // hiding them (explicitly confirmed: "leave + punches on the same day"
+  // shows both, it doesn't take precedence). An employee with a leave but
+  // zero punches that day still gets exactly this one row, which is why the
+  // `punchRows.length === 0` skip below now also checks leavesByEmp.
+  const leavesByEmp = new Map();
+  for (const row of leaveReportsResult.rows) {
+    if (!leavesByEmp.has(row.emp_id)) leavesByEmp.set(row.emp_id, []);
+    leavesByEmp.get(row.emp_id).push(row);
+  }
+
   const reportRows = [];
   let rowNumber = 1;
 
@@ -489,12 +504,36 @@ async function generateConfirmationSheetRows(date) {
       }
     }
 
-    if (punchRows.length === 0) continue;
+    const leaves = leavesByEmp.get(employee.emp_id) || [];
 
-    const { rows } = computeEmployeeDay({
+    if (punchRows.length === 0 && leaves.length === 0) continue;
+
+    const rows = punchRows.length === 0 ? [] : computeEmployeeDay({
       employee, date, punchRows, settingsMap, ramzanPeriods, isOutdoorByTaskId, summerBanPeriods, shiftTypeByTaskId,
       sourceByTaskId,
-    });
+    }).rows;
+
+    // One row per reported leave (normally just one — an employee reports
+    // at most one leave per day, but nothing here assumes that). Blank
+    // start/end/hours, TASK NAME (remarks) is the leave type, Remarks
+    // (out_remark) is the leave's own entered remarks — additive alongside
+    // any real punch rows above, per the confirmed "show both" behavior.
+    for (const leave of leaves) {
+      rows.push({
+        project_code: null,
+        project_name: '',
+        task_id: null,
+        cost_center: null,
+        start_time: null,
+        end_time: null,
+        working_minutes: 0,
+        remarks: leave.leave_type,
+        out_remark: leave.remarks || null,
+        is_ot_row: false,
+        ot_minutes: 0,
+        is_leave_row: true,
+      });
+    }
 
     for (const row of rows) {
       if (row.project_code && row.project_name === null) {
@@ -544,7 +583,7 @@ async function generateConfirmationSheetRows(date) {
         start_time: row.start_time,
         end_time: row.end_time,
         end_date: row.end_time ? dateKey(row.end_time) : null,
-        working_hours: formatHours(row.working_minutes),
+        working_hours: row.is_leave_row ? null : formatHours(row.working_minutes),
         job: row.project_code || '',
         project_name: row.project_name,
         remarks: row.remarks,

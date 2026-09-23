@@ -31,6 +31,27 @@ async function uploadPunchPhoto(punchId, role, buffer, contentType) {
   return path;
 }
 
+// Leave-report supporting photo (2026-09-23) — same bucket as punch photos
+// (no reason to provision/manage a second private bucket for one more
+// optional photo type), just its own "leaves/" prefix so paths never
+// collide with a punch's own "punches/<id>/<role>.jpg". upsert: true here
+// (unlike punch photos) since a leave report has no separate "add a photo
+// later" flow to guard against re-upload — the whole report, photo
+// included, is submitted in one shot.
+function buildLeavePath(leaveId) {
+  return `leaves/${leaveId}.jpg`;
+}
+
+async function uploadLeavePhoto(leaveId, buffer, contentType) {
+  const path = buildLeavePath(leaveId);
+  const { error } = await getClient().storage.from(BUCKET).upload(path, buffer, {
+    contentType,
+    upsert: true,
+  });
+  if (error) throw error;
+  return path;
+}
+
 // Batched — the backoffice punch list can have many photographed rows at
 // once; one round trip beats one signed-URL request per row.
 async function getSignedUrls(paths) {
@@ -44,4 +65,4 @@ async function getSignedUrls(paths) {
   return map;
 }
 
-module.exports = { uploadPunchPhoto, getSignedUrls, BUCKET };
+module.exports = { uploadPunchPhoto, uploadLeavePhoto, getSignedUrls, BUCKET };

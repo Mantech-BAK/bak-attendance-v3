@@ -10,8 +10,9 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Camera access is needed to capture your face for punch identification.",
-        "NSLocationWhenInUseUsageDescription": "Location access is needed to record where you punched in/out."
+        "NSCameraUsageDescription": "Camera access is needed to capture your face for punch identification, add site photos, and take leave-report photos.",
+        "NSLocationWhenInUseUsageDescription": "Location access is needed to record where you punched in/out.",
+        "NSPhotoLibraryUsageDescription": "Photo library access is needed to attach a supporting photo to a leave report."
       }
     },
     "android": {
@@ -29,7 +30,8 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.READ_MEDIA_IMAGES"
       ]
     },
     "web": {
@@ -50,7 +52,15 @@
       ],
       "expo-font",
       "react-native-fast-tflite",
-      "expo-asset"
+      "expo-asset",
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Photo library access is needed to attach a supporting photo to a leave report.",
+          "cameraPermission": "Camera access is needed to take a supporting photo for a leave report."
+        }
+      ]
     ],
     "extra": {
       "eas": {
