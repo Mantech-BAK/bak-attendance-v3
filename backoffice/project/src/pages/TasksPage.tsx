@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { ClipboardList, Plus, CheckCircle2, XCircle, AlertTriangle, Loader2, MapPin, Calendar, Download, Upload, Filter, X, Pencil, Trash2 } from 'lucide-react';
 import { fetchTasks, fetchEmployees, fetchProjects, fetchSummerBanPeriods, assignTaskBulk, deleteTask, tasksExportUrl, downloadExport, ApiError } from '@/lib/api';
 import type { Task, Employee, Project, BulkAssignTaskResult } from '@/lib/api';
@@ -34,6 +34,19 @@ const EMPTY_FORM: FormState = {
   isOutdoor: null,
   shiftType: 'regular',
 };
+
+// Labeled mini-grid field (2026-09-23 Tasks page redesign) — small-caps
+// label above the value, used for every task card field that isn't already
+// a self-explanatory color badge (priority/status/shift keep their badges;
+// everything else gets an explicit label instead of unlabeled inline text).
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="truncate text-sm text-slate-700">{children}</p>
+    </div>
+  );
+}
 
 function isSummerBanActiveToday(periods: { start_date: string; end_date: string; active: boolean }[]): boolean {
   const today = todayDate();
@@ -459,21 +472,31 @@ export function TasksPage() {
                         {t.employee_name ? initials(t.employee_name) : '—'}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
                           <span className="font-mono text-xs text-slate-400">{t.display_id}</span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={priorityVariant}>{t.priority ?? 'none'}</Badge>
+                            <Badge variant={statusVariant}>{statusLabel}</Badge>
+                            {t.shift_type === 'night' && <Badge variant="accent">Night</Badge>}
+                          </div>
                         </div>
-                        <p className="text-sm font-medium text-slate-900">{t.description}</p>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <Badge variant={priorityVariant}>{t.priority ?? 'none'}</Badge>
-                          <Badge variant={statusVariant}>{statusLabel}</Badge>
-                          {t.shift_type === 'night' && <Badge variant="accent">Night</Badge>}
-                          <span className="text-xs text-slate-500">{t.employee_name ?? 'Unassigned'}</span>
-                          <span className="text-xs text-slate-400">·</span>
-                          <span className="text-xs text-slate-500">{t.project_name ?? 'No project'}</span>
+
+                        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+                          <Field label="Employee">{t.employee_name ?? 'Unassigned'}</Field>
+                          <Field label="Project">
+                            {t.project_code ? `${t.project_code}${t.project_name ? ` — ${t.project_name}` : ''}` : 'No project'}
+                          </Field>
+                          <Field label="Task Date">{formatDate(t.task_date)}</Field>
+                          <Field label="Shift Type">{t.shift_type === 'night' ? 'Night' : 'Regular'}</Field>
                         </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-slate-400">
+
+                        <div className="mt-3">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Description</p>
+                          <p className="text-sm text-slate-900">{t.description}</p>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-400">
                           {t.location_site && (<span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {t.location_site}</span>)}
-                          <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {formatDate(t.task_date)}</span>
                           <span>Created by {t.created_by}</span>
                         </div>
                       </div>
