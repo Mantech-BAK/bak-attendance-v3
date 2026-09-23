@@ -14,6 +14,7 @@ import {
 import { useAuth } from '@/lib/auth';
 import { useRouter, type RouteName } from '@/lib/router';
 import { cn, initials } from '@/lib/utils';
+import { ScrollToTopButton } from './ScrollToTopButton';
 
 const NAV: { name: RouteName; label: string; icon: typeof LayoutDashboard }[] = [
   { name: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -108,6 +109,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="min-w-0 flex-1 overflow-x-hidden bg-gradient-to-b from-slate-50 via-slate-50 to-slate-100/70">
         <div className="mx-auto max-w-7xl px-8 py-10">{children}</div>
       </main>
+
+      <ScrollToTopButton />
     </div>
   );
 }
