@@ -247,8 +247,8 @@ export function PunchesPage() {
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Entry Method</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Location</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Remarks</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">In Punch Photo</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Out Punch Photo</th>
+                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Site In Photo</th>
+                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Site Out Photo</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500"></th>
                 </tr>
