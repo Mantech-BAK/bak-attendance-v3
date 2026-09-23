@@ -32,6 +32,24 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+// Bulk "Clear Exceptions" (2026-09-23) — resolves every currently OPEN
+// exception in one action, instead of one at a time. A distinct route +
+// method (POST, not PATCH) rather than a special :id value, so it can't
+// collide with PATCH /:id below regardless of route definition order.
+// Already-resolved exceptions are left untouched — this only ever narrows
+// to status = 'open', never re-touches history. Returns the count actually
+// resolved so the UI can confirm how many were cleared.
+router.post('/resolve-all', async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `UPDATE exceptions SET status = 'resolved' WHERE status = 'open' RETURNING id`
+    );
+    res.json({ resolved: result.rows.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.patch('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;

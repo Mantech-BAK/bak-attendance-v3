@@ -536,6 +536,13 @@ export function resolveException(id: number): Promise<ExceptionRow> {
   });
 }
 
+// "Clear Exceptions" (2026-09-23) — resolves every currently open exception
+// in one action. Only ever touches open ones; already-resolved rows are
+// left exactly as they were.
+export function resolveAllExceptions(): Promise<{ resolved: number }> {
+  return request('/api/exceptions/resolve-all', { method: 'POST' });
+}
+
 export function fetchAttendance(date?: string): Promise<{ sessions: AttendanceSession[]; exceptions_raised: unknown[] }> {
   return request(`/api/attendance${date ? `?date=${encodeURIComponent(date)}` : ''}`);
 }

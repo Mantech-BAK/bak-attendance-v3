@@ -10,10 +10,10 @@ import {
   Calendar,
   Plus,
 } from 'lucide-react';
-import { fetchExceptions, resolveException, fetchEmployees } from '@/lib/api';
+import { fetchExceptions, resolveException, resolveAllExceptions, fetchEmployees } from '@/lib/api';
 import type { ExceptionRow, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, Badge, Button, Select, Spinner, EmptyState } from '@/components/ui';
+import { Card, Badge, Button, Select, Spinner, EmptyState, Modal } from '@/components/ui';
 import { AddPunchModal } from '@/components/AddPunchModal';
 import { cn, formatDateTime, initials } from '@/lib/utils';
 
@@ -44,6 +44,8 @@ export function ExceptionsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [resolvingId, setResolvingId] = useState<number | null>(null);
   const [addPunchFor, setAddPunchFor] = useState<ExceptionRow | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,6 +92,25 @@ export function ExceptionsPage() {
     }
   }
 
+  // Bulk "Clear Exceptions" (2026-09-23) — resolves every currently open
+  // exception in one action instead of one at a time. Re-fetches afterward
+  // rather than optimistically patching every row locally, so the list
+  // (and its open/resolved counts) is always exactly what the server now
+  // has, not a client-side guess.
+  async function handleClearAll() {
+    setClearing(true);
+    setError(null);
+    try {
+      await resolveAllExceptions();
+      setShowClearConfirm(false);
+      await load();
+    } catch {
+      setError('Could not clear exceptions. Please try again.');
+    } finally {
+      setClearing(false);
+    }
+  }
+
   const availableTypes = useMemo(() => {
     const types = new Set(exceptions.map((e) => e.type));
     return Array.from(types).sort();
@@ -123,7 +144,34 @@ export function ExceptionsPage() {
 
   return (
     <>
-      <PageHeader title="Exceptions" subtitle="Review and resolve attendance exceptions" />
+      <PageHeader
+        title="Exceptions"
+        subtitle="Review and resolve attendance exceptions"
+        action={
+          <Button
+            variant="secondary"
+            onClick={() => setShowClearConfirm(true)}
+            disabled={openCount === 0}
+          >
+            <CheckCircle2 className="h-4 w-4" /> Clear Exceptions
+          </Button>
+        }
+      />
+
+      <Modal open={showClearConfirm} onClose={() => setShowClearConfirm(false)} title="Clear all exceptions?">
+        <p className="mb-4 text-sm text-slate-600">
+          This resolves all {openCount} open exception{openCount === 1 ? '' : 's'} at once. Already-resolved
+          exceptions are unaffected. This cannot be undone.
+        </p>
+        <div className="flex gap-3">
+          <Button variant="secondary" onClick={() => setShowClearConfirm(false)} disabled={clearing} className="flex-1">
+            Cancel
+          </Button>
+          <Button onClick={handleClearAll} disabled={clearing} className="flex-1">
+            {clearing ? (<><Loader2 className="h-4 w-4 animate-spin" /> Clearing…</>) : 'Clear All'}
+          </Button>
+        </div>
+      </Modal>
 
       {error && (
         <div className="mb-4 flex items-center gap-2 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">

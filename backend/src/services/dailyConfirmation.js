@@ -217,35 +217,32 @@ function computeEmployeeDay({
       // gap-length threshold (2026-09-15). A non-positive gap (overlapping/
       // adjacent punches) still produces nothing, same as before.
       //
-      // Next to an Emergency Task (source 'employee_self') on either side,
-      // the gap is omitted entirely instead (2026-09-17 correction — the
-      // previous "attributed to default project" row here was reverting to
-      // pre-existing intended behavior for that case, not a bug; product
-      // then decided that gap shouldn't appear as a row, or count toward
-      // worked time, at all) — an emergency-created task has no real "next
-      // scheduled task" to travel toward, the way an admin/supervisor-
-      // planned one does, so there's nothing real to attribute this time to.
+      // Emergency tasks (source 'employee_self') get NO special treatment
+      // here anymore (2026-09-23, final word after this rule flip-flopped
+      // several times in one day — 2026-09-15 attributed the gap to the
+      // department default, 2026-09-17 omitted it entirely, this reverts
+      // to plain equal treatment): a gap next to an emergency task is
+      // exactly the same Travelling Time row a gap next to an
+      // admin/supervisor-planned task gets — same project attribution
+      // (the next session's), same label, same contribution to the day's
+      // total worked minutes. sourceByTaskId is still threaded through
+      // (other callers/behavior may still need it) but is no longer
+      // consulted by this block at all.
       if (gapMinutes > 0) {
-        const isEmergencyAdjacent =
-          sourceByTaskId.get(session.task_id) === 'employee_self' ||
-          sourceByTaskId.get(next.task_id) === 'employee_self';
-
-        if (!isEmergencyAdjacent) {
-          totalWorkedMinutes += gapMinutes;
-          rows.push({
-            project_code: next.project_code,
-            project_name: null, // filled in by the caller, same as any other row
-            task_id: null,
-            cost_center: null,
-            start_time: session.punch_out.punch_time,
-            end_time: next.punch_in.punch_time,
-            working_minutes: gapMinutes,
-            remarks: 'Travelling Time',
-            out_remark: 'Travelling Time',
-            is_ot_row: false,
-            ot_minutes: 0,
-          });
-        }
+        totalWorkedMinutes += gapMinutes;
+        rows.push({
+          project_code: next.project_code,
+          project_name: null, // filled in by the caller, same as any other row
+          task_id: null,
+          cost_center: null,
+          start_time: session.punch_out.punch_time,
+          end_time: next.punch_in.punch_time,
+          working_minutes: gapMinutes,
+          remarks: 'Travelling Time',
+          out_remark: 'Travelling Time',
+          is_ot_row: false,
+          ot_minutes: 0,
+        });
       }
     }
   }
@@ -426,9 +423,10 @@ async function generateConfirmationSheetRows(date) {
   const tasksById = new Map(tasksResult.rows.map((t) => [t.id, t]));
   const isOutdoorByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.is_outdoor === true]));
   const shiftTypeByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.shift_type]));
-  // Source per task (2026-09-15) — a gap next to an Emergency Task (source
-  // 'employee_self') is omitted entirely instead of becoming a "Travelling
-  // Time" row; see computeEmployeeDay.
+  // Source per task — no longer consulted by computeEmployeeDay's gap
+  // logic as of 2026-09-23 (emergency tasks get plain equal treatment
+  // there now, see its own comment), but still threaded through/computed
+  // here in case any other current or future logic needs it.
   const sourceByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.source]));
   const otStatusByEmp = new Map(otApprovalsResult.rows.map((o) => [o.emp_id, { status: o.status, approvedBy: o.approved_by }]));
 
