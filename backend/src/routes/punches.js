@@ -91,7 +91,7 @@ router.get('/', requireBackofficeAuth, async (req, res, next) => {
        LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
        LEFT JOIN projects pr ON pr.project_code = p.project_code
        LEFT JOIN tasks t ON t.id = p.task_id
-       ORDER BY p.punch_time DESC`
+       ORDER BY p.punch_time ASC`
     );
 
     // Batched signed-URL generation (2026-09-14) — one round trip for every
@@ -252,6 +252,46 @@ router.get('/history', async (req, res, next) => {
     );
 
     res.json(historyResult.rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Single full-shape punch, backoffice-only — the Approvals page's Edit
+// action (2026-09-23) needs the same fields AddPunchModal already relies on
+// for the Punches page's Edit Punch (task_description, resolved_address,
+// out_remark, photo, etc.), which GET /pending above deliberately doesn't
+// carry (it's also polled by mobile's own Review Attendance tab, which
+// never needed those fields). Declared after every literal-path GET above
+// so none of them get swallowed by this :id pattern.
+router.get('/:id', requireBackofficeAuth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, g.designation_name AS employee_designation,
+              p.project_code, pr.project_name, p.task_id, t.display_id AS task_display_id, t.description AS task_description,
+              p.punch_time, p.lat, p.lng, p.entry_method,
+              p.entered_by, p.approval_status, p.approved_by, p.approved_at, p.rejection_reason,
+              p.resolved_address, p.out_remark, p.photo_path, p.photo_uploaded_at, p.created_at,
+              (p.task_id IS NOT NULL AND NOT EXISTS (
+                 SELECT 1 FROM punches p2 WHERE p2.task_id = p.task_id AND p2.punch_time < p.punch_time
+               )) AS is_in_punch
+       FROM punches p
+       LEFT JOIN employees e ON e."EmpId" = p.emp_id
+       LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
+       LEFT JOIN projects pr ON pr.project_code = p.project_code
+       LEFT JOIN tasks t ON t.id = p.task_id
+       WHERE p.id = $1`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: `punch ${id} not found` });
+    }
+
+    const row = result.rows[0];
+    const signedUrls = row.photo_path ? await getSignedUrls([row.photo_path]) : new Map();
+    res.json({ ...row, photo_url: row.photo_path ? (signedUrls.get(row.photo_path) ?? null) : null });
   } catch (err) {
     next(err);
   }
@@ -515,10 +555,9 @@ router.post('/', async (req, res, next) => {
     // (POST /:id/photo below), scoped to exactly the two cases product
     // called out: not after the task's own out-punch already happened
     // (in-photo), not after a different task has since been punched into
-    // (out-photo). missingPunchPhotoCron still raises a missing_punch_photo
-    // exception for a photo that was never added — optional at punch time
-    // doesn't mean nobody should know it's missing, just that it no longer
-    // blocks anything.
+    // (out-photo). A photo that was simply never added raises no exception
+    // at all (2026-09-23) — fully optional means fully optional, not
+    // "optional but still flagged."
 
     // A supervisor's own punch auto-approves exactly like one they enter on
     // a direct report's behalf — this branch was missing until a real
@@ -681,15 +720,6 @@ router.post('/:id/photo', uploadPhoto.single('photo'), async (req, res, next) =>
     const updateResult = await pool.query(
       `UPDATE punches SET photo_path = $1, photo_uploaded_at = now() WHERE id = $2 RETURNING ${PUNCH_SELECT_RETURNING}`,
       [photoPath, punch.id]
-    );
-
-    // A missing_punch_photo exception may already exist if this upload
-    // lands after the window lapsed (missingPunchPhotoCron already raised
-    // it) — late is still better than never, so resolve it same as
-    // resolveSinglePunchException does for its own exception type.
-    await pool.query(
-      `UPDATE exceptions SET status = 'resolved' WHERE type = 'missing_punch_photo' AND ref_table = 'punches' AND ref_id = $1 AND status = 'open'`,
-      [punch.id]
     );
 
     res.status(201).json(updateResult.rows[0]);

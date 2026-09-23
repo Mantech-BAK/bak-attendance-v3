@@ -305,7 +305,7 @@ router.get('/', requireBackofficeAuth, async (req, res, next) => {
        FROM tasks t
        LEFT JOIN employees e ON e."EmpId" = t.emp_id
        LEFT JOIN projects p ON p.project_code = t.project_code
-       ORDER BY t.created_at DESC`
+       ORDER BY t.created_at ASC`
     );
     res.json(result.rows);
   } catch (err) {
