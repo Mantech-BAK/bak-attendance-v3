@@ -3,14 +3,6 @@ const { createClient } = require('@supabase/supabase-js');
 const BUCKET = 'punch-photos';
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h — long enough for one admin review session
 
-// Bounded window (2026-09-14) after an OUT punch during which its photo
-// must be uploaded before starting a DIFFERENT real task. Shared between
-// routes/punches.js (the live block on a new punch) and
-// jobs/missingPunchPhotoCron.js (raises a missing_punch_photo exception
-// once this window lapses unresolved, and lifts the live block from then
-// on) — kept in one place so the two can never drift out of sync.
-const OUT_PHOTO_WINDOW_HOURS = 3;
-
 let client = null;
 function getClient() {
   if (!client) {
@@ -52,4 +44,4 @@ async function getSignedUrls(paths) {
   return map;
 }
 
-module.exports = { uploadPunchPhoto, getSignedUrls, BUCKET, OUT_PHOTO_WINDOW_HOURS };
+module.exports = { uploadPunchPhoto, getSignedUrls, BUCKET };

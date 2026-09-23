@@ -16,9 +16,9 @@ const exceptionsRoutes = require('./routes/exceptions');
 const settingsRoutes = require('./routes/settings');
 const reportsRoutes = require('./routes/reports');
 const otApprovalsRoutes = require('./routes/otApprovals');
+const referenceRoutes = require('./routes/reference');
 const { startTeamsCron } = require('./jobs/teamsCron');
 const { startOtApprovalCron } = require('./jobs/otApprovalCron');
-const { startMissingPunchPhotoCron } = require('./jobs/missingPunchPhotoCron');
 
 const app = express();
 
@@ -51,6 +51,7 @@ app.use('/api/exceptions', exceptionsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/ot-approvals', otApprovalsRoutes);
+app.use('/api', referenceRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);
@@ -63,5 +64,4 @@ app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
   startTeamsCron();
   startOtApprovalCron();
-  startMissingPunchPhotoCron();
 });
