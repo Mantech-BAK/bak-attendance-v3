@@ -4,7 +4,14 @@ const {
   getEffectiveThreshold, applyNestedSubtraction, punchKey, buildSessionFromPunches,
   dateKey, fetchPunchRowsForDate,
 } = require('./attendance');
+const { getDefaultProjectByEmpIdMap } = require('./tasks');
 
+// Shortfall row's project when the employee's department has no default
+// project configured — literal placeholder text, per product spec
+// (2026-09-24), replacing the old "UNASSIGNED — no default project
+// configured" wording.
+const NO_DEFAULT_PROJECT_CODE = '000';
+const NO_DEFAULT_PROJECT_NAME = 'Default Project';
 const DEFAULT_MAX_OT_MINUTES = 600; // 10 hours, used only if max_ot_minutes is somehow missing
 
 // Every OT display surface (mobile OvertimeApprovalsCard, backoffice
@@ -400,7 +407,7 @@ async function ensureOtApproval({ empId, date, workedMinutes, thresholdMinutes, 
  * nightly cron.
  */
 async function generateConfirmationSheetRows(date) {
-  const [settingsMap, employeesResult, projectsResult, tasksResult, otApprovalsResult, leaveReportsResult] = await Promise.all([
+  const [settingsMap, employeesResult, projectsResult, tasksResult, otApprovalsResult, leaveReportsResult, defaultProjectByEmp] = await Promise.all([
     getAllSettings(),
     pool.query(
       `SELECT e."EmpId" AS emp_id, e."EmpName" AS name, g.designation_name AS designation,
@@ -416,6 +423,7 @@ async function generateConfirmationSheetRows(date) {
     pool.query('SELECT id, display_id, description, is_outdoor, shift_type, source FROM tasks'),
     pool.query('SELECT emp_id, status, approved_by FROM ot_approvals WHERE work_date = $1', [date]),
     pool.query('SELECT emp_id, leave_type, remarks FROM leave_reports WHERE leave_date = $1', [date]),
+    getDefaultProjectByEmpIdMap(),
   ]);
 
   const ramzanPeriods = parseRamzanPeriods(settingsMap);
@@ -508,10 +516,37 @@ async function generateConfirmationSheetRows(date) {
 
     if (punchRows.length === 0 && leaves.length === 0) continue;
 
-    const rows = punchRows.length === 0 ? [] : computeEmployeeDay({
+    const computation = punchRows.length === 0 ? null : computeEmployeeDay({
       employee, date, punchRows, settingsMap, ramzanPeriods, isOutdoorByTaskId, summerBanPeriods, shiftTypeByTaskId,
       sourceByTaskId,
-    }).rows;
+    });
+    const rows = computation ? computation.rows : [];
+
+    // Shortfall row (2026-09-24): only for an employee with at least one
+    // real (approved) punch — zero punches still means no row at all — whose
+    // real worked time (Travelling Time gaps included, they count as worked)
+    // is below the day's effective minimum (Ramzan > daily override > global,
+    // via computeEmployeeDay's getEffectiveThreshold). A same-day leave
+    // report does NOT change this: the shortfall is based on real punch
+    // hours only, and the leave row is a separate additive row.
+    if (computation && computation.totalWorkedMinutes < computation.thresholdMinutes) {
+      const shortfallMinutes = computation.thresholdMinutes - computation.totalWorkedMinutes;
+      const defaultProject = defaultProjectByEmp.get(employee.emp_id);
+      const projectRecord = defaultProject ? projectsByCode.get(defaultProject.project_code) : null;
+      rows.push({
+        project_code: defaultProject ? defaultProject.project_code : NO_DEFAULT_PROJECT_CODE,
+        project_name: defaultProject ? defaultProject.project_name : NO_DEFAULT_PROJECT_NAME,
+        task_id: null,
+        cost_center: projectRecord ? projectRecord.cost_center : null,
+        start_time: null,
+        end_time: null,
+        working_minutes: shortfallMinutes,
+        remarks: `Shortfall — ${formatDurationShort(shortfallMinutes)} below the day's minimum of ${formatDurationShort(computation.thresholdMinutes)}`,
+        out_remark: null,
+        is_ot_row: false,
+        ot_minutes: 0,
+      });
+    }
 
     // One row per reported leave (normally just one — an employee reports
     // at most one leave per day, but nothing here assumes that). Blank
