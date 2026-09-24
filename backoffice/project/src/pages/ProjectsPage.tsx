@@ -51,10 +51,13 @@ export function ProjectsPage() {
   }
 
   return (
-    <>
-      <PageHeader title="Projects" subtitle={`${projects.length} total · ${filtered.length} shown`} />
+    <div className="flex h-[calc(100vh-5rem)] min-h-[640px] flex-col">
+      <div className="shrink-0">
+      <PageHeader compact title="Projects" subtitle={`${projects.length} total · ${filtered.length} shown`} />
+      </div>
 
-      <Card className="mb-6 p-4">
+      {/* Sticky (2026-09-24): counts (header), filters and the table header stay pinned; only the rows scroll. */}
+      <Card className="relative z-20 mb-3 shrink-0 p-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -79,15 +82,16 @@ export function ProjectsPage() {
         </div>
       </Card>
 
+      <div className="min-h-0 flex-1 overflow-auto">
       {filtered.length === 0 ? (
         <Card className="p-6">
           <EmptyState icon={<Building2 className="h-6 w-6" />} title="No projects found" message="Try adjusting your search or filters." />
         </Card>
       ) : (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
+        <Card>
+          <div>
             <table className="w-full">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_0_rgb(226,232,240)]">
                 <tr className="border-b border-slate-200 bg-slate-50 text-left">
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Project</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
@@ -127,6 +131,7 @@ export function ProjectsPage() {
           </div>
         </Card>
       )}
-    </>
+      </div>
+    </div>
   );
 }
