@@ -813,6 +813,18 @@ export function saveDuplicatePunchWindow(minutes: number): Promise<DuplicatePunc
   });
 }
 
+export function fetchMinOtThreshold(): Promise<{ minutes: number }> {
+  return request('/api/settings/min-ot-threshold');
+}
+
+export function saveMinOtThreshold(minutes: number): Promise<{ minutes: number }> {
+  return request('/api/settings/min-ot-threshold', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ minutes }),
+  });
+}
+
 // Item 4 — the nightly window an employee can create a task for themselves
 // from mobile with no supervisor/backoffice involved. Times are plain
 // 24-hour "HH:MM" strings, compared server-side in UTC (see

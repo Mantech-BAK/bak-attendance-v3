@@ -300,7 +300,15 @@ function computeEmployeeDay({
   // padding row — the report now shows only real punch-backed rows,
   // whatever they add up to. Nothing else to do here in that case: no row,
   // no OT (trueExcessMinutes is 0 whenever there's a shortfall).
-  if (trueExcessMinutes >= MIN_OT_MINUTES && employee.ot_eligible === 'Y') {
+  // Admin-configured Minimum OT Threshold (Settings, 2026-09-24): OT below
+  // it is skipped outright — no OT row here, hence no ot_approvals row from
+  // either caller (the nightly cron and the sheet generator both act on
+  // otMinutes). Never lower than the built-in MIN_OT_MINUTES noise floor;
+  // unset/0 keeps today's behavior exactly.
+  const configuredMinOt = Number(settingsMap.min_ot_threshold_minutes) || 0;
+  const minOtMinutes = Math.max(MIN_OT_MINUTES, configuredMinOt);
+
+  if (trueExcessMinutes >= minOtMinutes && employee.ot_eligible === 'Y') {
     otMinutes = Math.min(trueExcessMinutes, maxOtMinutes);
     const cappedNote = trueExcessMinutes > maxOtMinutes
       ? ` (true excess ${formatDurationShort(trueExcessMinutes)}, capped at ${formatDurationShort(maxOtMinutes)} for approval)`
@@ -544,6 +552,11 @@ async function generateConfirmationSheetRows(date) {
     // employee can have punchRows yet no session actually attributed to THIS
     // date — that's effectively zero punches here, and gets no row.
     if (computation && rows.length > 0 && !computation.hasIncompleteSession && shortfallMinutes >= MIN_SHORTFALL_MINUTES) {
+      // Starts at the day's latest real punch-out (Travelling Time rows and
+      // nested/overlapping sessions included, so max over every row's end)
+      // and runs for exactly the shortfall — always appended after the last
+      // real activity; may cross midnight (end_date then rolls forward).
+      const shortfallStart = new Date(Math.max(...rows.filter((r) => r.end_time).map((r) => new Date(r.end_time).getTime())));
       const defaultProject = defaultProjectByEmp.get(employee.emp_id);
       const projectRecord = defaultProject ? projectsByCode.get(defaultProject.project_code) : null;
       rows.push({
@@ -551,8 +564,8 @@ async function generateConfirmationSheetRows(date) {
         project_name: defaultProject ? defaultProject.project_name : NO_DEFAULT_PROJECT_NAME,
         task_id: null,
         cost_center: projectRecord ? projectRecord.cost_center : null,
-        start_time: null,
-        end_time: null,
+        start_time: shortfallStart,
+        end_time: new Date(shortfallStart.getTime() + shortfallMinutes * 60000),
         working_minutes: shortfallMinutes,
         remarks: `Shortfall — ${formatDurationShort(shortfallMinutes)} below the day's minimum of ${formatDurationShort(computation.thresholdMinutes)}`,
         out_remark: null,

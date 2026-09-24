@@ -15,6 +15,8 @@ import {
   deleteSummerBanPeriod,
   fetchDuplicatePunchWindow,
   saveDuplicatePunchWindow,
+  fetchMinOtThreshold,
+  saveMinOtThreshold,
   fetchEmergencyTimeAllowance,
   saveEmergencyTimeAllowance,
   fetchEmployees,
@@ -56,6 +58,11 @@ export function SettingsPage() {
   const [duplicateWindowSubmitting, setDuplicateWindowSubmitting] = useState(false);
   const [duplicateWindowError, setDuplicateWindowError] = useState<string | null>(null);
   const [duplicateWindowSuccess, setDuplicateWindowSuccess] = useState(false);
+  const [minOt, setMinOt] = useState('');
+  const [currentMinOt, setCurrentMinOt] = useState<number | null>(null);
+  const [minOtSubmitting, setMinOtSubmitting] = useState(false);
+  const [minOtError, setMinOtError] = useState<string | null>(null);
+  const [minOtSuccess, setMinOtSuccess] = useState(false);
 
   const [emergencyStart, setEmergencyStart] = useState('');
   const [emergencyEnd, setEmergencyEnd] = useState('');
@@ -106,12 +113,13 @@ export function SettingsPage() {
 
   async function load() {
     setLoading(true);
-    const [dwh, rp, rwh, sbp, dpw, eta, emp] = await Promise.all([
+    const [dwh, rp, rwh, sbp, dpw, mot, eta, emp] = await Promise.all([
       fetchDailyWorkingHours(),
       fetchRamzanPeriods(),
       fetchRamzanWorkingHours(),
       fetchSummerBanPeriods(),
       fetchDuplicatePunchWindow(),
+      fetchMinOtThreshold(),
       fetchEmergencyTimeAllowance(),
       fetchEmployees(),
     ]);
@@ -123,6 +131,8 @@ export function SettingsPage() {
     setSummerBanPeriods(sbp.periods);
     setCurrentDuplicateWindow(dpw.minutes);
     setDuplicateWindow(String(dpw.minutes));
+    setCurrentMinOt(mot.minutes);
+    setMinOt(String(mot.minutes));
     setEmergencyStart(eta.start);
     setEmergencyEnd(eta.end);
     setEmployees(emp);
@@ -325,6 +335,30 @@ export function SettingsPage() {
       setSbPeriodDeleteError(err instanceof ApiError ? err.message : 'Could not delete the period. Please try again.');
     } finally {
       setSbPeriodDeleting(false);
+    }
+  }
+
+  async function handleMinOtSubmit(e: FormEvent) {
+    e.preventDefault();
+    setMinOtError(null);
+    setMinOtSuccess(false);
+
+    const parsed = Number(minOt);
+    if (minOt === '' || Number.isNaN(parsed)) {
+      setMinOtError('Enter a valid number of minutes.');
+      return;
+    }
+
+    setMinOtSubmitting(true);
+    try {
+      const result = await saveMinOtThreshold(parsed);
+      setCurrentMinOt(result.minutes);
+      setMinOtSuccess(true);
+      setTimeout(() => setMinOtSuccess(false), 3000);
+    } catch (err) {
+      setMinOtError(err instanceof Error ? err.message : 'Could not save. Please try again.');
+    } finally {
+      setMinOtSubmitting(false);
     }
   }
 
@@ -585,6 +619,46 @@ export function SettingsPage() {
 
             <Button type="submit" disabled={duplicateWindowSubmitting} className="w-full">
               {duplicateWindowSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>) : 'Save'}
+            </Button>
+          </form>
+        </Card>
+
+        <Card className="p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-slate-400" />
+            <h2 className="text-base font-semibold text-slate-900">Minimum OT Threshold</h2>
+          </div>
+          <p className="mb-4 text-sm text-slate-500">
+            If an employee's overtime for a day is less than this many minutes, no overtime record or approval
+            is created for that day at all. Set to 0 to create OT for any amount above the built-in 3-minute floor.
+          </p>
+
+          <form onSubmit={handleMinOtSubmit} className="space-y-4">
+            <Input
+              value={minOt}
+              onChange={setMinOt}
+              label="Minutes (0–600)"
+              id="min-ot-threshold"
+              type="number"
+              placeholder="e.g. 30"
+            />
+            {currentMinOt !== null && (
+              <p className="text-xs text-slate-400">Currently set to {currentMinOt} minute{currentMinOt === 1 ? '' : 's'}.</p>
+            )}
+
+            {minOtError && (
+              <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+                <XCircle className="h-4 w-4 shrink-0" />{minOtError}
+              </div>
+            )}
+            {minOtSuccess && (
+              <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />Saved.
+              </div>
+            )}
+
+            <Button type="submit" disabled={minOtSubmitting} className="w-full">
+              {minOtSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>) : 'Save'}
             </Button>
           </form>
         </Card>

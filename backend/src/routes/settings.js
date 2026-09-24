@@ -139,6 +139,36 @@ router.post('/duplicate-punch-window', async (req, res, next) => {
   }
 });
 
+// Minimum OT Threshold (2026-09-24) — OT under this many minutes never
+// creates an ot_approvals row at all (see computeEmployeeDay). 0 = no extra
+// threshold beyond the built-in 3-minute noise floor.
+const MAX_MIN_OT_THRESHOLD_MINUTES = 600;
+
+router.get('/min-ot-threshold', async (req, res, next) => {
+  try {
+    const value = await getSetting('min_ot_threshold_minutes');
+    res.json({ minutes: value === null ? 0 : Number(value) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/min-ot-threshold', async (req, res, next) => {
+  try {
+    const { minutes } = req.body;
+    if (typeof minutes !== 'number' || Number.isNaN(minutes)) {
+      return res.status(400).json({ error: 'minutes is required and must be a number' });
+    }
+    if (minutes < 0 || minutes > MAX_MIN_OT_THRESHOLD_MINUTES) {
+      return res.status(400).json({ error: `minutes must be between 0 and ${MAX_MIN_OT_THRESHOLD_MINUTES}` });
+    }
+    await setSetting('min_ot_threshold_minutes', String(minutes));
+    res.json({ minutes });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // The nightly window an employee can create a task for themselves from
 // mobile with no supervisor/backoffice involvement — see
 // isWithinEmergencyWindow in services/settings.js for how it's enforced
