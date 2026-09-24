@@ -68,6 +68,19 @@ router.post('/', uploadPhoto.single('photo'), async (req, res, next) => {
     const signedUrls = row.photo_path ? await getSignedUrls([row.photo_path]) : new Map();
     res.status(201).json({ ...row, photo_url: row.photo_path ? (signedUrls.get(row.photo_path) ?? null) : null });
   } catch (err) {
+    if (err.code === '23505' && err.constraint === 'leave_reports_emp_date_unique') {
+      // The unique index is what actually guarantees one report per employee
+      // per date (race-safe); this just turns its rejection into a clear
+      // message naming the leave that's already on file.
+      const existing = await pool.query(
+        'SELECT leave_type FROM leave_reports WHERE emp_id = $1 AND leave_date = $2',
+        [req.body.emp_id, req.body.leave_date]
+      );
+      const type = existing.rows[0]?.leave_type;
+      return res.status(409).json({
+        error: `A leave has already been reported for ${req.body.leave_date}${type ? ` (${type})` : ''}. Only one leave report per date is allowed.`,
+      });
+    }
     if (err.code === '23503') {
       return res.status(400).json({ error: `Employee ${req.body.emp_id} not found` });
     }
