@@ -8,6 +8,8 @@ import { EmployeeMultiSelect } from '@/components/EmployeeMultiSelect';
 import { SearchableSelect } from '@/components/SearchableSelect';
 import { BulkUploadTasksModal } from '@/components/BulkUploadTasksModal';
 import { EditTaskModal } from '@/components/EditTaskModal';
+import { DateRangeFilter } from '@/components/DateRangeFilter';
+import { todayRange, isDefaultRange, inRange, dateKeyInRiyadh, type DateRange } from '@/lib/dateRange';
 import { formatDate, initials, cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 
@@ -93,7 +95,7 @@ export function TasksPage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const [dateFilter, setDateFilter] = useState('');
+  const [dateRange, setDateRange] = useState<DateRange>(todayRange);
   const [projectFilter, setProjectFilter] = useState('all');
   const [departmentFilter, setDepartmentFilter] = useState('all');
   const [employeeFilter, setEmployeeFilter] = useState('all');
@@ -212,7 +214,7 @@ export function TasksPage() {
         const empDept = employeeDeptMap.get(t.emp_id);
         if (empDept !== departmentFilter) return false;
       }
-      if (dateFilter && t.task_date !== dateFilter) return false;
+      if (!inRange(t.task_date.slice(0, 10), dateRange)) return false;
       return true;
     });
 
@@ -223,12 +225,12 @@ export function TasksPage() {
       if (nameCompare !== 0) return nameCompare;
       return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     });
-  }, [tasks, activeTab, projectFilter, employeeFilter, priorityFilter, departmentFilter, dateFilter, employeeDeptMap]);
+  }, [tasks, activeTab, projectFilter, employeeFilter, priorityFilter, departmentFilter, dateRange, employeeDeptMap]);
 
-  const hasFilters = dateFilter || projectFilter !== 'all' || departmentFilter !== 'all' || employeeFilter !== 'all' || priorityFilter !== 'all';
+  const hasFilters = !isDefaultRange(dateRange) || projectFilter !== 'all' || departmentFilter !== 'all' || employeeFilter !== 'all' || priorityFilter !== 'all';
 
   function clearFilters() {
-    setDateFilter('');
+    setDateRange(todayRange());
     setProjectFilter('all');
     setDepartmentFilter('all');
     setEmployeeFilter('all');
@@ -397,19 +399,7 @@ export function TasksPage() {
               )}
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="task-date-filter" className="text-sm font-medium text-slate-700">Date</label>
-                <div className="relative">
-                  <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input
-                    id="task-date-filter"
-                    type="date"
-                    value={dateFilter}
-                    onChange={(e) => setDateFilter(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 shadow-sm transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-                  />
-                </div>
-              </div>
+              <DateRangeFilter id="task-date-filter" value={dateRange} onChange={setDateRange} />
               <SearchableSelect
                 value={projectFilter}
                 onChange={setProjectFilter}

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { DateRangeFilter } from '@/components/DateRangeFilter';
+import { todayRange, isDefaultRange, inRange, dateKeyInRiyadh, type DateRange } from '@/lib/dateRange';
 import { Clock, Timer, CheckCircle2, XCircle, Loader2, Inbox, Calendar, Filter, X, Pencil } from 'lucide-react';
 import {
   fetchAllPendingPunches,
@@ -57,7 +59,7 @@ export function ApprovalsPage() {
   // Filters — matching the Punches page's filter bar for consistency. Project
   // only applies to the Pending Punches list (OT approvals aren't
   // project-scoped); Date filters punch_time for punches and work_date for OT.
-  const [dateFilter, setDateFilter] = useState('');
+  const [dateRange, setDateRange] = useState<DateRange>(todayRange);
   const [projectFilter, setProjectFilter] = useState('all');
   const [departmentFilter, setDepartmentFilter] = useState('all');
   const [employeeFilter, setEmployeeFilter] = useState('all');
@@ -98,24 +100,24 @@ export function ApprovalsPage() {
       if (projectFilter !== 'all' && p.project_code !== projectFilter) return false;
       if (employeeFilter !== 'all' && p.emp_id !== employeeFilter) return false;
       if (departmentFilter !== 'all' && employeeDeptMap.get(p.emp_id) !== departmentFilter) return false;
-      if (dateFilter && new Date(p.punch_time).toISOString().slice(0, 10) !== dateFilter) return false;
+      if (!inRange(dateKeyInRiyadh(p.punch_time), dateRange)) return false;
       return true;
     });
-  }, [punches, projectFilter, employeeFilter, departmentFilter, dateFilter, employeeDeptMap]);
+  }, [punches, projectFilter, employeeFilter, departmentFilter, dateRange, employeeDeptMap]);
 
   const filteredOtApprovals = useMemo(() => {
     return otApprovals.filter((o) => {
       if (employeeFilter !== 'all' && o.emp_id !== employeeFilter) return false;
       if (departmentFilter !== 'all' && employeeDeptMap.get(o.emp_id) !== departmentFilter) return false;
-      if (dateFilter && o.work_date !== dateFilter) return false;
+      if (!inRange(o.work_date.slice(0, 10), dateRange)) return false;
       return true;
     });
-  }, [otApprovals, employeeFilter, departmentFilter, dateFilter, employeeDeptMap]);
+  }, [otApprovals, employeeFilter, departmentFilter, dateRange, employeeDeptMap]);
 
-  const hasFilters = dateFilter || projectFilter !== 'all' || departmentFilter !== 'all' || employeeFilter !== 'all';
+  const hasFilters = !isDefaultRange(dateRange) || projectFilter !== 'all' || departmentFilter !== 'all' || employeeFilter !== 'all';
 
   function clearFilters() {
-    setDateFilter('');
+    setDateRange(todayRange());
     setProjectFilter('all');
     setDepartmentFilter('all');
     setEmployeeFilter('all');
@@ -231,19 +233,7 @@ export function ApprovalsPage() {
           )}
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="approvals-date-filter" className="text-sm font-medium text-slate-700">Date</label>
-            <div className="relative">
-              <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                id="approvals-date-filter"
-                type="date"
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 shadow-sm transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-              />
-            </div>
-          </div>
+          <DateRangeFilter id="approvals-date-filter" value={dateRange} onChange={setDateRange} />
           <SearchableSelect
             value={projectFilter}
             onChange={setProjectFilter}
