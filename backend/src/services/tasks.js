@@ -25,6 +25,19 @@ class TaskValidationError extends Error {
   }
 }
 
+// A reported leave of ANY type (Sick, Annual, Emergency, Unpaid,
+// Compassionate) on a date suppresses the department-default fallback task
+// for that employee/date (2026-09-24) — someone on leave shouldn't be offered
+// a default project to punch against. Only the fallback is affected: a real
+// assigned task still shows up as normal.
+async function hasReportedLeave(empId, date) {
+  const result = await pool.query(
+    'SELECT 1 FROM leave_reports WHERE emp_id = $1 AND leave_date = $2::date LIMIT 1',
+    [empId, date]
+  );
+  return result.rows.length > 0;
+}
+
 /**
  * Same department-default-project lookup used by the Confirmation Sheet's
  * gap-filling (dailyConfirmation.js) — company via EmpDivision→divisions,
@@ -116,6 +129,8 @@ async function getTasksForDate(empId, date) {
       }));
   }
 
+  if (await hasReportedLeave(empId, date)) return [];
+
   const defaultProject = await getDepartmentDefaultProject(empId);
   if (!defaultProject) return [];
 
@@ -194,6 +209,8 @@ async function getTodaysTasks(empId) {
       out_photo_uploaded: task.out_punch_id ? !!task.out_photo_path : null,
     }));
   }
+
+  if (await hasReportedLeave(empId, today)) return [];
 
   const defaultProject = await getDepartmentDefaultProject(empId);
   if (!defaultProject) return [];
