@@ -26,6 +26,10 @@ const DEFAULT_MAX_OT_MINUTES = 600; // 10 hours, used only if max_ot_minutes is 
 // ot_approvals record, ever created for it.
 const MIN_OT_MINUTES = 3;
 
+// OT over this many minutes is shown on the sheet as "3hrs or more, approved by
+// <name>" instead of its exact clock timings (2026-09-24).
+const OT_LONG_THRESHOLD_MINUTES = 180;
+
 // Same floor for the shortfall row (2026-09-24) — a shortfall under this is
 // punch-timing/rounding noise, not a real gap worth a row.
 const MIN_SHORTFALL_MINUTES = 3;
@@ -329,6 +333,7 @@ function computeEmployeeDay({
     // shifting later indices) — never a second row for the same task/time
     // (2026-08-30 fix; see computeEmployeeDay's docstring).
     lastTopLevelRow.ot_minutes = otMinutes;
+    lastTopLevelRow._otTimeNote = timeRangeNote;
     lastTopLevelRow.is_ot_row = true;
     lastTopLevelRow.remarks = lastTopLevelRow.remarks
       ? `${lastTopLevelRow.remarks} ${timeRangeNote}${cappedNote}`
@@ -452,6 +457,7 @@ async function generateConfirmationSheetRows(date) {
   // there now, see its own comment), but still threaded through/computed
   // here in case any other current or future logic needs it.
   const sourceByTaskId = new Map(tasksResult.rows.map((t) => [t.id, t.source]));
+  const employeeNameById = new Map(employeesResult.rows.map((e) => [e.emp_id, e.name]));
   const otStatusByEmp = new Map(otApprovalsResult.rows.map((o) => [o.emp_id, { status: o.status, approvedBy: o.approved_by }]));
 
   // Widened beyond the literal day for shift_type attribution — see
@@ -624,6 +630,18 @@ async function generateConfirmationSheetRows(date) {
       // the OT row has a per-day approval concept at all (ot_approvals),
       // and only once it's actually been approved.
       const approvedBy = row.is_ot_row && otRecord?.status === 'approved' ? otRecord.approvedBy : null;
+
+      // Long OT (>3h): replace the exact "OT: 5:00 PM - 9:30 PM" timings with
+      // "OT: 3hrs or more" plus who approved it (or that approval is still
+      // pending). Only the auto-OT timing note is swapped — any other note
+      // already in REMARKS (task, capped-excess, manual OT grant) is kept.
+      if (row.is_ot_row && row._otTimeNote && row.ot_minutes > OT_LONG_THRESHOLD_MINUTES) {
+        const approverName = approvedBy ? (employeeNameById.get(approvedBy) ?? approvedBy) : null;
+        const longNote = approverName
+          ? `OT: 3hrs or more, approved by ${approverName}`
+          : `OT: 3hrs or more, approval pending`;
+        row.remarks = row.remarks.replace(row._otTimeNote, longNote);
+      }
 
       const reportRow = {
         rowNumber: rowNumber++,

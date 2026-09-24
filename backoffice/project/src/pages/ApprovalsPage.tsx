@@ -213,8 +213,10 @@ export function ApprovalsPage() {
   }
 
   return (
-    <div>
+    <div className="flex h-[calc(100vh-5rem)] min-h-[640px] flex-col">
+      <div className="shrink-0">
       <PageHeader title="Approvals" subtitle="Punches and overtime awaiting review, company-wide." />
+      </div>
 
       {error && (
         <div className="mb-6 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
@@ -222,6 +224,8 @@ export function ApprovalsPage() {
         </div>
       )}
 
+      {/* Sticky (2026-09-24): filters scroll away; each section heading (with its count) pins to the top while its rows scroll beneath. */}
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
       <Card className="mb-6 p-4">
         <div className="mb-3 flex items-center gap-2">
           <Filter className="h-4 w-4 text-slate-400" />
@@ -269,7 +273,7 @@ export function ApprovalsPage() {
 
       <div className="space-y-8">
         <div>
-          <div className="mb-4 flex items-center gap-2">
+          <div className="sticky top-0 z-10 mb-4 flex items-center gap-2 bg-slate-50 py-2">
             <Clock className="h-5 w-5 text-slate-400" />
             <h2 className="text-base font-semibold text-slate-900">Pending Punches</h2>
             <Badge variant="neutral">{filteredPunches.length}</Badge>
@@ -345,7 +349,7 @@ export function ApprovalsPage() {
         </div>
 
         <div>
-          <div className="mb-4 flex items-center gap-2">
+          <div className="sticky top-0 z-10 mb-4 flex items-center gap-2 bg-slate-50 py-2">
             <Timer className="h-5 w-5 text-slate-400" />
             <h2 className="text-base font-semibold text-slate-900">Pending Overtime</h2>
             <Badge variant="neutral">{filteredOtApprovals.length}</Badge>
@@ -395,6 +399,7 @@ export function ApprovalsPage() {
             </Card>
           )}
         </div>
+      </div>
       </div>
 
       <AddPunchModal

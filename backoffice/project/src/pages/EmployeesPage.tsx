@@ -4,9 +4,9 @@ import { fetchEmployees, fetchTasks, regenerateLoginCode, resetFaceId } from '@/
 import type { Employee, Task } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Spinner, EmptyState, Select, Button } from '@/components/ui';
-import { EditEmployeeModal } from '@/components/EditEmployeeModal';
 import { EmployeeTasksModal } from '@/components/EmployeeTasksModal';
 import { punchStatus } from '@/pages/TasksPage';
+import { useRouter } from '@/lib/router';
 import { initials, cn } from '@/lib/utils';
 
 function today(): string {
@@ -18,6 +18,7 @@ type TaskCounts = { total: number; completed: number; pending: number; notStarte
 const EMPTY_COUNTS: TaskCounts = { total: 0, completed: 0, pending: 0, notStarted: 0 };
 
 export function EmployeesPage() {
+  const { navigate } = useRouter();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,7 +31,6 @@ export function EmployeesPage() {
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [resettingFaceId, setResettingFaceId] = useState<string | null>(null);
-  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
 
   function toggleRevealed(empId: string) {
     setRevealedIds((prev) => {
@@ -215,7 +215,7 @@ export function EmployeesPage() {
               >
                 <div
                   className="flex items-center gap-3"
-                  onClick={(ev) => { ev.stopPropagation(); setEditingEmployee(e); }}
+                  onClick={(ev) => { ev.stopPropagation(); navigate('employee-edit', e.emp_id); }}
                   title="View employee details"
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-100 text-sm font-semibold text-teal-700">
@@ -275,7 +275,7 @@ export function EmployeesPage() {
                     <td className="px-6 py-4">
                       <div
                         className="flex cursor-pointer items-center gap-3"
-                        onClick={() => setEditingEmployee(e)}
+                        onClick={() => navigate('employee-edit', e.emp_id)}
                         title="View employee details"
                       >
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-100 text-sm font-semibold text-teal-700">
@@ -371,7 +371,7 @@ export function EmployeesPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setEditingEmployee(e)}
+                        onClick={() => navigate('employee-edit', e.emp_id)}
                         className="!px-2 !py-1"
                       >
                         <Pencil className="h-3.5 w-3.5" />
@@ -384,15 +384,6 @@ export function EmployeesPage() {
           </div>
         </Card>
       )}
-
-      <EditEmployeeModal
-        open={editingEmployee !== null}
-        onClose={() => setEditingEmployee(null)}
-        employee={editingEmployee}
-        onSuccess={(updated) => {
-          setEmployees((prev) => prev.map((emp) => (emp.emp_id === editingEmployee?.emp_id ? updated : emp)));
-        }}
-      />
 
       <EmployeeTasksModal
         employee={tasksEmployee}

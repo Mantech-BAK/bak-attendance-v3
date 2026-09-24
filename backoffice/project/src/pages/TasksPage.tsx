@@ -247,12 +247,14 @@ export function TasksPage() {
   }
 
   return (
-    <>
+    <div className="lg:flex lg:h-[calc(100vh-5rem)] lg:min-h-[640px] lg:flex-col">
+      <div className="shrink-0">
       <PageHeader title="Tasks" subtitle="Assign and track work across projects" />
+      </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-1">
-          <Card className="p-6 lg:sticky lg:top-6">
+      <div className="grid grid-cols-1 gap-6 lg:min-h-0 lg:flex-1 lg:grid-cols-3">
+        <div className="lg:col-span-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+          <Card className="p-6">
             <div className="mb-5 flex items-center gap-2">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-50 text-teal-600">
                 <Plus className="h-5 w-5" />
@@ -366,14 +368,14 @@ export function TasksPage() {
           </Card>
         </div>
 
-        <div className="lg:col-span-2">
-          <div className="mb-4 flex items-center gap-2">
+        <div className="lg:col-span-2 lg:flex lg:min-h-0 lg:flex-col">
+          <div className="mb-4 flex shrink-0 items-center gap-2">
             <ClipboardList className="h-5 w-5 text-slate-400" />
             <h2 className="text-base font-semibold text-slate-900">All Tasks</h2>
             <Badge variant="neutral">{filtered.length}</Badge>
           </div>
 
-          <div className="mb-4 flex gap-1 rounded-lg bg-slate-100 p-1">
+          <div className="mb-4 flex shrink-0 gap-1 rounded-lg bg-slate-100 p-1">
             {TABS.map((tab) => (
               <button
                 key={tab.key}
@@ -388,6 +390,8 @@ export function TasksPage() {
             ))}
           </div>
 
+          {/* Sticky (2026-09-24): "All Tasks (n)" heading and the status tabs above stay pinned; filters, export and the cards below scroll. */}
+          <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
           <Card className="mb-4 p-4">
             <div className="mb-3 flex items-center gap-2">
               <Filter className="h-4 w-4 text-slate-400" />
@@ -514,6 +518,7 @@ export function TasksPage() {
               })}
             </div>
           )}
+          </div>
         </div>
       </div>
 
@@ -563,6 +568,6 @@ export function TasksPage() {
           </Button>
         </div>
       </Modal>
-    </>
+    </div>
   );
 }

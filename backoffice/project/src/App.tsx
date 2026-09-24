@@ -4,6 +4,7 @@ import { AppShell } from '@/components/AppShell';
 import { LoginPage } from '@/pages/LoginPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { EmployeesPage } from '@/pages/EmployeesPage';
+import { EditEmployeePage } from '@/pages/EditEmployeePage';
 import { TasksPage } from '@/pages/TasksPage';
 import { PunchesPage } from '@/pages/PunchesPage';
 import { ApprovalsPage } from '@/pages/ApprovalsPage';
@@ -20,6 +21,8 @@ function CurrentPage() {
       return <DashboardPage />;
     case 'employees':
       return <EmployeesPage />;
+    case 'employee-edit':
+      return route.empId ? <EditEmployeePage empId={route.empId} /> : <EmployeesPage />;
     case 'tasks':
       return <TasksPage />;
     case 'punches':

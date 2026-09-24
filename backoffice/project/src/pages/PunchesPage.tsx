@@ -123,7 +123,8 @@ export function PunchesPage() {
   const approvedCount = filtered.filter((p) => p.approval_status === 'approved').length;
 
   return (
-    <>
+    <div className="flex h-[calc(100vh-5rem)] min-h-[640px] flex-col">
+      <div className="shrink-0">
       <PageHeader
         title="Punches"
         subtitle="Review time and attendance entries"
@@ -138,6 +139,7 @@ export function PunchesPage() {
           </div>
         }
       />
+      </div>
 
       {exportError && (
         <div className="mb-4 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
@@ -164,7 +166,7 @@ export function PunchesPage() {
         }}
       />
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid shrink-0 grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="p-5">
           <p className="text-sm font-medium text-slate-500">Filtered Entries</p>
           <p className="mt-1 text-2xl font-bold text-slate-900">{filtered.length}</p>
@@ -179,6 +181,8 @@ export function PunchesPage() {
         </Card>
       </div>
 
+      {/* Sticky (2026-09-24): counters above stay pinned; everything below (filters, then the table with its sticky header) is the one scroll area. */}
+      <div className="min-h-0 flex-1 overflow-auto">
       <Card className="mb-6 p-4">
         <div className="mb-3 flex items-center gap-2">
           <Filter className="h-4 w-4 text-slate-400" />
@@ -235,10 +239,10 @@ export function PunchesPage() {
           <EmptyState icon={<Clock className="h-6 w-6" />} title="No punches match your filters" message="Try adjusting or clearing the filters above." />
         </Card>
       ) : (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
+        <Card>
+          <div>
             <table className="w-full">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_0_rgb(226,232,240)]">
                 {/* Two-level header (2026-09-23) — "Site Photo" spans both the
                     Before (in-punch) and After (out-punch) columns as a single
                     group label, with each column's own role underneath. Every
@@ -377,6 +381,8 @@ export function PunchesPage() {
         </Card>
       )}
 
+      </div>
+
       <Modal open={deletingPunch !== null} onClose={() => setDeletingPunch(null)} title="Delete this punch?">
         <p className="mb-4 text-sm text-slate-600">
           {deletingPunch && (
@@ -406,6 +412,6 @@ export function PunchesPage() {
           </Button>
         </div>
       </Modal>
-    </>
+    </div>
   );
 }

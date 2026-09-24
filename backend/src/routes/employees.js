@@ -279,25 +279,34 @@ router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
       }
     }
 
-    const existing = await pool.query('SELECT "EmpId" AS emp_id FROM employees WHERE "EmpId" = $1', [emp_id]);
-    if (existing.rows.length === 0) {
-      return res.status(404).json({ error: `employee ${emp_id} not found` });
-    }
-
     try {
+      // One statement does the UPDATE and returns the joined display names
+      // (designation/company/religion) together — previously an existence
+      // SELECT, the UPDATE, and a second joining SELECT ran back-to-back,
+      // and against a remote database those extra round trips were most of
+      // the ~1.1s a save took. A missing employee shows up as zero rows
+      // updated, so no separate existence check is needed either.
       const result = await pool.query(
-        `UPDATE employees
-         SET "EmpId" = $1, "EmpName" = $2, "EmpStatus" = $3, login_code = $4,
-             "EmpOtStatus" = $5, is_supervisor = $6, "EmpReportMgrId" = $7,
-             "EmpDeptId" = $8, "EmpDesigId" = $9, "EmpDivision" = $10, "EmpReligionId" = $11, "EmpCpr" = $12
-         WHERE "EmpId" = $13
-         RETURNING "EmpId" AS emp_id, "EmpName" AS name, "EmpStatus" AS status, login_code,
-                   CASE WHEN "EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
-                   is_supervisor,
-                   "EmpReportMgrId" AS reporting_manager_emp_id,
-                   "EmpDeptId" AS department, "EmpDesigId" AS designation_code,
-                   "EmpDivision" AS division_code, "EmpReligionId" AS religion_code,
-                   "EmpCpr" AS cpr`,
+        `WITH u AS (
+           UPDATE employees
+           SET "EmpId" = $1, "EmpName" = $2, "EmpStatus" = $3, login_code = $4,
+               "EmpOtStatus" = $5, is_supervisor = $6, "EmpReportMgrId" = $7,
+               "EmpDeptId" = $8, "EmpDesigId" = $9, "EmpDivision" = $10, "EmpReligionId" = $11, "EmpCpr" = $12
+           WHERE "EmpId" = $13
+           RETURNING *
+         )
+         SELECT u."EmpId" AS emp_id, u."EmpName" AS name, u."EmpStatus" AS status, u.login_code,
+                CASE WHEN u."EmpOtStatus" THEN 'Y' ELSE 'N' END AS ot_eligible,
+                u.is_supervisor,
+                u."EmpReportMgrId" AS reporting_manager_emp_id,
+                u."EmpDeptId" AS department, u."EmpDesigId" AS designation_code,
+                u."EmpDivision" AS division_code, u."EmpReligionId" AS religion_code,
+                u."EmpCpr" AS cpr,
+                g.designation_name AS designation, d.division_name AS company, r.religion_name AS religion
+         FROM u
+         LEFT JOIN designations g ON u."EmpDesigId" = g.designation_code
+         LEFT JOIN divisions d ON u."EmpDivision" = d.division_code
+         LEFT JOIN religions r ON u."EmpReligionId" = r.religion_code`,
         [
           trimmedNewEmpId, trimmedName, status, trimmedLoginCode, ot_eligible, is_supervisor, trimmedManagerId,
           trimmedDepartment, trimmedDesignationCode, trimmedDivisionCode, trimmedReligionCode, trimmedCpr,
@@ -305,21 +314,11 @@ router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
         ]
       );
 
-      // designation_name/division_name/religion_name for display — a plain
-      // UPDATE...RETURNING can't join, and the frontend needs the friendly
-      // names immediately (not just codes) to merge into its employee list
-      // row without a full refetch.
-      const joined = await pool.query(
-        `SELECT g.designation_name AS designation, d.division_name AS company, r.religion_name AS religion
-         FROM employees e
-         LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code
-         LEFT JOIN divisions d ON e."EmpDivision" = d.division_code
-         LEFT JOIN religions r ON e."EmpReligionId" = r.religion_code
-         WHERE e."EmpId" = $1`,
-        [trimmedNewEmpId]
-      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: `employee ${emp_id} not found` });
+      }
 
-      res.json({ ...result.rows[0], ...joined.rows[0] });
+      res.json(result.rows[0]);
     } catch (err) {
       if (err.code === '23505') {
         if (err.constraint === 'employees_pkey') {
