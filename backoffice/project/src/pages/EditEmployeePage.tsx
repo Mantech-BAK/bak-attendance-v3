@@ -119,7 +119,7 @@ export function EditEmployeePage({ empId }: { empId: string }) {
       // The Employees page refetches on mount, so it shows the saved values
       // as soon as it opens — brief success state first so it's clear the
       // save actually went through.
-      setTimeout(() => navigate('employees'), 600);
+      setTimeout(() => navigate('employees'), 350);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not save changes. Please try again.');
       setSubmitting(false);
