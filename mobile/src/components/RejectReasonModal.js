@@ -21,6 +21,12 @@ export default function RejectReasonModal({
   placeholder = 'Why is this punch being rejected?',
 }) {
   const keyboardHeight = useKeyboardHeight();
+  // Exactly ONE keyboard adjustment per platform (2026-09-24): Android lifts
+  // the sheet by the measured keyboard height alone; wrapping it in
+  // KeyboardAvoidingView 'height' as well lifted it ~2x. iOS keeps
+  // KeyboardAvoidingView 'padding' on its own.
+  const Backdrop = Platform.OS === 'ios' ? KeyboardAvoidingView : View;
+  const backdropProps = Platform.OS === 'ios' ? { behavior: 'padding' } : {};
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -51,10 +57,7 @@ export default function RejectReasonModal({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        style={styles.backdrop}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      <Backdrop style={styles.backdrop} {...backdropProps}>
         <View style={[styles.sheet, Platform.OS === 'android' && { marginBottom: keyboardHeight }]}>
           <View style={styles.headingRow}>
             <Ionicons name="close-circle-outline" size={20} color="#dc2626" />
@@ -98,7 +101,7 @@ export default function RejectReasonModal({
             </TouchableOpacity>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </Backdrop>
     </Modal>
   );
 }

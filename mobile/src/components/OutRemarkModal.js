@@ -23,6 +23,12 @@ const MAX_LENGTH = 500;
 // modal resolves, same pattern as the self-revalidation prompt.
 export default function OutRemarkModal({ visible, subjectName, onSubmit, onCancel }) {
   const keyboardHeight = useKeyboardHeight();
+  // Exactly ONE keyboard adjustment per platform (2026-09-24): Android lifts
+  // the sheet by the measured keyboard height alone; wrapping it in
+  // KeyboardAvoidingView 'height' as well lifted it ~2x. iOS keeps
+  // KeyboardAvoidingView 'padding' on its own.
+  const Backdrop = Platform.OS === 'ios' ? KeyboardAvoidingView : View;
+  const backdropProps = Platform.OS === 'ios' ? { behavior: 'padding' } : {};
   const [remark, setRemark] = useState('');
   const [error, setError] = useState(null);
 
@@ -48,10 +54,7 @@ export default function OutRemarkModal({ visible, subjectName, onSubmit, onCance
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
-      <KeyboardAvoidingView
-        style={styles.backdrop}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      <Backdrop style={styles.backdrop} {...backdropProps}>
         <View style={[styles.sheet, Platform.OS === 'android' && { marginBottom: keyboardHeight }]}>
           <View style={styles.headingRow}>
             <Ionicons name="checkmark-done-circle-outline" size={20} color="#2563eb" />
@@ -87,7 +90,7 @@ export default function OutRemarkModal({ visible, subjectName, onSubmit, onCance
             </TouchableOpacity>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </Backdrop>
     </Modal>
   );
 }

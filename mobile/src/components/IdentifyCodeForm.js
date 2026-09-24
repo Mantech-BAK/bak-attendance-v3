@@ -34,6 +34,12 @@ import useKeyboardHeight from '../hooks/useKeyboardHeight';
 // that isn't itself secret would be pure friction with no security value.
 export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 'Enter Employee Code', directReports, fixedEmpId }) {
   const keyboardHeight = useKeyboardHeight();
+  // Exactly ONE keyboard adjustment per platform (2026-09-24): Android lifts
+  // the sheet by the measured keyboard height alone; wrapping it in
+  // KeyboardAvoidingView 'height' as well lifted it ~2x. iOS keeps
+  // KeyboardAvoidingView 'padding' on its own.
+  const Backdrop = Platform.OS === 'ios' ? KeyboardAvoidingView : View;
+  const backdropProps = Platform.OS === 'ios' ? { behavior: 'padding' } : {};
   const hasDirectReportsPicker = Array.isArray(directReports) && directReports.length > 0;
   const [empId, setEmpId] = useState('');
   const [loginCode, setLoginCode] = useState('');
@@ -70,10 +76,7 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
-      <KeyboardAvoidingView
-        style={styles.backdrop}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      <Backdrop style={styles.backdrop} {...backdropProps}>
         <View style={[styles.sheet, Platform.OS === 'android' && { marginBottom: keyboardHeight }]}>
           <View style={styles.headingRow}>
             <Ionicons name="key-outline" size={20} color="#111827" />
@@ -140,7 +143,7 @@ export default function IdentifyCodeForm({ visible, onSubmit, onCancel, title = 
             </TouchableOpacity>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </Backdrop>
     </Modal>
   );
 }
