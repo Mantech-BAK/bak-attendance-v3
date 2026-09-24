@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 // Tasks and Approvals. Picking a day clears any active preset; picking a
 // preset clears the exact day.
 export function DateRangeFilter({ id, value, onChange }: { id: string; value: DateRange; onChange: (r: DateRange) => void }) {
-  const isSingleDay = value.preset === null && value.start === value.end;
+  const isSingleDay = value.start === value.end;
   return (
     <div className="flex flex-col gap-1.5 !w-auto">
       <label htmlFor={id} className="text-sm font-medium text-slate-700">Date</label>
