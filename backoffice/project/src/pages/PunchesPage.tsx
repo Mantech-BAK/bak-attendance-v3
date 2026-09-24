@@ -408,7 +408,7 @@ export function PunchesPage() {
           <Button
             onClick={handleConfirmDelete}
             disabled={deleting}
-            className="flex-1 bg-rose-600 hover:bg-rose-700 focus-visible:outline-rose-600"
+            variant="danger" className="flex-1"
           >
             {deleting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Deleting…</>) : (<><Trash2 className="h-4 w-4" /> Delete Punch</>)}
           </Button>

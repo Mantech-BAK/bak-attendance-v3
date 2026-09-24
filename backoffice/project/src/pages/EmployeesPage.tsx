@@ -4,7 +4,7 @@ import { fetchEmployees, fetchTasks, regenerateLoginCode, resetFaceId } from '@/
 import type { Employee, Task } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { ScrollArea } from '@/components/ScrollArea';
-import { Card, Badge, Spinner, EmptyState, Select, Button } from '@/components/ui';
+import { Card, Badge, Spinner, EmptyState, Select, Button, FIELD_LABEL } from '@/components/ui';
 import { EmployeeTasksModal } from '@/components/EmployeeTasksModal';
 import { punchStatus } from '@/pages/TasksPage';
 import { useRouter } from '@/lib/router';
@@ -151,7 +151,7 @@ export function EmployeesPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search name, ID, role…"
-              className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+              className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 shadow-sm transition placeholder:text-slate-400 hover:border-slate-400 focus:border-teal-500 focus:outline-none focus:ring-4 focus:ring-teal-500/15"
             />
           </div>
           <Select value={deptFilter} onChange={setDeptFilter} label="" id="dept-filter">
@@ -169,13 +169,13 @@ export function EmployeesPage() {
 
         <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
           <div className="w-44">
-            <label htmlFor="employees-task-date" className="text-sm font-medium text-slate-700">Tasks for date</label>
+            <label htmlFor="employees-task-date" className={FIELD_LABEL}>Tasks for date</label>
             <input
               id="employees-task-date"
               type="date"
               value={taskDate}
               onChange={(e) => setTaskDate(e.target.value)}
-              className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+              className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm transition hover:border-slate-400 focus:border-teal-500 focus:outline-none focus:ring-4 focus:ring-teal-500/15"
             />
           </div>
           <div className="flex gap-1 rounded-lg bg-slate-100 p-1">

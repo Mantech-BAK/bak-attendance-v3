@@ -113,7 +113,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-x-hidden bg-gradient-to-b from-slate-50 via-slate-50 to-slate-100/70">
+      <main className="min-w-0 flex-1 overflow-x-hidden bg-slate-50">
         <div className="mx-auto max-w-7xl px-8 py-10">{children}</div>
       </main>
 

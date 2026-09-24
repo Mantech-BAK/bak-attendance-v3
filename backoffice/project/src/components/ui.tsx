@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
-import { X } from 'lucide-react';
+import { X, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+// One label style for every form field / filter in the app.
+export const FIELD_LABEL = 'text-xs font-semibold uppercase tracking-wide text-slate-500';
 
 export function Card({
   children,
@@ -37,11 +40,11 @@ export function Badge({
 }) {
   const styles: Record<string, string> = {
     neutral: 'bg-slate-100 text-slate-700 ring-slate-200',
-    success: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-    warning: 'bg-amber-50 text-amber-700 ring-amber-200',
-    error: 'bg-rose-50 text-rose-700 ring-rose-200',
-    info: 'bg-sky-50 text-sky-700 ring-sky-200',
-    accent: 'bg-teal-50 text-teal-700 ring-teal-200',
+    success: 'bg-success-50 text-success-700 ring-success-200',
+    warning: 'bg-warning-50 text-warning-700 ring-warning-200',
+    error: 'bg-danger-50 text-danger-700 ring-danger-200',
+    info: 'bg-info-50 text-info-700 ring-info-200',
+    accent: 'bg-brand-50 text-brand-700 ring-brand-200',
   };
   return (
     <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold tracking-tight ring-1 ring-inset transition-colors duration-150', styles[variant])}>
@@ -62,13 +65,15 @@ export function Button({
   children: ReactNode;
   onClick?: () => void;
   type?: 'button' | 'submit';
-  variant?: 'primary' | 'secondary' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'success' | 'danger';
   size?: 'sm' | 'md';
   disabled?: boolean;
   className?: string;
 }) {
   const variants: Record<string, string> = {
-    primary: 'bg-gradient-to-b from-teal-500 to-teal-600 text-white shadow-sm shadow-teal-600/25 hover:from-teal-600 hover:to-teal-700 hover:shadow-md hover:shadow-teal-600/30 focus-visible:outline-teal-600 active:scale-[0.98]',
+    primary: 'bg-gradient-to-b from-brand-500 to-brand-600 text-white shadow-sm shadow-brand-600/25 hover:from-brand-600 hover:to-brand-700 hover:shadow-md hover:shadow-brand-600/30 focus-visible:outline-brand-600 active:scale-[0.98]',
+    success: 'bg-gradient-to-b from-success-500 to-success-600 text-white shadow-sm shadow-success-600/25 hover:from-success-600 hover:to-success-700 hover:shadow-md hover:shadow-success-600/30 focus-visible:outline-success-600 active:scale-[0.98]',
+    danger: 'bg-gradient-to-b from-danger-500 to-danger-600 text-white shadow-sm shadow-danger-600/25 hover:from-danger-600 hover:to-danger-700 hover:shadow-md hover:shadow-danger-600/30 focus-visible:outline-danger-600 active:scale-[0.98]',
     secondary: 'bg-white text-slate-700 ring-1 ring-inset ring-slate-300 shadow-sm hover:bg-slate-50 hover:ring-slate-400 active:scale-[0.98]',
     ghost: 'text-slate-600 hover:bg-slate-100 active:scale-[0.98]',
   };
@@ -111,17 +116,20 @@ export function Select({
   return (
     <div className="flex flex-col gap-1.5">
       {label && (
-        <label htmlFor={id} className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</label>
+        <label htmlFor={id} className={FIELD_LABEL}>{label}</label>
       )}
-      <select
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm transition-all duration-150 hover:border-slate-400 focus:border-teal-500 focus:outline-none focus:ring-4 focus:ring-teal-500/15 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
-      >
-        {children}
-      </select>
+      <div className="relative">
+        <select
+          id={id}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          className="w-full appearance-none rounded-lg border border-slate-300 bg-white py-2.5 pl-3 pr-9 text-sm text-slate-900 shadow-sm transition-all duration-150 hover:border-slate-400 focus:border-teal-500 focus:outline-none focus:ring-4 focus:ring-teal-500/15 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+        >
+          {children}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      </div>
     </div>
   );
 }
@@ -146,7 +154,7 @@ export function Input({
   return (
     <div className="flex flex-col gap-1.5">
       {label && (
-        <label htmlFor={id} className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</label>
+        <label htmlFor={id} className={FIELD_LABEL}>{label}</label>
       )}
       <input
         id={id}
@@ -179,7 +187,7 @@ export function Textarea({
   return (
     <div className="flex flex-col gap-1.5">
       {label && (
-        <label htmlFor={id} className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</label>
+        <label htmlFor={id} className={FIELD_LABEL}>{label}</label>
       )}
       <textarea
         id={id}
@@ -241,7 +249,7 @@ export function Modal({
         aria-label={title}
       >
         <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-lg font-bold tracking-tight text-slate-900">{title}</h2>
+          <h2 className="text-base font-semibold tracking-tight text-slate-900">{title}</h2>
           <button
             type="button"
             onClick={onClose}

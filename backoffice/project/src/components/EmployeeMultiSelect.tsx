@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { FIELD_LABEL } from '@/components/ui';
 import { Plus, X } from 'lucide-react';
 import type { Employee } from '@/lib/api';
 
@@ -63,7 +64,7 @@ export function EmployeeMultiSelect({
     <div className="flex flex-col gap-1.5" ref={containerRef}>
       {label && (
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-slate-700">{label}</span>
+          <span className={FIELD_LABEL}>{label}</span>
           <span className="text-xs text-slate-500">{selected.length} selected</span>
         </div>
       )}

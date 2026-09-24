@@ -121,9 +121,9 @@ export function DashboardPage() {
 
   const statCards: { label: string; value: number; icon: typeof Users; from: string; to: string; route: RouteName }[] = [
     { label: 'Active Employees', value: activeEmployees, icon: Users, from: 'from-teal-500', to: 'to-teal-600', route: 'employees' },
-    { label: 'Total Tasks', value: scoped.dayTasks.length, icon: ClipboardList, from: 'from-sky-500', to: 'to-sky-600', route: 'tasks' },
-    { label: 'Total Punches', value: scoped.dayPunches.length, icon: Clock, from: 'from-amber-500', to: 'to-amber-600', route: 'punches' },
-    { label: 'Open Projects', value: activeProjects, icon: Building2, from: 'from-violet-500', to: 'to-violet-600', route: 'projects' },
+    { label: 'Total Tasks', value: scoped.dayTasks.length, icon: ClipboardList, from: 'from-teal-500', to: 'to-teal-600', route: 'tasks' },
+    { label: 'Total Punches', value: scoped.dayPunches.length, icon: Clock, from: 'from-teal-500', to: 'to-teal-600', route: 'punches' },
+    { label: 'Open Projects', value: activeProjects, icon: Building2, from: 'from-teal-500', to: 'to-teal-600', route: 'projects' },
   ];
 
   return (
@@ -180,10 +180,10 @@ export function DashboardPage() {
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card className="p-7">
           <div className="mb-6 flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-sky-50 to-sky-100 text-sky-600 ring-1 ring-sky-100">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-teal-50 to-teal-100 text-teal-600 ring-1 ring-teal-100">
               <PieChart className="h-[18px] w-[18px]" />
             </span>
-            <h2 className="text-base font-bold tracking-tight text-slate-900">Task Status</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Task Status</h2>
           </div>
           {scoped.dayTasks.length === 0 ? (
             <EmptyState icon={<ClipboardList className="h-6 w-6" />} title="No tasks on this date" message="Task status breakdown will appear here." />
@@ -202,10 +202,10 @@ export function DashboardPage() {
 
         <Card className="p-7">
           <div className="mb-6 flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-50 to-emerald-100 text-emerald-600 ring-1 ring-emerald-100">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-teal-50 to-teal-100 text-teal-600 ring-1 ring-teal-100">
               <ShieldCheck className="h-[18px] w-[18px]" />
             </span>
-            <h2 className="text-base font-bold tracking-tight text-slate-900">Punch Approvals</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Punch Approvals</h2>
           </div>
           {scoped.dayPunches.length === 0 ? (
             <EmptyState icon={<Clock className="h-6 w-6" />} title="No punches on this date" message="Approval status breakdown will appear here." />
@@ -229,7 +229,7 @@ export function DashboardPage() {
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-teal-50 to-teal-100 text-teal-600 ring-1 ring-teal-100">
               <CalendarDays className="h-[18px] w-[18px]" />
             </span>
-            <h2 className="text-base font-bold tracking-tight text-slate-900">Calendar</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Calendar</h2>
           </div>
           <MonthCalendar
             activityByDate={activityByDate}
@@ -240,10 +240,10 @@ export function DashboardPage() {
 
         <Card className="p-7">
           <div className="mb-5 flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-amber-50 to-amber-100 text-amber-600 ring-1 ring-amber-100">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-teal-50 to-teal-100 text-teal-600 ring-1 ring-teal-100">
               <Timer className="h-[18px] w-[18px]" />
             </span>
-            <h2 className="text-base font-bold tracking-tight text-slate-900">Overtime Alerts</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Overtime Alerts</h2>
             {data.otApprovals.length > 0 && <Badge variant="warning">{data.otApprovals.length}</Badge>}
             <span className="text-xs font-medium text-slate-400">— all pending, any date</span>
           </div>
@@ -274,7 +274,7 @@ export function DashboardPage() {
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-slate-100 to-slate-50 text-slate-500 ring-1 ring-slate-200/70">
               <ClipboardList className="h-[18px] w-[18px]" />
             </span>
-            <h2 className="text-base font-bold tracking-tight text-slate-900">Recent Tasks</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Recent Tasks</h2>
           </div>
           {scoped.dayTasks.length === 0 ? (
             <EmptyState icon={<ClipboardList className="h-6 w-6" />} title="No tasks on this date" message="Tasks for the selected day will appear here." />
@@ -314,7 +314,7 @@ export function DashboardPage() {
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-slate-100 to-slate-50 text-slate-500 ring-1 ring-slate-200/70">
               <Clock className="h-[18px] w-[18px]" />
             </span>
-            <h2 className="text-base font-bold tracking-tight text-slate-900">Recent Punches</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Recent Punches</h2>
           </div>
           {scoped.dayPunches.length === 0 ? (
             <EmptyState icon={<Clock className="h-6 w-6" />} title="No punches on this date" message="Time entries for the selected day will appear here." />
@@ -356,10 +356,10 @@ export function DashboardPage() {
 
       <Card className="mt-8 p-7">
         <div className="mb-5 flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-violet-50 to-violet-100 text-violet-600 ring-1 ring-violet-100">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-teal-50 to-teal-100 text-teal-600 ring-1 ring-teal-100">
             <TrendingUp className="h-[18px] w-[18px]" />
           </span>
-          <h2 className="text-base font-bold tracking-tight text-slate-900">Department Overview</h2>
+          <h2 className="text-base font-semibold tracking-tight text-slate-900">Department Overview</h2>
         </div>
         {scoped.departments.length === 0 ? (
           <EmptyState icon={<TrendingUp className="h-6 w-6" />} title="No one present on this date" message="Department breakdown reflects who punched in on the selected day." />
@@ -389,7 +389,7 @@ export function DashboardPage() {
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-rose-50 to-rose-100 text-rose-600 ring-1 ring-rose-100">
             <AlertTriangle className="h-[18px] w-[18px]" />
           </span>
-          <h2 className="text-base font-bold tracking-tight text-slate-900">Needs Attention</h2>
+          <h2 className="text-base font-semibold tracking-tight text-slate-900">Needs Attention</h2>
         </div>
         <div className="space-y-2.5">
           {scoped.dayExceptions.map((e) => (

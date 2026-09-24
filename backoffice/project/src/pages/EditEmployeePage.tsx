@@ -18,7 +18,7 @@ import { SearchableSelect } from '@/components/SearchableSelect';
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
     <Card className="p-6">
-      <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+      <h2 className="text-base font-semibold tracking-tight text-slate-900">{title}</h2>
       {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
       <div className="mt-5 grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">{children}</div>
     </Card>

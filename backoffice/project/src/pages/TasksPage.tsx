@@ -3,7 +3,7 @@ import { ClipboardList, Plus, CheckCircle2, XCircle, AlertTriangle, Loader2, Map
 import { fetchTasks, fetchEmployees, fetchProjects, fetchSummerBanPeriods, assignTaskBulk, deleteTask, tasksExportUrl, downloadExport, ApiError } from '@/lib/api';
 import type { Task, Employee, Project, BulkAssignTaskResult } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, Badge, Button, Select, Textarea, Input, Spinner, EmptyState, Modal } from '@/components/ui';
+import { Card, Badge, Button, Select, Textarea, Input, Spinner, EmptyState, Modal, FIELD_LABEL } from '@/components/ui';
 import { EmployeeMultiSelect } from '@/components/EmployeeMultiSelect';
 import { SearchableSelect } from '@/components/SearchableSelect';
 import { BulkUploadTasksModal } from '@/components/BulkUploadTasksModal';
@@ -253,13 +253,13 @@ export function TasksPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:min-h-0 lg:flex-1 lg:grid-cols-3">
-        <div className="lg:col-span-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+        <div className="lg:col-span-1 lg:min-h-0 lg:overflow-y-auto">
           <Card className="p-6">
             <div className="mb-5 flex items-center gap-2">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-50 text-teal-600">
                 <Plus className="h-5 w-5" />
               </div>
-              <h2 className="text-base font-semibold text-slate-900">Create Task</h2>
+              <h2 className="text-base font-semibold tracking-tight text-slate-900">Create Task</h2>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -310,7 +310,7 @@ export function TasksPage() {
               <Input value={form.locationSite} onChange={(v) => setForm({ ...form, locationSite: v })} label="Location" id="task-location" placeholder="e.g. Site office, Dock 2…" />
 
               <div className="flex flex-col gap-1.5">
-                <span className="text-sm font-medium text-slate-700">Created By</span>
+                <span className={FIELD_LABEL}>Created By</span>
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
                   {session?.name ?? session?.empId}
                 </div>
@@ -333,7 +333,7 @@ export function TasksPage() {
                         <AlertTriangle className="h-4 w-4 shrink-0" />
                         {bulkResult.errors.length} employee{bulkResult.errors.length === 1 ? '' : 's'} skipped
                       </div>
-                      <div className="max-h-40 space-y-1.5 overflow-y-auto pr-1">
+                      <div className="max-h-40 space-y-1.5 overflow-y-auto">
                         {bulkResult.errors.map((e, i) => (
                           <div key={i} className="rounded-md bg-white px-2.5 py-2 text-xs text-rose-700 ring-1 ring-inset ring-rose-100">
                             <span className="font-semibold">{e.emp_id}</span>: {e.reason}
@@ -356,7 +356,7 @@ export function TasksPage() {
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-50 text-teal-600">
                 <Upload className="h-5 w-5" />
               </div>
-              <h2 className="text-base font-semibold text-slate-900">Bulk Upload Tasks</h2>
+              <h2 className="text-base font-semibold tracking-tight text-slate-900">Bulk Upload Tasks</h2>
             </div>
             <p className="mb-4 text-sm text-slate-500">
               Create many tasks at once from a filled-in Excel template — useful for scheduling work across
@@ -371,7 +371,7 @@ export function TasksPage() {
         <div className="lg:col-span-2 lg:flex lg:min-h-0 lg:flex-col">
           <div className="mb-2 flex shrink-0 items-center gap-2">
             <ClipboardList className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">All Tasks</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">All Tasks</h2>
             <Badge variant="neutral">{filtered.length}</Badge>
           </div>
 
@@ -450,7 +450,7 @@ export function TasksPage() {
             </div>
           </Card>
 
-          <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+          <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
           {filtered.length === 0 ? (
             <Card className="p-6">
               <EmptyState icon={<ClipboardList className="h-6 w-6" />} title="No tasks found" message="Try adjusting the filters above, or create a task using the form on the left." />
@@ -557,7 +557,7 @@ export function TasksPage() {
           <Button
             onClick={handleConfirmDelete}
             disabled={deleting}
-            className="flex-1 bg-rose-600 hover:bg-rose-700 focus-visible:outline-rose-600"
+            variant="danger" className="flex-1"
           >
             {deleting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Deleting…</>) : (<><Trash2 className="h-4 w-4" /> Delete Task</>)}
           </Button>

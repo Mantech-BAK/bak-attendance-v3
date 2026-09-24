@@ -3,7 +3,7 @@ import { CalendarOff, Calendar, Filter, X, Image as ImageIcon } from 'lucide-rea
 import { fetchLeaveReports } from '@/lib/api';
 import type { LeaveReport } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, Badge, Spinner, EmptyState, Select } from '@/components/ui';
+import { Card, Badge, Spinner, EmptyState, Select, FIELD_LABEL } from '@/components/ui';
 import { formatDate, formatDateTime, initials } from '@/lib/utils';
 
 const LEAVE_TYPES = ['Sick Leave', 'Annual Leave', 'Emergency Leave', 'Unpaid Leave', 'Compassionate Leave'];
@@ -66,7 +66,7 @@ export function ReportedLeavesPage() {
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="leave-date-filter" className="text-sm font-medium text-slate-700">Date</label>
+            <label htmlFor="leave-date-filter" className={FIELD_LABEL}>Date</label>
             <div className="relative">
               <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -74,7 +74,7 @@ export function ReportedLeavesPage() {
                 type="date"
                 value={dateFilter}
                 onChange={(e) => setDateFilter(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 shadow-sm transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 shadow-sm transition hover:border-slate-400 focus:border-teal-500 focus:outline-none focus:ring-4 focus:ring-teal-500/15"
               />
             </div>
           </div>

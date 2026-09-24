@@ -207,7 +207,7 @@ export function ReportsPage() {
       <Card className="mb-6 p-6">
         <div className="mb-4 flex items-center gap-2">
           <CalendarSearch className="h-5 w-5 text-slate-400" />
-          <h2 className="text-base font-semibold text-slate-900">Attendance for a Specific Date</h2>
+          <h2 className="text-base font-semibold tracking-tight text-slate-900">Attendance for a Specific Date</h2>
         </div>
 
         <div className="mb-5 max-w-xs">
@@ -267,7 +267,7 @@ export function ReportsPage() {
       <Card className="mb-6 max-w-xl p-6">
         <div className="mb-4 flex items-center gap-2">
           <Download className="h-5 w-5 text-slate-400" />
-          <h2 className="text-base font-semibold text-slate-900">Export by Date</h2>
+          <h2 className="text-base font-semibold tracking-tight text-slate-900">Export by Date</h2>
         </div>
         <p className="mb-4 text-sm text-slate-500">
           Pick a single date, then export that day's attendance, punches, or tasks as an Excel file.
@@ -293,7 +293,7 @@ export function ReportsPage() {
       <Card className="mb-6 max-w-xl p-6">
         <div className="mb-4 flex items-center gap-2">
           <FileSpreadsheet className="h-5 w-5 text-slate-400" />
-          <h2 className="text-base font-semibold text-slate-900">Confirmation Sheet</h2>
+          <h2 className="text-base font-semibold tracking-tight text-slate-900">Confirmation Sheet</h2>
         </div>
         <p className="mb-4 text-sm text-slate-500">
           Daily attendance confirmation sheet, generated on-demand — never pushed automatically anywhere.
@@ -350,7 +350,7 @@ export function ReportsPage() {
         <Card className="p-6">
           <div className="mb-5 flex items-center gap-2">
             <Building2 className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Hours by Project</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Hours by Project</h2>
           </div>
           {hoursPerProject.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">No completed punch sessions yet.</p>
@@ -374,7 +374,7 @@ export function ReportsPage() {
         <Card className="p-6">
           <div className="mb-5 flex items-center gap-2">
             <ClipboardList className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Task Status Breakdown</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Task Status Breakdown</h2>
           </div>
           <div className="grid grid-cols-3 gap-4">
             {taskStatusCounts.map(([status, count]) => (
@@ -397,7 +397,7 @@ export function ReportsPage() {
         <Card className="p-6">
           <div className="mb-5 flex items-center gap-2">
             <Clock className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Hours by Employee</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Hours by Employee</h2>
           </div>
           {hoursPerEmployee.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">No completed punch sessions yet.</p>
@@ -422,7 +422,7 @@ export function ReportsPage() {
         <Card className="p-6">
           <div className="mb-5 flex items-center gap-2">
             <Users className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Headcount by Department</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Headcount by Department</h2>
           </div>
           <div className="space-y-3">
             {deptHeadcount.map((d) => {

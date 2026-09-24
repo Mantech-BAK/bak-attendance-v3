@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { XCircle, Loader2 } from 'lucide-react';
 import { updateTask, ApiError } from '@/lib/api';
 import type { Task, Project } from '@/lib/api';
-import { Modal, Button, Select, Textarea, Input } from '@/components/ui';
+import { Modal, Button, Select, Textarea, Input, FIELD_LABEL } from '@/components/ui';
 import { SearchableSelect } from '@/components/SearchableSelect';
 
 // Admin-only task edit — same validation as creating one (project must
@@ -77,7 +77,7 @@ export function EditTaskModal({
     <Modal open={open} onClose={onClose} title={`Edit ${task.display_id}`}>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-slate-700">Employee</span>
+          <span className={FIELD_LABEL}>Employee</span>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
             {task.employee_name ?? task.emp_id}
           </div>

@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { XCircle, Loader2 } from 'lucide-react';
 import { addAdminPunchCorrection, updatePunch, updateTaskProject, fetchPunchableTasks, ApiError } from '@/lib/api';
 import type { Employee, Punch, PunchableTask, Project } from '@/lib/api';
-import { Modal, Button, Select, Input, Textarea } from '@/components/ui';
+import { Modal, Button, Select, Input, Textarea, FIELD_LABEL } from '@/components/ui';
 import { SearchableSelect } from '@/components/SearchableSelect';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime, googleMapsUrl } from '@/lib/utils';
@@ -348,7 +348,7 @@ export function AddPunchModal({
       <form onSubmit={handleSubmit} className="space-y-4">
         {lockEmployee || isEditing ? (
           <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-slate-700">Employee</span>
+            <span className={FIELD_LABEL}>Employee</span>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
               {employees.find((e) => e.emp_id === empId)?.name ?? empId}
             </div>
@@ -372,7 +372,7 @@ export function AddPunchModal({
           // punch was FOR (task/project below) is still correctable; when
           // it happened is permanent.
           <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-slate-700">Punch Time</span>
+            <span className={FIELD_LABEL}>Punch Time</span>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
               {formatDateTime(editingPunch!.punch_time)}
             </div>
@@ -442,7 +442,7 @@ export function AddPunchModal({
         ) : (
           selectedTask && (
             <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-slate-700">Project</span>
+              <span className={FIELD_LABEL}>Project</span>
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
                 {selectedTask.project_code}{selectedTask.is_default ? ' (department default)' : ''}
               </div>
@@ -474,7 +474,7 @@ export function AddPunchModal({
         )}
 
         <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-slate-700">Entered By</span>
+          <span className={FIELD_LABEL}>Entered By</span>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
             {session?.name ?? session?.empId}
           </div>
@@ -482,7 +482,7 @@ export function AddPunchModal({
 
         {isEditing && (editingPunch!.resolved_address || (editingPunch!.lat !== null && editingPunch!.lng !== null)) && (
           <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-slate-700">Location</span>
+            <span className={FIELD_LABEL}>Location</span>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
               {editingPunch!.lat !== null && editingPunch!.lng !== null ? (
                 <a

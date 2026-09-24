@@ -25,7 +25,7 @@ import {
 } from '@/lib/api';
 import type { RamzanPeriod, SummerBanPeriod, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from '@/components/ui';
+import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal, FIELD_LABEL } from '@/components/ui';
 import { formatDate, formatDurationHM } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 
@@ -452,7 +452,7 @@ export function SettingsPage() {
         <Card className="p-6">
           <div className="mb-4 flex items-center gap-2">
             <Clock className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Daily Working Hours</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Daily Working Hours</h2>
           </div>
           <p className="mb-4 text-sm text-slate-500">
             Sets today's expected working hours, used as the overtime threshold for everyone unless a Ramzan
@@ -461,7 +461,7 @@ export function SettingsPage() {
 
           <form onSubmit={handleHoursSubmit} className="space-y-4">
             <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-slate-700">Date</span>
+              <span className={FIELD_LABEL}>Date</span>
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-500">
                 {formatDate(TODAY)} (locked)
               </div>
@@ -499,7 +499,7 @@ export function SettingsPage() {
         <Card className="p-6">
           <div className="mb-4 flex items-center gap-2">
             <Moon className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Declare Ramzan Period</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Declare Ramzan Period</h2>
           </div>
           <p className="mb-4 text-sm text-slate-500">
             Declares the period and sets the working-hours threshold Muslim employees get on any day within it —
@@ -511,7 +511,7 @@ export function SettingsPage() {
             <Input value={startDate} onChange={setStartDate} label="Start Date" id="ramzan-start" type="date" />
             <Input value={endDate} onChange={setEndDate} label="End Date" id="ramzan-end" type="date" />
             <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-slate-700">Declared By</span>
+              <span className={FIELD_LABEL}>Declared By</span>
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
                 {session?.name ?? session?.empId}
               </div>
@@ -548,7 +548,7 @@ export function SettingsPage() {
         <Card className="p-6">
           <div className="mb-4 flex items-center gap-2">
             <Sun className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Declare Summer Ban Period</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Declare Summer Ban Period</h2>
           </div>
           <p className="mb-4 text-sm text-slate-500">
             While declared, Outdoor tasks cannot be punched in or out between 12:00pm–4:00pm, and any overlap with
@@ -560,7 +560,7 @@ export function SettingsPage() {
             <Input value={sbStartDate} onChange={setSbStartDate} label="Start Date" id="summer-ban-start" type="date" />
             <Input value={sbEndDate} onChange={setSbEndDate} label="End Date" id="summer-ban-end" type="date" />
             <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-slate-700">Declared By</span>
+              <span className={FIELD_LABEL}>Declared By</span>
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
                 {session?.name ?? session?.empId}
               </div>
@@ -586,7 +586,7 @@ export function SettingsPage() {
         <Card className="p-6">
           <div className="mb-4 flex items-center gap-2">
             <Copy className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Duplicate Punch Window</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Duplicate Punch Window</h2>
           </div>
           <p className="mb-4 text-sm text-slate-500">
             A second punch for the same employee and project within this many minutes of an existing one is
@@ -626,7 +626,7 @@ export function SettingsPage() {
         <Card className="p-6">
           <div className="mb-4 flex items-center gap-2">
             <Clock className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Minimum OT Threshold</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Minimum OT Threshold</h2>
           </div>
           <p className="mb-4 text-sm text-slate-500">
             If an employee's overtime for a day is less than this many minutes, no overtime record or approval
@@ -666,7 +666,7 @@ export function SettingsPage() {
         <Card className="p-6">
           <div className="mb-4 flex items-center gap-2">
             <Siren className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Emergency Time Allowance</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Emergency Time Allowance</h2>
           </div>
           <p className="mb-4 text-sm text-slate-500">
             The nightly window an employee can create a task for themselves directly from mobile, with no
@@ -711,7 +711,7 @@ export function SettingsPage() {
       <div className="mt-6">
         <div className="mb-4 flex items-center gap-2">
           <CalendarRange className="h-5 w-5 text-slate-400" />
-          <h2 className="text-base font-semibold text-slate-900">Declared Ramzan Periods</h2>
+          <h2 className="text-base font-semibold tracking-tight text-slate-900">Declared Ramzan Periods</h2>
           <Badge variant="neutral">{sortedPeriods.length}</Badge>
         </div>
 
@@ -776,7 +776,7 @@ export function SettingsPage() {
       <div className="mt-6">
         <div className="mb-4 flex items-center gap-2">
           <Sun className="h-5 w-5 text-slate-400" />
-          <h2 className="text-base font-semibold text-slate-900">Declared Summer Ban Periods</h2>
+          <h2 className="text-base font-semibold tracking-tight text-slate-900">Declared Summer Ban Periods</h2>
           <Badge variant="neutral">{sortedSbPeriods.length}</Badge>
         </div>
 
@@ -842,7 +842,7 @@ export function SettingsPage() {
         <Card className="border-rose-200 p-6">
           <div className="mb-2 flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-rose-500" />
-            <h2 className="text-base font-semibold text-slate-900">Danger Zone</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Danger Zone</h2>
           </div>
           <p className="mb-4 text-sm text-slate-500">
             Permanently deletes all {RESET_TABLES_LABEL} — every generated attendance activity, back to a clean
@@ -910,7 +910,7 @@ export function SettingsPage() {
           <Button
             onClick={handleConfirmDeletePeriod}
             disabled={periodDeleting}
-            className="flex-1 bg-rose-600 hover:bg-rose-700 focus-visible:outline-rose-600"
+            variant="danger" className="flex-1"
           >
             {periodDeleting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Deleting…</>) : (<><Trash2 className="h-4 w-4" /> Delete Period</>)}
           </Button>
@@ -966,7 +966,7 @@ export function SettingsPage() {
           <Button
             onClick={handleConfirmDeleteSbPeriod}
             disabled={sbPeriodDeleting}
-            className="flex-1 bg-rose-600 hover:bg-rose-700 focus-visible:outline-rose-600"
+            variant="danger" className="flex-1"
           >
             {sbPeriodDeleting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Deleting…</>) : (<><Trash2 className="h-4 w-4" /> Delete Period</>)}
           </Button>
@@ -996,7 +996,7 @@ export function SettingsPage() {
           <Button
             onClick={handleConfirmReset}
             disabled={resetConfirmText !== 'RESET' || resetting}
-            className="flex-1 bg-rose-600 hover:bg-rose-700 focus-visible:outline-rose-600"
+            variant="danger" className="flex-1"
           >
             {resetting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Resetting…</>) : (<><Trash2 className="h-4 w-4" /> Delete Everything</>)}
           </Button>

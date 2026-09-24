@@ -66,7 +66,7 @@ export function ProjectsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search name or code…"
-              className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+              className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 shadow-sm transition placeholder:text-slate-400 hover:border-slate-400 focus:border-teal-500 focus:outline-none focus:ring-4 focus:ring-teal-500/15"
             />
           </div>
           <Select value={companyFilter} onChange={setCompanyFilter} label="" id="project-company-filter">

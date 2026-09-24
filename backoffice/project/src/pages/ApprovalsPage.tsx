@@ -270,12 +270,12 @@ export function ApprovalsPage() {
         </div>
       </Card>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+      <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="space-y-8">
         <div>
           <div className="sticky top-0 z-10 mb-4 flex items-center gap-2 bg-slate-50 py-2">
             <Clock className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Pending Punches</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Pending Punches</h2>
             <Badge variant="neutral">{filteredPunches.length}</Badge>
           </div>
 
@@ -308,7 +308,7 @@ export function ApprovalsPage() {
                           placeholder="Extra OT"
                           value={extraOtHoursByPunchId[p.id] ?? ''}
                           onChange={(e) => setExtraOtHoursByPunchId((prev) => ({ ...prev, [p.id]: e.target.value }))}
-                          className="w-24 rounded-lg border border-slate-300 px-2.5 py-2 text-sm text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                          className="w-24 rounded-lg border border-slate-300 px-2.5 py-2 text-sm text-slate-900 shadow-sm hover:border-slate-400 focus:border-teal-500 focus:outline-none focus:ring-4 focus:ring-teal-500/15"
                         />
                         <span className="text-xs text-slate-400">hrs</span>
                       </div>
@@ -326,7 +326,7 @@ export function ApprovalsPage() {
                       size="sm"
                       onClick={() => handleApprovePunch(p.id)}
                       disabled={processingId === `punch:${p.id}`}
-                      className="!bg-emerald-600 hover:!bg-emerald-700"
+                      variant="success"
                     >
                       {processingId === `punch:${p.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                       Approve
@@ -351,7 +351,7 @@ export function ApprovalsPage() {
         <div>
           <div className="sticky top-0 z-10 mb-4 flex items-center gap-2 bg-slate-50 py-2">
             <Timer className="h-5 w-5 text-slate-400" />
-            <h2 className="text-base font-semibold text-slate-900">Pending Overtime</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">Pending Overtime</h2>
             <Badge variant="neutral">{filteredOtApprovals.length}</Badge>
           </div>
 
@@ -378,7 +378,7 @@ export function ApprovalsPage() {
                       size="sm"
                       onClick={() => handleApproveOt(o.id)}
                       disabled={processingId === `ot:${o.id}`}
-                      className="!bg-emerald-600 hover:!bg-emerald-700"
+                      variant="success"
                     >
                       {processingId === `ot:${o.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                       Approve
@@ -427,7 +427,7 @@ export function ApprovalsPage() {
             <Button type="button" variant="secondary" onClick={() => setRejectTarget(null)} disabled={rejecting} className="flex-1">
               Cancel
             </Button>
-            <Button type="button" onClick={handleConfirmReject} disabled={rejecting} className="flex-1 !bg-rose-600 hover:!bg-rose-700">
+            <Button type="button" onClick={handleConfirmReject} disabled={rejecting} variant="danger" className="flex-1">
               {rejecting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Rejecting…</>) : 'Reject'}
             </Button>
           </div>
