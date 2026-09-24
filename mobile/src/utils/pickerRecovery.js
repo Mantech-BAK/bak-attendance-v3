@@ -1,13 +1,13 @@
 import { File, Paths } from 'expo-file-system';
 
-// Android can kill and restart the app's MainActivity while the camera or
-// gallery picker is open (documented expo-image-picker behavior — see
-// ImagePicker.getPendingResultAsync). The identified employee lives only in
-// memory, so a restart lands back on the start screen: it looks exactly like
-// being logged out, and whatever the employee was filling in is lost
-// (2026-09-24, Report Leave). So right before opening a picker (or
-// submitting), a small snapshot — who was identified plus the form draft —
-// is written to disk, and the next launch restores it.
+// General safety net for the Report Leave form (2026-09-24). Report Leave now
+// takes its photo with the in-app camera, so the original trigger - Android
+// killing the app while a separate system camera/gallery activity was open -
+// no longer happens. But the app keeps the identified employee only in
+// memory, so ANY unexpected process death would still look like a logout and
+// lose the form. So right before submitting, a small snapshot - who was
+// identified plus the form draft - is written to disk, and the next launch
+// restores it.
 //
 // Deliberately narrow, since it briefly persists an identified session: it
 // holds no login code, is deleted the moment it is consumed, is ignored past

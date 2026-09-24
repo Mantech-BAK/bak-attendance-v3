@@ -33,7 +33,6 @@ import RejectReasonModal from '../components/RejectReasonModal';
 import OutRemarkModal from '../components/OutRemarkModal';
 import PunchPhotoUploadModal from '../components/PunchPhotoUploadModal';
 import EditApprovalTaskModal from '../components/EditApprovalTaskModal';
-import * as ImagePicker from 'expo-image-picker';
 import { saveResumeState, clearResumeState, takeResumeState } from '../utils/pickerRecovery';
 import {
   identifyPunch,
@@ -356,23 +355,14 @@ export default function PunchScreen() {
   }
 
   // One-time restore on launch (2026-09-24): if a snapshot was left by the
-  // Report Leave tab just before a picker opened / a submit started, put the
-  // identified employee, the tab and the form entries back, and recover the
-  // picked photo via the library's pending-result call.
+  // Report Leave tab just before a submit started, put the identified
+  // employee, the tab and the form entries back.
   useEffect(() => {
     const resume = takeResumeState();
     if (!resume?.employee) return;
     (async () => {
       await applySelfIdentifyResult(resume.employee);
-      let photoUri = resume.draft?.photoUri ?? null;
-      try {
-        const pending = await ImagePicker.getPendingResultAsync();
-        if (pending && !pending.canceled && pending.assets?.[0]?.uri) {
-          photoUri = pending.assets[0].uri;
-        }
-      } catch {
-        // No pending picker result - keep whatever photo the draft had.
-      }
+      const photoUri = resume.draft?.photoUri ?? null;
       setLeaveDraft({ ...(resume.draft || {}), photoUri });
       setActiveTab('report-leave');
     })();

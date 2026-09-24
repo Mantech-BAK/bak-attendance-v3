@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Platform,
   StyleSheet,
@@ -12,8 +11,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import * as ImagePicker from 'expo-image-picker';
 import OptionSelect from './OptionSelect';
+import PunchPhotoCamera from './PunchPhotoCamera';
 import { submitLeaveReport } from '../api/client';
 
 const LEAVE_TYPES = ['Sick Leave', 'Annual Leave', 'Emergency Leave', 'Unpaid Leave', 'Compassionate Leave'];
@@ -33,13 +32,14 @@ function formatDisplayDate(dateKey) {
 }
 
 // New mobile tab (2026-09-23), same underlying screen for both an employee
-// and a supervisor — self-reporting only, never on behalf of someone else
+// and a supervisor - self-reporting only, never on behalf of someone else
 // (empId is always whoever is currently identified). Every field starts
-// genuinely empty/unset, same spirit as the 2026-09-23 Task Creation blank-
-// forms fix. The Supporting Photo step deliberately differs from the
-// existing punch-photo flow (PunchPhotoCamera, camera-only): this one offers
-// BOTH a camera capture and a gallery/file pick, and the photo itself is
-// optional at submit time either way.
+// genuinely empty/unset. The Supporting Photo is optional and is taken with
+// the same IN-APP rear camera the punch photos use (PunchPhotoCamera, a
+// Modal inside this same Activity) - never the system camera or gallery
+// picker (2026-09-24). Handing off to a separate system activity let Android
+// kill the app's process mid-capture, which looked like a logout and lost the
+// report; an in-app camera never leaves the app, so that can't happen.
 export default function ReportLeaveTab({ empId, initialDraft, onSaveResume, onClearResume }) {
   const [leaveDate, setLeaveDate] = useState(initialDraft?.leaveDate ?? null);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -49,6 +49,7 @@ export default function ReportLeaveTab({ empId, initialDraft, onSaveResume, onCl
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
   const restored = !!initialDraft;
 
   function resetForm() {
@@ -69,37 +70,9 @@ export default function ReportLeaveTab({ empId, initialDraft, onSaveResume, onCl
     setLeaveDate(toDateKey(selectedDate));
   }
 
-  // Snapshot for pickerRecovery - see utils/pickerRecovery.js.
+  // Safety-net snapshot for utils/pickerRecovery.js, taken at submit time.
   function snapshot() {
     onSaveResume?.({ leaveDate, leaveType, remarks, photoUri });
-  }
-
-  async function handleTakePhoto() {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Camera access is required to take a photo.');
-      return;
-    }
-    snapshot();
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
-    onClearResume?.();
-    if (!result.canceled && result.assets?.[0]) {
-      setPhotoUri(result.assets[0].uri);
-    }
-  }
-
-  async function handleChooseFromGallery() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Photo library access is required to choose a photo.');
-      return;
-    }
-    snapshot();
-    const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.8, mediaTypes: ['images'] });
-    onClearResume?.();
-    if (!result.canceled && result.assets?.[0]) {
-      setPhotoUri(result.assets[0].uri);
-    }
   }
 
   async function handleSubmit() {
@@ -145,7 +118,7 @@ export default function ReportLeaveTab({ empId, initialDraft, onSaveResume, onCl
       {restored && (
         <View style={styles.restoredRow}>
           <Ionicons name="refresh-circle-outline" size={16} color="#2563eb" />
-          <Text style={styles.restoredText}>The app restarted while the camera/gallery was open. Your entries were restored - check them and submit.</Text>
+          <Text style={styles.restoredText}>The app restarted before your report was sent. Your entries were restored - check them and submit.</Text>
         </View>
       )}
 
@@ -190,23 +163,35 @@ export default function ReportLeaveTab({ empId, initialDraft, onSaveResume, onCl
       {photoUri ? (
         <View style={styles.photoPreviewRow}>
           <Image source={{ uri: photoUri }} style={styles.photoPreview} />
-          <TouchableOpacity style={styles.removePhotoButton} onPress={() => setPhotoUri(null)}>
-            <Ionicons name="trash-outline" size={14} color="#dc2626" />
-            <Text style={styles.removePhotoText}>Remove Photo</Text>
-          </TouchableOpacity>
+          <View style={styles.photoButtonsRow}>
+            <TouchableOpacity style={styles.photoButton} onPress={() => setShowCamera(true)}>
+              <Ionicons name="camera-reverse-outline" size={16} color="#2563eb" />
+              <Text style={styles.photoButtonText}>Retake</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.removePhotoButton} onPress={() => setPhotoUri(null)}>
+              <Ionicons name="trash-outline" size={14} color="#dc2626" />
+              <Text style={styles.removePhotoText}>Remove Photo</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       ) : (
         <View style={styles.photoButtonsRow}>
-          <TouchableOpacity style={styles.photoButton} onPress={handleTakePhoto}>
+          <TouchableOpacity style={styles.photoButton} onPress={() => setShowCamera(true)}>
             <Ionicons name="camera-outline" size={16} color="#2563eb" />
             <Text style={styles.photoButtonText}>Take Photo</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.photoButton} onPress={handleChooseFromGallery}>
-            <Ionicons name="images-outline" size={16} color="#2563eb" />
-            <Text style={styles.photoButtonText}>Choose from Gallery</Text>
-          </TouchableOpacity>
         </View>
       )}
+
+      <PunchPhotoCamera
+        visible={showCamera}
+        instructionText="Take a photo to support this leave report"
+        onCapture={(uri) => {
+          setPhotoUri(uri);
+          setShowCamera(false);
+        }}
+        onCancel={() => setShowCamera(false)}
+      />
 
       {error && (
         <View style={styles.errorRow}>
@@ -267,7 +252,7 @@ const styles = StyleSheet.create({
   dateButtonPlaceholder: { fontSize: 15, color: '#9ca3af' },
   doneButton: { alignSelf: 'flex-end', paddingVertical: 8, paddingHorizontal: 14 },
   doneButtonText: { color: '#2563eb', fontSize: 14, fontWeight: '700' },
-  photoButtonsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  photoButtonsRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
   photoButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -281,7 +266,7 @@ const styles = StyleSheet.create({
   photoButtonText: { color: '#2563eb', fontSize: 13, fontWeight: '700' },
   photoPreviewRow: { gap: 8 },
   photoPreview: { width: '100%', height: 180, borderRadius: 8, backgroundColor: '#f3f4f6' },
-  removePhotoButton: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
+  removePhotoButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 8 },
   removePhotoText: { color: '#dc2626', fontSize: 13, fontWeight: '600' },
   restoredRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: '#eff6ff', borderRadius: 8, padding: 10, marginBottom: 4 },
   restoredText: { flex: 1, fontSize: 12, color: '#1d4ed8' },
