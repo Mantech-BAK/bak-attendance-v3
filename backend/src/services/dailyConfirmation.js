@@ -26,6 +26,10 @@ const DEFAULT_MAX_OT_MINUTES = 600; // 10 hours, used only if max_ot_minutes is 
 // ot_approvals record, ever created for it.
 const MIN_OT_MINUTES = 3;
 
+// Same floor for the shortfall row (2026-09-24) — a shortfall under this is
+// punch-timing/rounding noise, not a real gap worth a row.
+const MIN_SHORTFALL_MINUTES = 3;
+
 // Matches confirmationSheetExcel.js's own REPORT_TIME_ZONE — REMARKS is
 // human-readable business text (e.g. "OT: 5:00 PM - 7:00 PM"), so it needs
 // the same timezone-aware formatting the rest of the sheet uses, not the
@@ -344,7 +348,10 @@ function computeEmployeeDay({
     delete row._extraOtGrantedBy;
   }
 
-  return { rows, totalWorkedMinutes, thresholdMinutes: threshold.minutes, otMinutes, trueExcessMinutes };
+  return {
+    rows, totalWorkedMinutes, thresholdMinutes: threshold.minutes, otMinutes, trueExcessMinutes,
+    hasIncompleteSession: incompleteSessions.length > 0,
+  };
 }
 
 /**
@@ -529,8 +536,14 @@ async function generateConfirmationSheetRows(date) {
     // via computeEmployeeDay's getEffectiveThreshold). A same-day leave
     // report does NOT change this: the shortfall is based on real punch
     // hours only, and the leave row is a separate additive row.
-    if (computation && computation.totalWorkedMinutes < computation.thresholdMinutes) {
-      const shortfallMinutes = computation.thresholdMinutes - computation.totalWorkedMinutes;
+    // Skipped when any session is still open/unpaired (single_punch_only's
+    // territory — a missing closing punch, not a real attendance gap), and
+    // when the gap is under MIN_SHORTFALL_MINUTES (rounding noise).
+    const shortfallMinutes = computation ? computation.thresholdMinutes - computation.totalWorkedMinutes : 0;
+    // rows.length > 0: fetchPunchRowsForDate widens to adjacent days, so an
+    // employee can have punchRows yet no session actually attributed to THIS
+    // date — that's effectively zero punches here, and gets no row.
+    if (computation && rows.length > 0 && !computation.hasIncompleteSession && shortfallMinutes >= MIN_SHORTFALL_MINUTES) {
       const defaultProject = defaultProjectByEmp.get(employee.emp_id);
       const projectRecord = defaultProject ? projectsByCode.get(defaultProject.project_code) : null;
       rows.push({
