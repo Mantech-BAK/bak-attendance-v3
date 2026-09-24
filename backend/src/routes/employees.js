@@ -269,16 +269,6 @@ router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
     const trimmedReligionCode = religion_code ? String(religion_code).trim() : null;
     const trimmedCpr = cpr ? String(cpr).trim() : null;
 
-    if (trimmedDepartment) {
-      const deptExists = await pool.query(
-        'SELECT 1 FROM departments WHERE department_name = $1 LIMIT 1',
-        [trimmedDepartment]
-      );
-      if (deptExists.rows.length === 0) {
-        return res.status(400).json({ error: `department "${trimmedDepartment}" not found` });
-      }
-    }
-
     try {
       // One statement does the UPDATE and returns the joined display names
       // (designation/company/religion) together — previously an existence
@@ -293,6 +283,7 @@ router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
                "EmpOtStatus" = $5, is_supervisor = $6, "EmpReportMgrId" = $7,
                "EmpDeptId" = $8, "EmpDesigId" = $9, "EmpDivision" = $10, "EmpReligionId" = $11, "EmpCpr" = $12
            WHERE "EmpId" = $13
+             AND ($8::text IS NULL OR EXISTS (SELECT 1 FROM departments WHERE department_name = $8::text))
            RETURNING *
          )
          SELECT u."EmpId" AS emp_id, u."EmpName" AS name, u."EmpStatus" AS status, u.login_code,
@@ -315,7 +306,14 @@ router.put('/:emp_id', requireBackofficeAuth, async (req, res, next) => {
       );
 
       if (result.rows.length === 0) {
-        return res.status(404).json({ error: `employee ${emp_id} not found` });
+        // Zero rows = either the employee doesn't exist or the department
+        // isn't a real one (departments has no FK to enforce it) — only on
+        // this failure path do we spend a query telling the two apart.
+        const exists = await pool.query('SELECT 1 FROM employees WHERE "EmpId" = $1', [emp_id]);
+        if (exists.rows.length === 0) {
+          return res.status(404).json({ error: `employee ${emp_id} not found` });
+        }
+        return res.status(400).json({ error: `department "${trimmedDepartment}" not found` });
       }
 
       res.json(result.rows[0]);
