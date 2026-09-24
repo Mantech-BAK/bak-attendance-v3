@@ -3,6 +3,7 @@ import { Users, Search, Briefcase, Building2, Eye, EyeOff, RefreshCw, Pencil, Sc
 import { fetchEmployees, fetchTasks, regenerateLoginCode, resetFaceId } from '@/lib/api';
 import type { Employee, Task } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
+import { ScrollArea } from '@/components/ScrollArea';
 import { Card, Badge, Spinner, EmptyState, Select, Button } from '@/components/ui';
 import { EmployeeTasksModal } from '@/components/EmployeeTasksModal';
 import { punchStatus } from '@/pages/TasksPage';
@@ -202,7 +203,7 @@ export function EmployeesPage() {
         </div>
       </Card>
 
-      <div key={view} className="min-h-0 flex-1 overflow-auto">
+      <ScrollArea key={view} className="min-h-0 flex-1 overflow-auto">
       {filtered.length === 0 ? (
         <Card className="p-6">
           <EmptyState icon={<Users className="h-6 w-6" />} title="No employees found" message="Try adjusting your search or filters." />
@@ -256,7 +257,7 @@ export function EmployeesPage() {
           })}
         </div>
       ) : (
-        <Card>
+        <Card className="w-fit min-w-full">
           <div>
             <table className="w-full">
               <thead className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_0_rgb(226,232,240)]">
@@ -388,7 +389,7 @@ export function EmployeesPage() {
           </div>
         </Card>
       )}
-      </div>
+      </ScrollArea>
 
       <EmployeeTasksModal
         employee={tasksEmployee}

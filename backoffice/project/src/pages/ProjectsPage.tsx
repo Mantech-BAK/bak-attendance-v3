@@ -3,6 +3,7 @@ import { Building2, Search, Tag } from 'lucide-react';
 import { fetchProjects } from '@/lib/api';
 import type { Project } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
+import { ScrollArea } from '@/components/ScrollArea';
 import { Card, Badge, Spinner, EmptyState, Select } from '@/components/ui';
 
 export function ProjectsPage() {
@@ -82,13 +83,13 @@ export function ProjectsPage() {
         </div>
       </Card>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <ScrollArea className="min-h-0 flex-1 overflow-auto">
       {filtered.length === 0 ? (
         <Card className="p-6">
           <EmptyState icon={<Building2 className="h-6 w-6" />} title="No projects found" message="Try adjusting your search or filters." />
         </Card>
       ) : (
-        <Card>
+        <Card className="w-fit min-w-full">
           <div>
             <table className="w-full">
               <thead className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_0_rgb(226,232,240)]">
@@ -131,7 +132,7 @@ export function ProjectsPage() {
           </div>
         </Card>
       )}
-      </div>
+      </ScrollArea>
     </div>
   );
 }

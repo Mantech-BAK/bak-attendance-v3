@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Suspend hover effects on a list's contents while it is scrolling. */
+[data-scrolling='true'] > * {
+  pointer-events: none;
+}
+
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;

@@ -3,6 +3,7 @@ import { Clock, Calendar, Filter, X, Plus, Pencil, Trash2, XCircle, Loader2, Dow
 import { fetchPunches, fetchProjects, fetchEmployees, deletePunch, punchesExportUrl, downloadExport, ApiError } from '@/lib/api';
 import type { Punch, Project, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
+import { ScrollArea } from '@/components/ScrollArea';
 import { Card, Badge, Spinner, EmptyState, Select, Button, Modal } from '@/components/ui';
 import { AddPunchModal } from '@/components/AddPunchModal';
 import { SearchableSelect } from '@/components/SearchableSelect';
@@ -234,13 +235,13 @@ export function PunchesPage() {
         </div>
       </Card>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <ScrollArea className="min-h-0 flex-1 overflow-auto">
       {filtered.length === 0 ? (
         <Card className="p-6">
           <EmptyState icon={<Clock className="h-6 w-6" />} title="No punches match your filters" message="Try adjusting or clearing the filters above." />
         </Card>
       ) : (
-        <Card>
+        <Card className="w-fit min-w-full">
           <div>
             <table className="w-full">
               <thead className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_0_rgb(226,232,240)]">
@@ -382,7 +383,7 @@ export function PunchesPage() {
         </Card>
       )}
 
-      </div>
+      </ScrollArea>
 
       <Modal open={deletingPunch !== null} onClose={() => setDeletingPunch(null)} title="Delete this punch?">
         <p className="mb-4 text-sm text-slate-600">
