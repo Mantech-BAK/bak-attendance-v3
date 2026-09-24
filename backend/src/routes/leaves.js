@@ -14,7 +14,12 @@ const uploadPhoto = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB, same cap as punch photos
   fileFilter(req, file, cb) {
-    if (!PHOTO_MIME_TYPES.includes(file.mimetype)) {
+    // A phone can hand over a perfectly good photo with no usable content
+    // type (blank / application/octet-stream) — accept it when the filename
+    // is clearly an image rather than failing the whole leave report over it.
+    const looksLikeImage = /\.(jpe?g|png|heic|heif)$/i.test(file.originalname || '');
+    const genericType = !file.mimetype || file.mimetype === 'application/octet-stream';
+    if (!PHOTO_MIME_TYPES.includes(file.mimetype) && !(genericType && looksLikeImage)) {
       cb(new Error('Unsupported file type. Upload a JPEG, PNG, or HEIC photo.'));
       return;
     }
@@ -56,7 +61,8 @@ router.post('/', uploadPhoto.single('photo'), async (req, res, next) => {
     const leaveId = inserted.rows[0].id;
 
     if (req.file) {
-      const photoPath = await uploadLeavePhoto(leaveId, req.file.buffer, req.file.mimetype);
+      const photoType = PHOTO_MIME_TYPES.includes(req.file.mimetype) ? req.file.mimetype : 'image/jpeg';
+      const photoPath = await uploadLeavePhoto(leaveId, req.file.buffer, photoType);
       await pool.query(
         `UPDATE leave_reports SET photo_path = $1, photo_uploaded_at = now() WHERE id = $2`,
         [photoPath, leaveId]

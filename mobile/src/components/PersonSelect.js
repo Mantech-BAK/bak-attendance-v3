@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { FlatList, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import useKeyboardHeight from '../hooks/useKeyboardHeight';
 
@@ -11,6 +11,17 @@ export default function PersonSelect({ people, value, onChange, placeholder = 'S
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const keyboardHeight = useKeyboardHeight();
+  const { height: windowHeight } = useWindowDimensions();
+  // Exactly ONE keyboard adjustment per platform (2026-09-24). Android lifts
+  // the sheet by the measured keyboard height alone — the previous version
+  // ALSO wrapped it in KeyboardAvoidingView 'height', which shrinks the
+  // container by that same overlap, so the sheet rode up ~2x the keyboard's
+  // height. iOS keeps KeyboardAvoidingView 'padding' on its own. The sheet's
+  // max height also shrinks to the space actually left above the keyboard,
+  // so the full list stays visible instead of being pushed off the top.
+  const Backdrop = Platform.OS === 'ios' ? KeyboardAvoidingView : View;
+  const backdropProps = Platform.OS === 'ios' ? { behavior: 'padding' } : {};
+  const sheetMaxHeight = Math.min(windowHeight * 0.75, windowHeight - keyboardHeight - 24);
 
   const list = people || [];
   const selected = list.find((p) => p.emp_id === value) || null;
@@ -49,8 +60,8 @@ export default function PersonSelect({ people, value, onChange, placeholder = 'S
       </TouchableOpacity>
 
       <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
-        <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={[styles.sheet, Platform.OS === 'android' && { marginBottom: keyboardHeight }]}>
+        <Backdrop style={styles.backdrop} {...backdropProps}>
+          <View style={[styles.sheet, { maxHeight: sheetMaxHeight }, Platform.OS === 'android' && { marginBottom: keyboardHeight }]}>
             <View style={styles.headingRow}>
               <Text style={styles.heading}>Select a Person</Text>
               <TouchableOpacity onPress={() => setOpen(false)}>
@@ -98,7 +109,7 @@ export default function PersonSelect({ people, value, onChange, placeholder = 'S
               )}
             />
           </View>
-        </KeyboardAvoidingView>
+        </Backdrop>
       </Modal>
     </>
   );
@@ -118,7 +129,7 @@ const styles = StyleSheet.create({
   fieldText: { flex: 1, fontSize: 15, color: '#111827', marginRight: 8 },
   fieldPlaceholder: { flex: 1, fontSize: 15, color: '#9ca3af', marginRight: 8 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, maxHeight: '75%' },
+  sheet: { backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20 },
   headingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   heading: { fontSize: 18, fontWeight: '700', color: '#111827' },
   searchBox: {

@@ -40,15 +40,16 @@ function formatDisplayDate(dateKey) {
 // existing punch-photo flow (PunchPhotoCamera, camera-only): this one offers
 // BOTH a camera capture and a gallery/file pick, and the photo itself is
 // optional at submit time either way.
-export default function ReportLeaveTab({ empId }) {
-  const [leaveDate, setLeaveDate] = useState(null);
+export default function ReportLeaveTab({ empId, initialDraft, onSaveResume, onClearResume }) {
+  const [leaveDate, setLeaveDate] = useState(initialDraft?.leaveDate ?? null);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [leaveType, setLeaveType] = useState(null);
-  const [remarks, setRemarks] = useState('');
-  const [photoUri, setPhotoUri] = useState(null);
+  const [leaveType, setLeaveType] = useState(initialDraft?.leaveType ?? null);
+  const [remarks, setRemarks] = useState(initialDraft?.remarks ?? '');
+  const [photoUri, setPhotoUri] = useState(initialDraft?.photoUri ?? null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const restored = !!initialDraft;
 
   function resetForm() {
     setLeaveDate(null);
@@ -68,13 +69,20 @@ export default function ReportLeaveTab({ empId }) {
     setLeaveDate(toDateKey(selectedDate));
   }
 
+  // Snapshot for pickerRecovery - see utils/pickerRecovery.js.
+  function snapshot() {
+    onSaveResume?.({ leaveDate, leaveType, remarks, photoUri });
+  }
+
   async function handleTakePhoto() {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Camera access is required to take a photo.');
       return;
     }
+    snapshot();
     const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+    onClearResume?.();
     if (!result.canceled && result.assets?.[0]) {
       setPhotoUri(result.assets[0].uri);
     }
@@ -86,7 +94,9 @@ export default function ReportLeaveTab({ empId }) {
       Alert.alert('Photo library access is required to choose a photo.');
       return;
     }
+    snapshot();
     const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.8, mediaTypes: ['images'] });
+    onClearResume?.();
     if (!result.canceled && result.assets?.[0]) {
       setPhotoUri(result.assets[0].uri);
     }
@@ -106,6 +116,7 @@ export default function ReportLeaveTab({ empId }) {
 
     setSubmitting(true);
     setError(null);
+    snapshot();
     try {
       await submitLeaveReport({
         empId,
@@ -120,6 +131,7 @@ export default function ReportLeaveTab({ empId }) {
       setError(err.message);
     } finally {
       setSubmitting(false);
+      onClearResume?.();
     }
   }
 
@@ -129,6 +141,13 @@ export default function ReportLeaveTab({ empId }) {
         <Ionicons name="calendar-outline" size={18} color="#111827" />
         <Text style={styles.heading}>Report Leave</Text>
       </View>
+
+      {restored && (
+        <View style={styles.restoredRow}>
+          <Ionicons name="refresh-circle-outline" size={16} color="#2563eb" />
+          <Text style={styles.restoredText}>The app restarted while the camera/gallery was open. Your entries were restored - check them and submit.</Text>
+        </View>
+      )}
 
       <Text style={styles.label}>Date</Text>
       <TouchableOpacity style={styles.dateButton} onPress={() => setShowDatePicker(true)}>
@@ -264,6 +283,8 @@ const styles = StyleSheet.create({
   photoPreview: { width: '100%', height: 180, borderRadius: 8, backgroundColor: '#f3f4f6' },
   removePhotoButton: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   removePhotoText: { color: '#dc2626', fontSize: 13, fontWeight: '600' },
+  restoredRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: '#eff6ff', borderRadius: 8, padding: 10, marginBottom: 4 },
+  restoredText: { flex: 1, fontSize: 12, color: '#1d4ed8' },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   successRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   error: { color: '#dc2626', fontSize: 13 },

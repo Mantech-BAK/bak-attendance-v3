@@ -33,6 +33,8 @@ import RejectReasonModal from '../components/RejectReasonModal';
 import OutRemarkModal from '../components/OutRemarkModal';
 import PunchPhotoUploadModal from '../components/PunchPhotoUploadModal';
 import EditApprovalTaskModal from '../components/EditApprovalTaskModal';
+import * as ImagePicker from 'expo-image-picker';
+import { saveResumeState, clearResumeState, takeResumeState } from '../utils/pickerRecovery';
 import {
   identifyPunch,
   submitPunch,
@@ -145,6 +147,10 @@ export default function PunchScreen() {
   // so the card's photo status updates immediately on success.
   const [photoUploadTarget, setPhotoUploadTarget] = useState(null);
 
+  // Report Leave draft restored after Android killed the app while a picker
+  // was open - see utils/pickerRecovery.js. Set before switching to the tab.
+  const [leaveDraft, setLeaveDraft] = useState(null);
+
   function handleAddPhoto(task, role, targetEmpId, refreshSetter) {
     const punchId = role === 'in' ? task.in_punch_id : task.out_punch_id;
     setPhotoUploadTarget({
@@ -170,6 +176,8 @@ export default function PunchScreen() {
   const tabs = isSupervisor ? SUPERVISOR_TABS : EMPLOYEE_TABS;
 
   function resetToIdle() {
+    clearResumeState();
+    setLeaveDraft(null);
     setEmployee(null);
     setActiveTab('punch');
     setSelfTasks([]);
@@ -346,6 +354,30 @@ export default function PunchScreen() {
     setTeamOpenTaskId(status.open_task_id);
     setTeamOpenProjectCode(status.open_project_code);
   }
+
+  // One-time restore on launch (2026-09-24): if a snapshot was left by the
+  // Report Leave tab just before a picker opened / a submit started, put the
+  // identified employee, the tab and the form entries back, and recover the
+  // picked photo via the library's pending-result call.
+  useEffect(() => {
+    const resume = takeResumeState();
+    if (!resume?.employee) return;
+    (async () => {
+      await applySelfIdentifyResult(resume.employee);
+      let photoUri = resume.draft?.photoUri ?? null;
+      try {
+        const pending = await ImagePicker.getPendingResultAsync();
+        if (pending && !pending.canceled && pending.assets?.[0]?.uri) {
+          photoUri = pending.assets[0].uri;
+        }
+      } catch {
+        // No pending picker result - keep whatever photo the draft had.
+      }
+      setLeaveDraft({ ...(resume.draft || {}), photoUri });
+      setActiveTab('report-leave');
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleIdentifySubmit({ empId, loginCode }) {
     if (identifyMode === 'team') {
@@ -634,7 +666,15 @@ export default function PunchScreen() {
     }
 
     if (activeTab === 'report-leave') {
-      return <ReportLeaveTab empId={employee.emp_id} />;
+      return (
+        <ReportLeaveTab
+          key={leaveDraft ? 'restored' : 'fresh'}
+          empId={employee.emp_id}
+          initialDraft={leaveDraft}
+          onSaveResume={(draft) => saveResumeState({ employee, draft })}
+          onClearResume={clearResumeState}
+        />
+      );
     }
 
     if (activeTab === 'punch-history') {
