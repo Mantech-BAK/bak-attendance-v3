@@ -215,7 +215,7 @@ export function ApprovalsPage() {
   return (
     <div className="flex h-[calc(100vh-5rem)] min-h-[640px] flex-col">
       <div className="shrink-0">
-      <PageHeader title="Approvals" subtitle="Punches and overtime awaiting review, company-wide." />
+      <PageHeader compact title="Approvals" subtitle="Punches and overtime awaiting review, company-wide." />
       </div>
 
       {error && (
@@ -224,10 +224,9 @@ export function ApprovalsPage() {
         </div>
       )}
 
-      {/* Sticky (2026-09-24): filters scroll away; each section heading (with its count) pins to the top while its rows scroll beneath. */}
-      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-      <Card className="mb-6 p-4">
-        <div className="mb-3 flex items-center gap-2">
+      {/* Sticky (2026-09-24): filters stay pinned; each section heading (with its count) pins to the top of the scrolling area while its rows scroll beneath. z-20 keeps filter dropdowns above the headings. */}
+      <Card className="relative z-20 mb-3 shrink-0 p-3">
+        <div className="mb-2 flex items-center gap-2">
           <Filter className="h-4 w-4 text-slate-400" />
           <span className="text-sm font-medium text-slate-700">Filters</span>
           {hasFilters && (
@@ -236,7 +235,7 @@ export function ApprovalsPage() {
             </button>
           )}
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="flex flex-wrap items-end gap-3 [&>*]:w-44">
           <DateRangeFilter id="approvals-date-filter" value={dateRange} onChange={setDateRange} />
           <SearchableSelect
             value={projectFilter}
@@ -271,6 +270,7 @@ export function ApprovalsPage() {
         </div>
       </Card>
 
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
       <div className="space-y-8">
         <div>
           <div className="sticky top-0 z-10 mb-4 flex items-center gap-2 bg-slate-50 py-2">

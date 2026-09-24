@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 export function DateRangeFilter({ id, value, onChange }: { id: string; value: DateRange; onChange: (r: DateRange) => void }) {
   const isSingleDay = value.preset === null && value.start === value.end;
   return (
-    <div className="flex flex-col gap-1.5 sm:col-span-2">
+    <div className="flex flex-col gap-1.5 !w-auto">
       <label htmlFor={id} className="text-sm font-medium text-slate-700">Date</label>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative">

@@ -249,7 +249,7 @@ export function TasksPage() {
   return (
     <div className="lg:flex lg:h-[calc(100vh-5rem)] lg:min-h-[640px] lg:flex-col">
       <div className="shrink-0">
-      <PageHeader title="Tasks" subtitle="Assign and track work across projects" />
+      <PageHeader compact title="Tasks" subtitle="Assign and track work across projects" />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:min-h-0 lg:flex-1 lg:grid-cols-3">
@@ -369,13 +369,13 @@ export function TasksPage() {
         </div>
 
         <div className="lg:col-span-2 lg:flex lg:min-h-0 lg:flex-col">
-          <div className="mb-4 flex shrink-0 items-center gap-2">
+          <div className="mb-2 flex shrink-0 items-center gap-2">
             <ClipboardList className="h-5 w-5 text-slate-400" />
             <h2 className="text-base font-semibold text-slate-900">All Tasks</h2>
             <Badge variant="neutral">{filtered.length}</Badge>
           </div>
 
-          <div className="mb-4 flex shrink-0 gap-1 rounded-lg bg-slate-100 p-1">
+          <div className="mb-3 flex shrink-0 gap-1 rounded-lg bg-slate-100 p-1">
             {TABS.map((tab) => (
               <button
                 key={tab.key}
@@ -390,19 +390,26 @@ export function TasksPage() {
             ))}
           </div>
 
-          {/* Sticky (2026-09-24): "All Tasks (n)" heading and the status tabs above stay pinned; filters, export and the cards below scroll. */}
-          <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-          <Card className="mb-4 p-4">
-            <div className="mb-3 flex items-center gap-2">
+          {/* Sticky (2026-09-24): heading, status tabs and filters stay pinned; only the cards below scroll. z-20 keeps filter dropdowns above the list. */}
+          <Card className="relative z-20 mb-3 shrink-0 p-3">
+            <div className="mb-2 flex items-center gap-2">
               <Filter className="h-4 w-4 text-slate-400" />
               <span className="text-sm font-medium text-slate-700">Filters</span>
               {hasFilters && (
-                <button onClick={clearFilters} className="ml-auto flex items-center gap-1 text-xs font-medium text-slate-500 transition hover:text-rose-600">
+                <button onClick={clearFilters} className="flex items-center gap-1 text-xs font-medium text-slate-500 transition hover:text-rose-600">
                   <X className="h-3 w-3" /> Clear all
                 </button>
               )}
+              <Button variant="secondary" size="sm" onClick={handleExport} disabled={exporting} className="ml-auto">
+                {exporting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Exporting…</>) : (<><Download className="h-4 w-4" /> Export All Tasks to Excel</>)}
+              </Button>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {exportError && (
+              <div className="mb-2 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+                <XCircle className="h-4 w-4 shrink-0" />{exportError}
+              </div>
+            )}
+            <div className="flex flex-wrap items-end gap-3 [&>*]:w-44">
               <DateRangeFilter id="task-date-filter" value={dateRange} onChange={setDateRange} />
               <SearchableSelect
                 value={projectFilter}
@@ -443,19 +450,7 @@ export function TasksPage() {
             </div>
           </Card>
 
-          <Card className="mb-4 p-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <Button variant="secondary" onClick={handleExport} disabled={exporting}>
-                {exporting ? (<><Loader2 className="h-4 w-4 animate-spin" /> Exporting…</>) : (<><Download className="h-4 w-4" /> Export All Tasks to Excel</>)}
-              </Button>
-            </div>
-            {exportError && (
-              <div className="mt-3 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
-                <XCircle className="h-4 w-4 shrink-0" />{exportError}
-              </div>
-            )}
-          </Card>
-
+          <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
           {filtered.length === 0 ? (
             <Card className="p-6">
               <EmptyState icon={<ClipboardList className="h-6 w-6" />} title="No tasks found" message="Try adjusting the filters above, or create a task using the form on the left." />

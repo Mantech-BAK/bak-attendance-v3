@@ -126,6 +126,7 @@ export function PunchesPage() {
     <div className="flex h-[calc(100vh-5rem)] min-h-[640px] flex-col">
       <div className="shrink-0">
       <PageHeader
+        compact
         title="Punches"
         subtitle="Review time and attendance entries"
         action={
@@ -166,25 +167,24 @@ export function PunchesPage() {
         }}
       />
 
-      <div className="mb-6 grid shrink-0 grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card className="p-5">
+      <div className="mb-3 grid shrink-0 grid-cols-3 gap-3">
+        <Card className="px-4 py-2.5">
           <p className="text-sm font-medium text-slate-500">Filtered Entries</p>
-          <p className="mt-1 text-2xl font-bold text-slate-900">{filtered.length}</p>
+          <p className="text-xl font-bold text-slate-900">{filtered.length}</p>
         </Card>
-        <Card className="p-5">
+        <Card className="px-4 py-2.5">
           <p className="text-sm font-medium text-slate-500">Pending Approval</p>
-          <p className="mt-1 text-2xl font-bold text-amber-600">{pendingCount}</p>
+          <p className="text-xl font-bold text-amber-600">{pendingCount}</p>
         </Card>
-        <Card className="p-5">
+        <Card className="px-4 py-2.5">
           <p className="text-sm font-medium text-slate-500">Approved</p>
-          <p className="mt-1 text-2xl font-bold text-emerald-600">{approvedCount}</p>
+          <p className="text-xl font-bold text-emerald-600">{approvedCount}</p>
         </Card>
       </div>
 
-      {/* Sticky (2026-09-24): counters above stay pinned; everything below (filters, then the table with its sticky header) is the one scroll area. */}
-      <div className="min-h-0 flex-1 overflow-auto">
-      <Card className="mb-6 p-4">
-        <div className="mb-3 flex items-center gap-2">
+      {/* Sticky (2026-09-24): counters and filters stay pinned above; only the table below scrolls, with its header pinned to the top of that area. z-20 keeps filter dropdowns above the sticky header. */}
+      <Card className="relative z-20 mb-3 shrink-0 p-3">
+        <div className="mb-2 flex items-center gap-2">
           <Filter className="h-4 w-4 text-slate-400" />
           <span className="text-sm font-medium text-slate-700">Filters</span>
           {hasFilters && (
@@ -193,7 +193,7 @@ export function PunchesPage() {
             </button>
           )}
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="flex flex-wrap items-end gap-3 [&>*]:w-44">
           <DateRangeFilter id="date-filter" value={dateRange} onChange={setDateRange} />
           <SearchableSelect
             value={projectFilter}
@@ -234,6 +234,7 @@ export function PunchesPage() {
         </div>
       </Card>
 
+      <div className="min-h-0 flex-1 overflow-auto">
       {filtered.length === 0 ? (
         <Card className="p-6">
           <EmptyState icon={<Clock className="h-6 w-6" />} title="No punches match your filters" message="Try adjusting or clearing the filters above." />
