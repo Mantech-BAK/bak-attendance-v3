@@ -9,12 +9,16 @@ import { SearchableSelect } from '@/components/SearchableSelect';
 import { BulkUploadTasksModal } from '@/components/BulkUploadTasksModal';
 import { EditTaskModal } from '@/components/EditTaskModal';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
-import { todayRange, isDefaultRange, inRange, dateKeyInRiyadh, type DateRange } from '@/lib/dateRange';
-import { formatDate, initials, cn } from '@/lib/utils';
+import { todayRange, isDefaultRange, inRange, dateKeyInBahrain, type DateRange } from '@/lib/dateRange';
+import { formatPlainDate, initials, cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 
+// Bahrain "today" (2026-09-28) — was new Date().toISOString().slice(0,10),
+// a UTC calendar date that lags Bahrain's real day by up to 3 hours right
+// after Bahrain midnight. Gates whether the Indoor/Outdoor question is even
+// asked at task creation, so this genuinely needs to be the correct day.
 function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
+  return dateKeyInBahrain(new Date());
 }
 
 type FormState = {
@@ -483,7 +487,7 @@ export function TasksPage() {
                           <Field label="Project">
                             {t.project_code ? `${t.project_code}${t.project_name ? ` — ${t.project_name}` : ''}` : 'No project'}
                           </Field>
-                          <Field label="Task Date">{formatDate(t.task_date)}</Field>
+                          <Field label="Task Date">{formatPlainDate(t.task_date)}</Field>
                           <Field label="Shift Type">{t.shift_type === 'night' ? 'Night' : 'Regular'}</Field>
                         </div>
 

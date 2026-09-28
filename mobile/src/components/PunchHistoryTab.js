@@ -1,5 +1,6 @@
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { formatBahrainDateTime } from '../utils/bahrainTime';
 
 const STATUS_COLORS = {
   approved: { bg: '#dcfce7', text: '#15803d', icon: 'checkmark-circle' },
@@ -63,7 +64,7 @@ export default function PunchHistoryTab({ history, loading, viewerEmpId, heading
                 <Text style={styles.name}>{isOwn ? 'You' : item.employee_name}</Text>
                 <Text style={styles.meta}>
                   {item.task_display_id ? `${item.task_display_id} — ` : ''}
-                  {item.project_name || item.project_code || 'No project'} · Punched {new Date(item.punch_time).toLocaleString()}
+                  {item.project_name || item.project_code || 'No project'} · Punched {formatBahrainDateTime(item.punch_time)}
                 </Text>
                 <Text style={styles.meta}>
                   {item.entry_method === 'self' ? 'Self punch' : `Entered by ${item.entered_by}`}

@@ -1,13 +1,25 @@
+import { BAHRAIN_TIME_ZONE } from './timezone';
+
 export function cn(...classes: (string | false | null | undefined)[]): string {
   return classes.filter(Boolean).join(' ');
 }
 
+// Every formatter below is pinned to BAHRAIN_TIME_ZONE explicitly (2026-09-28)
+// — none of them may ever fall back to the browser's own timezone. A real
+// instant (a timestamp with a time-of-day, e.g. punch_time, created_at,
+// declared_at) is safe to hand to these: `new Date(value)` + an explicit
+// timeZone option always resolves to the correct Bahrain wall-clock reading
+// for that instant, regardless of what timezone the browser itself is set
+// to. A bare 'YYYY-MM-DD' calendar date (work_date, task_date, leave_date,
+// Ramzan/Summer Ban start_date/end_date) must NOT go through these — see
+// formatPlainDate below for why.
 export function formatDate(value: string | null): string {
   if (!value) return '—';
   return new Date(value).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    timeZone: BAHRAIN_TIME_ZONE,
   });
 }
 
@@ -19,6 +31,7 @@ export function formatDateTime(value: string | null): string {
     hour12: true,
     hour: 'numeric',
     minute: '2-digit',
+    timeZone: BAHRAIN_TIME_ZONE,
   });
 }
 
@@ -28,7 +41,26 @@ export function formatTime(value: string | null): string {
     hour12: true,
     hour: 'numeric',
     minute: '2-digit',
+    timeZone: BAHRAIN_TIME_ZONE,
   });
+}
+
+const PLAIN_DATE_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// For a bare 'YYYY-MM-DD' calendar date — work_date, task_date, leave_date,
+// Ramzan/Summer Ban start_date/end_date (2026-09-28). These have no time-of-
+// day at all, so `new Date(value)` + any timezone conversion (even a
+// correctly Bahrain-pinned one) is the wrong tool: `new Date('2026-09-24')`
+// parses as 2026-09-24T00:00:00 UTC, and re-displaying that instant in any
+// negative-UTC-offset browser timezone rolls it back to Sep 23. This never
+// constructs a Date or does any timezone math at all — it just reads the
+// three numbers out of the string directly, so no timezone, Bahrain or
+// otherwise, can ever shift it off its stored day.
+export function formatPlainDate(value: string | null): string {
+  if (!value) return '—';
+  const [y, m, d] = value.slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return '—';
+  return `${PLAIN_DATE_MONTHS[m - 1]} ${d}, ${y}`;
 }
 
 // "X hour(s) Y minute(s)" (2026-09-15) — replaces every decimal "X.Xh"

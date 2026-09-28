@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
-import { todayRange, isDefaultRange, inRange, dateKeyInRiyadh, type DateRange } from '@/lib/dateRange';
+import { todayRange, isDefaultRange, inRange, dateKeyInBahrain, type DateRange } from '@/lib/dateRange';
 import { Clock, Timer, CheckCircle2, XCircle, Loader2, Inbox, Calendar, Filter, X, Pencil } from 'lucide-react';
 import {
   fetchAllPendingPunches,
@@ -19,7 +19,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { Card, Button, Badge, EmptyState, Spinner, Modal, Textarea, Select } from '@/components/ui';
 import { SearchableSelect } from '@/components/SearchableSelect';
 import { AddPunchModal } from '@/components/AddPunchModal';
-import { formatDateTime, formatDate, formatDurationHM } from '@/lib/utils';
+import { formatDateTime, formatPlainDate, formatDurationHM } from '@/lib/utils';
 
 // Item 3 — company-wide approval, straight from the backoffice, using the
 // exact same endpoints the mobile supervisor Review Attendance tab already
@@ -100,7 +100,7 @@ export function ApprovalsPage() {
       if (projectFilter !== 'all' && p.project_code !== projectFilter) return false;
       if (employeeFilter !== 'all' && p.emp_id !== employeeFilter) return false;
       if (departmentFilter !== 'all' && employeeDeptMap.get(p.emp_id) !== departmentFilter) return false;
-      if (!inRange(dateKeyInRiyadh(p.punch_time), dateRange)) return false;
+      if (!inRange(dateKeyInBahrain(p.punch_time), dateRange)) return false;
       return true;
     });
   }, [punches, projectFilter, employeeFilter, departmentFilter, dateRange, employeeDeptMap]);
@@ -370,7 +370,7 @@ export function ApprovalsPage() {
                   <div>
                     <p className="text-sm font-medium text-slate-900">{o.employee_name}</p>
                     <p className="text-xs text-slate-500">
-                      {formatDate(o.work_date)} · worked {formatDurationHM(o.worked_minutes)}, threshold {formatDurationHM(o.threshold_minutes)} — {formatDurationHM(o.ot_minutes)} OT
+                      {formatPlainDate(o.work_date)} · worked {formatDurationHM(o.worked_minutes)}, threshold {formatDurationHM(o.threshold_minutes)} — {formatDurationHM(o.ot_minutes)} OT
                     </p>
                   </div>
                   <div className="flex gap-2">

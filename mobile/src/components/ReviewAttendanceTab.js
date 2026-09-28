@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import OvertimeApprovalsCard from './OvertimeApprovalsCard';
+import { formatBahrainTime } from '../utils/bahrainTime';
 
 // Create Task and Scan Team Member used to be buttons at the bottom of this
 // panel — they're now their own separate tabs, so this is just the pending-
@@ -60,7 +61,7 @@ export default function ReviewAttendanceTab({
                 <Text style={styles.approvalName}>{item.employee_name}</Text>
                 <Text style={styles.approvalMeta}>
                   {item.task_display_id ? `${item.task_display_id} — ` : ''}
-                  {item.project_code || 'No project'} · {new Date(item.punch_time).toLocaleTimeString()}
+                  {item.project_code || 'No project'} · {formatBahrainTime(item.punch_time)}
                 </Text>
               </View>
               {item.is_in_punch === false && (

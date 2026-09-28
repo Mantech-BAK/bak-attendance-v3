@@ -4,7 +4,7 @@ import { fetchLeaveReports } from '@/lib/api';
 import type { LeaveReport } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Spinner, EmptyState, Select, FIELD_LABEL } from '@/components/ui';
-import { formatDate, formatDateTime, initials } from '@/lib/utils';
+import { formatPlainDate, formatDateTime, initials } from '@/lib/utils';
 
 const LEAVE_TYPES = ['Sick Leave', 'Annual Leave', 'Emergency Leave', 'Unpaid Leave', 'Compassionate Leave'];
 
@@ -117,7 +117,7 @@ export function ReportedLeavesPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4"><p className="text-sm text-slate-700">{formatDate(l.leave_date)}</p></td>
+                    <td className="px-6 py-4"><p className="text-sm text-slate-700">{formatPlainDate(l.leave_date)}</p></td>
                     <td className="px-6 py-4"><Badge variant={LEAVE_TYPE_VARIANT[l.leave_type] ?? 'neutral'}>{l.leave_type}</Badge></td>
                     <td className="px-6 py-4 max-w-xs">
                       {l.remarks ? (

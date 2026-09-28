@@ -37,7 +37,7 @@ const COLUMNS = [
 // 6am, looking like uniform placeholder data. timeZone must stay explicit
 // (never left to toLocaleTimeString's host-timezone default), just pinned
 // to the business's real zone instead of UTC.
-const REPORT_TIME_ZONE = 'Asia/Riyadh';
+const REPORT_TIME_ZONE = 'Asia/Bahrain'; // same +3, no DST as Asia/Riyadh (2026-09-28)
 
 function formatTime(value) {
   if (!value) return '';

@@ -2,7 +2,7 @@ import { ClipboardList } from 'lucide-react';
 import type { Employee, Task } from '@/lib/api';
 import { Modal, Badge, EmptyState } from '@/components/ui';
 import { punchStatus } from '@/pages/TasksPage';
-import { formatDate } from '@/lib/utils';
+import { formatPlainDate } from '@/lib/utils';
 
 // Opened from either Employees page view (List row or Bar card click) to
 // show one employee's actual tasks for the selected date, colored by the
@@ -22,7 +22,7 @@ export function EmployeeTasksModal({
   onClose: () => void;
 }) {
   return (
-    <Modal open={employee !== null} onClose={onClose} title={employee ? `${employee.name}'s Tasks — ${formatDate(date)}` : 'Tasks'}>
+    <Modal open={employee !== null} onClose={onClose} title={employee ? `${employee.name}'s Tasks — ${formatPlainDate(date)}` : 'Tasks'}>
       {tasks.length === 0 ? (
         <EmptyState icon={<ClipboardList className="h-6 w-6" />} title="No tasks" message="No tasks assigned to this employee on this date." />
       ) : (

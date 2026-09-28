@@ -6,38 +6,45 @@ import { Modal, Button, Select, Input, Textarea, FIELD_LABEL } from '@/component
 import { SearchableSelect } from '@/components/SearchableSelect';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime, googleMapsUrl } from '@/lib/utils';
+import { BAHRAIN_UTC_OFFSET_MINUTES } from '@/lib/timezone';
 
-// Converts the date/time input's local wall-clock values (as the admin's
-// own browser understands "local") into a correct absolute-instant ISO
-// string — building a Date from local components and letting toISOString()
-// do the UTC conversion, rather than gluing the digits straight onto a "Z"
-// suffix (which silently mislabels local time as UTC and shifts every
-// saved punch by the browser's UTC offset).
+const BAHRAIN_OFFSET_MS = BAHRAIN_UTC_OFFSET_MINUTES * 60000;
+
+// Converts the date/time input's values, always interpreted as BAHRAIN
+// wall-clock time — never the admin's own browser timezone (2026-09-28,
+// fixing a real correctness bug: this form writes real punch instants, and
+// it used to build them from local Date components, so an admin whose
+// computer wasn't set to Bahrain time would silently save every punch at
+// the wrong real-world instant). Built as plain UTC-offset arithmetic
+// (interpret as UTC, then subtract Bahrain's fixed +3h) rather than any
+// Intl/timeZone machinery — correct specifically because Bahrain has no DST,
+// so this exact offset never changes, and it makes the result depend on
+// nothing but these two fields.
 function localDateTimeToIso(date: string, time: string): string {
   const [hour, minute] = time.split(':').map(Number);
   const [year, month, day] = date.split('-').map(Number);
-  return new Date(year, month - 1, day, hour, minute, 0, 0).toISOString();
+  return new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0) - BAHRAIN_OFFSET_MS).toISOString();
 }
 
-// Pre-fills the form with "now" (admin's own local wall-clock) as a
-// convenience default — they can still change either field freely before
-// submitting. The backend itself never defaults to "now" on its own; it
-// always receives whatever explicit date/time the form actually submits.
+// Pre-fills the form with "now" in BAHRAIN wall-clock time (2026-09-28) —
+// they can still change either field freely before submitting. The backend
+// itself never defaults to "now" on its own; it always receives whatever
+// explicit date/time the form actually submits.
 function nowDateAndTime(): { date: string; time: string } {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return {
-    date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
-    time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
-  };
+  return isoToLocalDateTime(new Date().toISOString());
 }
 
+// The reverse of localDateTimeToIso — converts a stored UTC instant back to
+// the BAHRAIN wall-clock date/time it represents, for pre-filling the Edit
+// Punch form. Reads UTC getters on a time shifted by the same fixed offset,
+// never the browser's own local Date getters, so this is correct regardless
+// of the admin's own timezone.
 function isoToLocalDateTime(iso: string): { date: string; time: string } {
-  const d = new Date(iso);
+  const d = new Date(new Date(iso).getTime() + BAHRAIN_OFFSET_MS);
   const pad = (n: number) => String(n).padStart(2, '0');
   return {
-    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+    date: `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`,
+    time: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
   };
 }
 
@@ -382,8 +389,8 @@ export function AddPunchModal({
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">
-            <Input value={date} onChange={setDate} label="Date" id="add-punch-date" type="date" />
-            <Input value={time} onChange={setTime} label="Time" id="add-punch-time" type="time" lang="en-US" />
+            <Input value={date} onChange={setDate} label="Date (Bahrain time)" id="add-punch-date" type="date" />
+            <Input value={time} onChange={setTime} label="Time (Bahrain time)" id="add-punch-time" type="time" lang="en-US" />
           </div>
         )}
 

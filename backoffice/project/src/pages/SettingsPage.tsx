@@ -26,12 +26,16 @@ import {
 import type { RamzanPeriod, SummerBanPeriod, Employee } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal, FIELD_LABEL } from '@/components/ui';
-import { formatDate, formatDurationHM } from '@/lib/utils';
+import { formatDate, formatPlainDate, formatDurationHM } from '@/lib/utils';
+import { dateKeyInBahrain } from '@/lib/dateRange';
 import { useAuth } from '@/lib/auth';
 
 const RESET_TABLES_LABEL = 'punches, tasks, exceptions, overtime approvals, and confirmation-sheet records';
 
-const TODAY = new Date().toISOString().slice(0, 10);
+// Bahrain "today" (2026-09-28) — was new Date().toISOString().slice(0,10),
+// a UTC calendar date. Gates the Daily Working Hours date lock and the
+// Ramzan/Summer Ban active/past status.
+const TODAY = dateKeyInBahrain(new Date());
 
 export function SettingsPage() {
   const { session } = useAuth();
@@ -463,7 +467,7 @@ export function SettingsPage() {
             <div className="flex flex-col gap-1.5">
               <span className={FIELD_LABEL}>Date</span>
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-500">
-                {formatDate(TODAY)} (locked)
+                {formatPlainDate(TODAY)} (locked)
               </div>
             </div>
 
@@ -683,11 +687,11 @@ export function SettingsPage() {
                 no separate cross-check needed. Storage and the actual
                 window comparison stay UTC internally, unchanged. */}
             <div className="grid grid-cols-2 gap-3">
-              <Input value={emergencyStart} onChange={setEmergencyStart} label="Start time (Asia/Riyadh)" id="emergency-start" type="time" lang="en-US" />
-              <Input value={emergencyEnd} onChange={setEmergencyEnd} label="End time (Asia/Riyadh)" id="emergency-end" type="time" lang="en-US" />
+              <Input value={emergencyStart} onChange={setEmergencyStart} label="Start time (Bahrain time)" id="emergency-start" type="time" lang="en-US" />
+              <Input value={emergencyEnd} onChange={setEmergencyEnd} label="End time (Bahrain time)" id="emergency-end" type="time" lang="en-US" />
             </div>
             <p className="text-xs text-slate-400">
-              Currently {emergencyStart}–{emergencyEnd} Asia/Riyadh time (crosses midnight if the end time is earlier than the start).
+              Currently {emergencyStart}–{emergencyEnd} Bahrain time (crosses midnight if the end time is earlier than the start).
             </p>
 
             {emergencyError && (
@@ -731,7 +735,7 @@ export function SettingsPage() {
                 <div key={p.id} className="flex items-center justify-between gap-4 p-5">
                   <div>
                     <p className="text-sm font-medium text-slate-900">
-                      {formatDate(p.start_date)} – {formatDate(p.end_date)}
+                      {formatPlainDate(p.start_date)} – {formatPlainDate(p.end_date)}
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
                       Declared by {declarer?.name ?? p.declared_by} · {formatDate(p.declared_at)}
@@ -796,7 +800,7 @@ export function SettingsPage() {
                 <div key={p.id} className="flex items-center justify-between gap-4 p-5">
                   <div>
                     <p className="text-sm font-medium text-slate-900">
-                      {formatDate(p.start_date)} – {formatDate(p.end_date)}
+                      {formatPlainDate(p.start_date)} – {formatPlainDate(p.end_date)}
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
                       Declared by {declarer?.name ?? p.declared_by} · {formatDate(p.declared_at)}
@@ -891,7 +895,7 @@ export function SettingsPage() {
         <p className="mb-4 text-sm text-slate-600">
           {deletingPeriod && (
             <>This permanently removes the{' '}
-              <span className="font-medium text-slate-900">{formatDate(deletingPeriod.start_date)} – {formatDate(deletingPeriod.end_date)}</span>
+              <span className="font-medium text-slate-900">{formatPlainDate(deletingPeriod.start_date)} – {formatPlainDate(deletingPeriod.end_date)}</span>
               {' '}period. Confirmation-sheet rows and overtime approvals already generated for dates inside it are not affected — only future
               report generation stops applying it. This cannot be undone.</>
           )}
@@ -947,7 +951,7 @@ export function SettingsPage() {
         <p className="mb-4 text-sm text-slate-600">
           {deletingSbPeriod && (
             <>This permanently removes the{' '}
-              <span className="font-medium text-slate-900">{formatDate(deletingSbPeriod.start_date)} – {formatDate(deletingSbPeriod.end_date)}</span>
+              <span className="font-medium text-slate-900">{formatPlainDate(deletingSbPeriod.start_date)} – {formatPlainDate(deletingSbPeriod.end_date)}</span>
               {' '}period. Confirmation-sheet rows already generated for dates inside it are not affected — only future
               report generation stops applying it. This cannot be undone.</>
           )}

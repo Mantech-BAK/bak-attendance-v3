@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { dateKeyInBahrain } from '@/lib/dateRange';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -22,11 +23,13 @@ export function MonthCalendar({
   selectedDate?: string | null;
   onDayPress?: (dateKey: string) => void;
 }) {
-  const today = new Date();
-  const [viewYear, setViewYear] = useState(today.getUTCFullYear());
-  const [viewMonth, setViewMonth] = useState(today.getUTCMonth());
-
-  const todayKey = dateKey(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  // Bahrain "today" (2026-09-28) — was today.getUTCFullYear/Month/Date, a
+  // UTC calendar date, so during 00:00-03:00 Bahrain time (still the
+  // previous UTC day) the calendar would highlight yesterday as "today".
+  const todayKey = dateKeyInBahrain(new Date());
+  const [todayYear, todayMonthNum] = todayKey.split('-').map(Number);
+  const [viewYear, setViewYear] = useState(todayYear);
+  const [viewMonth, setViewMonth] = useState(todayMonthNum - 1);
   const firstOfMonth = new Date(Date.UTC(viewYear, viewMonth, 1));
   const daysInMonth = new Date(Date.UTC(viewYear, viewMonth + 1, 0)).getUTCDate();
   const leadingBlanks = firstOfMonth.getUTCDay();

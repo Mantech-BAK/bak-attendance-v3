@@ -5,17 +5,26 @@ import type { Employee, Task, Project, AttendanceSession } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Button, Spinner, Input, EmptyState } from '@/components/ui';
 import { cn, initials, formatDateTime, formatDurationHM } from '@/lib/utils';
+import { dateKeyInBahrain } from '@/lib/dateRange';
+import { BAHRAIN_TIME_ZONE } from '@/lib/timezone';
 
+// Bahrain "today" (2026-09-28) — was new Date().toISOString().slice(0,10),
+// a UTC calendar date. Defaults all three of this page's date pickers
+// (Attendance, Confirmation Sheet, Export by Date).
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return dateKeyInBahrain(new Date());
 }
 
 // Dash-joined (not colon-joined) since colons aren't valid in Windows
-// filenames — this becomes part of the downloaded .xlsx's name.
+// filenames — this becomes part of the downloaded .xlsx's name. Bahrain
+// clock time (2026-09-28) — was the browser's own local clock via
+// getHours/getMinutes/getSeconds.
 function nowTimeStamp(): string {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: BAHRAIN_TIME_ZONE, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '00';
+  return `${get('hour')}-${get('minute')}-${get('second')}`;
 }
 
 type ReportData = {

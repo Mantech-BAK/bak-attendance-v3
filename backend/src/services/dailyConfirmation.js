@@ -38,7 +38,7 @@ const MIN_SHORTFALL_MINUTES = 3;
 // human-readable business text (e.g. "OT: 5:00 PM - 7:00 PM"), so it needs
 // the same timezone-aware formatting the rest of the sheet uses, not the
 // raw UTC instant.
-const REPORT_TIME_ZONE = 'Asia/Riyadh';
+const REPORT_TIME_ZONE = 'Asia/Bahrain'; // same +3, no DST as Asia/Riyadh (2026-09-28)
 
 function formatHours(minutes) {
   return Math.round((minutes / 60) * 100) / 100;

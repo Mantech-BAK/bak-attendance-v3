@@ -27,8 +27,15 @@ const uploadPhoto = multer({
   },
 });
 
+// leave_date::text (2026-09-28) — same fix already applied to
+// ot_approvals.work_date and tasks.task_date: a bare 'date' column comes
+// back from node-pg as a JS Date built from LOCAL SYSTEM midnight (not the
+// SQL session's own UTC pin, which only governs timestamp columns), so its
+// serialized value silently depends on the Node process's own OS timezone.
+// Casting to text here means the wire value is always exactly what's
+// stored, with no such ambiguity.
 const LEAVE_SELECT = `l.id, l.emp_id, e."EmpName" AS employee_name, g.designation_name AS employee_designation,
-       l.leave_date, l.leave_type, l.remarks, l.photo_path, l.photo_uploaded_at, l.reported_by, l.created_at
+       l.leave_date::text AS leave_date, l.leave_type, l.remarks, l.photo_path, l.photo_uploaded_at, l.reported_by, l.created_at
        FROM leave_reports l
        LEFT JOIN employees e ON l.emp_id = e."EmpId"
        LEFT JOIN designations g ON e."EmpDesigId" = g.designation_code`;

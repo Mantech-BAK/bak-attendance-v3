@@ -8,7 +8,7 @@ import { Card, Badge, Spinner, EmptyState, Select, Button, Modal } from '@/compo
 import { AddPunchModal } from '@/components/AddPunchModal';
 import { SearchableSelect } from '@/components/SearchableSelect';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
-import { todayRange, isDefaultRange, inRange, dateKeyInRiyadh, type DateRange } from '@/lib/dateRange';
+import { todayRange, isDefaultRange, inRange, dateKeyInBahrain, type DateRange } from '@/lib/dateRange';
 import { formatDateTime, initials, googleMapsUrl } from '@/lib/utils';
 
 export function PunchesPage() {
@@ -84,7 +84,7 @@ export function PunchesPage() {
         const empDept = employeeDeptMap.get(p.emp_id);
         if (empDept !== departmentFilter) return false;
       }
-      if (!inRange(dateKeyInRiyadh(p.punch_time), dateRange)) return false;
+      if (!inRange(dateKeyInBahrain(p.punch_time), dateRange)) return false;
       return true;
     });
 

@@ -14,22 +14,27 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import OptionSelect from './OptionSelect';
 import PunchPhotoCamera from './PunchPhotoCamera';
 import { submitLeaveReport } from '../api/client';
+import { bahrainDateKey, formatPlainDateKey } from '../utils/bahrainTime';
 
 const LEAVE_TYPES = ['Sick Leave', 'Annual Leave', 'Emergency Leave', 'Unpaid Leave', 'Compassionate Leave'];
 
+// Bahrain "today" (2026-09-28) — was device-local getFullYear/getMonth/
+// getDate, so the picker could open on the wrong day if the phone's own
+// timezone didn't match Bahrain's.
 function todayDateKey() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return bahrainDateKey(new Date());
 }
 
+// The day the employee actually tapped in the native picker — its `value`
+// is a Date representing local midnight of that day, so local getters are
+// the correct (and only) way to read back the same calendar day they saw;
+// this is a pure calendar-day pick with no instant/timezone concept, so it
+// deliberately does NOT go through Bahrain conversion (2026-09-28 audit).
 function toDateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-function formatDisplayDate(dateKey) {
-  const [y, m, d] = dateKey.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
-}
+const formatDisplayDate = formatPlainDateKey;
 
 // New mobile tab (2026-09-23), same underlying screen for both an employee
 // and a supervisor - self-reporting only, never on behalf of someone else

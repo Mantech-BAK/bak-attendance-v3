@@ -1,7 +1,9 @@
 // Default-to-today date scoping for the Punches / Tasks / Approvals pages
-// (2026-09-24). Every date here is a plain YYYY-MM-DD string in Asia/Riyadh —
-// BAK's real business-day zone, the same one the backend's dateKey() uses —
-// never the browser's own timezone or a raw UTC slice.
+// (2026-09-24). Every date here is a plain YYYY-MM-DD string in Bahrain time
+// (BAK's real business-day zone, the same one the backend's dateKey() uses)
+// — never the browser's own timezone or a raw UTC slice.
+import { BAHRAIN_TIME_ZONE } from './timezone';
+
 export type PresetKey = 'today' | '3d' | '7d' | '15d' | '1m' | '3m';
 
 export type DateRange = { start: string; end: string; preset: PresetKey | null };
@@ -15,13 +17,13 @@ export const PRESETS: { key: PresetKey; label: string }[] = [
   { key: '3m', label: '3 months' },
 ];
 
-export function dateKeyInRiyadh(value: Date | string): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' })
+export function dateKeyInBahrain(value: Date | string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: BAHRAIN_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' })
     .format(new Date(value));
 }
 
 export function todayKey(): string {
-  return dateKeyInRiyadh(new Date());
+  return dateKeyInBahrain(new Date());
 }
 
 function shiftDays(key: string, days: number): string {

@@ -9,9 +9,12 @@ import { EmployeeTasksModal } from '@/components/EmployeeTasksModal';
 import { punchStatus } from '@/pages/TasksPage';
 import { useRouter } from '@/lib/router';
 import { initials, cn } from '@/lib/utils';
+import { dateKeyInBahrain } from '@/lib/dateRange';
 
+// Bahrain "today" (2026-09-28) — was new Date().toISOString().slice(0,10),
+// a UTC calendar date, for the "Tasks for date" filter default.
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return dateKeyInBahrain(new Date());
 }
 
 type TaskCounts = { total: number; completed: number; pending: number; notStarted: number };

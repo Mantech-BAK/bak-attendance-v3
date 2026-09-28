@@ -93,7 +93,7 @@ async function getDuplicatePunchWindowMinutes() {
 // thinks in local wall-clock time, not UTC-instant. Storage and the actual
 // window comparison stay UTC (see isWithinEmergencyWindow below) — only
 // entry/display convert.
-const BUSINESS_TIME_ZONE = 'Asia/Riyadh';
+const BUSINESS_TIME_ZONE = 'Asia/Bahrain'; // same +3, no DST as Asia/Riyadh (2026-09-28)
 
 // The business timezone's UTC offset, in minutes, at the given instant
 // (positive = ahead of UTC) — derived via Intl rather than hardcoded +3, so

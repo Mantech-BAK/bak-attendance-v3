@@ -11,7 +11,7 @@ const { runDailyOtJob } = require('../services/otApprovals');
 // used to mean UTC 00:30 = 03:30 Bahrain, evaluating a day-window shifted
 // ~3 hours from the real Bahrain business day).
 const SCHEDULE = '30 0 * * *';
-const SCHEDULE_TIMEZONE = 'Asia/Riyadh';
+const SCHEDULE_TIMEZONE = 'Asia/Bahrain'; // same +3, no DST as Asia/Riyadh (2026-09-28)
 
 function startOtApprovalCron() {
   cron.schedule(SCHEDULE, async () => {

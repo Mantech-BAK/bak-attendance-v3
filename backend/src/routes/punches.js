@@ -136,7 +136,7 @@ router.get('/export', requireBackofficeAuth, async (req, res, next) => {
     const result = await pool.query(
       `SELECT p.id, p.emp_id, e."EmpName" AS employee_name, p.project_code, pr.project_name,
               t.display_id AS task_display_id, t.description AS task_description,
-              to_char((p.punch_time AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Riyadh', 'YYYY-MM-DD HH24:MI:SS') AS punch_time_local,
+              to_char((p.punch_time AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bahrain', 'YYYY-MM-DD HH24:MI:SS') AS punch_time_local,
               p.entry_method, p.approval_status, p.rejection_reason, p.out_remark, p.resolved_address
        FROM punches p
        LEFT JOIN employees e ON e."EmpId" = p.emp_id
@@ -155,7 +155,7 @@ router.get('/export', requireBackofficeAuth, async (req, res, next) => {
       { header: 'Project', key: 'project_name', width: 26 },
       { header: 'Task ID', key: 'task_display_id', width: 20 },
       { header: 'Task', key: 'task_description', width: 36 },
-      { header: 'Punch Time (Asia/Riyadh)', key: 'punch_time_local', width: 24 },
+      { header: 'Punch Time (Bahrain time)', key: 'punch_time_local', width: 24 },
       { header: 'Entry Method', key: 'entry_method', width: 16 },
       { header: 'Approval', key: 'approval_status', width: 12 },
       { header: 'Rejection Reason', key: 'rejection_reason', width: 28 },
@@ -619,7 +619,17 @@ router.post('/', async (req, res, next) => {
          (emp_id, project_code, task_id, punch_time, lat, lng, device_ref, entered_by, entry_method, approval_status, resolved_address, out_remark)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING ${PUNCH_SELECT_RETURNING}`,
-      [emp_id, target.project_code, target.task_id, punchTime, lat ?? null, lng ?? null, device_ref || null, enteredBy, entryMethod, approvalStatus, resolvedAddress, isClosingPunch ? trimmedOutRemark : null]
+      // .toISOString() (2026-09-28), not the raw Date object: node-pg
+      // serializes a bound Date PARAMETER using the Node PROCESS's own OS
+      // timezone (confirmed live — completely independent of db.js's own
+      // `SET timezone` session pin, which only affects how Postgres reads/
+      // casts values, not how the driver stringifies an outgoing Date). An
+      // explicit 'Z'-suffixed ISO string has no such ambiguity: Postgres
+      // resolves the real instant, then converts to the session's (UTC)
+      // timezone before writing the naive column — correct regardless of
+      // what OS timezone the Node process itself happens to be running
+      // under.
+      [emp_id, target.project_code, target.task_id, punchTime.toISOString(), lat ?? null, lng ?? null, device_ref || null, enteredBy, entryMethod, approvalStatus, resolvedAddress, isClosingPunch ? trimmedOutRemark : null]
     );
 
     if (target.task_id) {
@@ -809,7 +819,9 @@ router.post('/admin-correction', requireBackofficeAuth, async (req, res, next) =
          (emp_id, project_code, task_id, punch_time, lat, lng, entered_by, entry_method, approval_status, approved_by, approved_at, out_remark)
        VALUES ($1, $2, $3, $4, NULL, NULL, $5, 'admin_correction', 'approved', $5, now(), $6)
        RETURNING ${PUNCH_SELECT_RETURNING}`,
-      [emp_id, target.project_code, target.task_id, parsedPunchTime, enteredBy, isClosingPunch ? trimmedOutRemark : null]
+      // .toISOString() — see the same fix's own comment on the regular
+      // punch insert above for why a raw Date object parameter is unsafe.
+      [emp_id, target.project_code, target.task_id, parsedPunchTime.toISOString(), enteredBy, isClosingPunch ? trimmedOutRemark : null]
     );
 
     if (target.task_id) {

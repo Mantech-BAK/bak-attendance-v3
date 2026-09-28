@@ -19,16 +19,23 @@ import { PageHeader } from '@/components/PageHeader';
 import { Card, Badge, Spinner, EmptyState } from '@/components/ui';
 import { MonthCalendar } from '@/components/MonthCalendar';
 import { DonutChart } from '@/components/DonutChart';
-import { cn, formatDate, formatDateTime, initials, formatDurationHM, GRADE } from '@/lib/utils';
+import { cn, formatPlainDate, formatDateTime, initials, formatDurationHM, GRADE } from '@/lib/utils';
+import { dateKeyInBahrain } from '@/lib/dateRange';
 import { useRouter, type RouteName } from '@/lib/router';
 import { punchStatus } from './TasksPage';
 
+// Bahrain calendar-day bucketing (2026-09-28) — was
+// new Date(iso).toISOString().slice(0,10), a UTC day key. A punch made in
+// the first 3 hours of the Bahrain day (00:00-03:00, i.e. 21:00-00:00 UTC
+// the PREVIOUS day) used to get bucketed onto yesterday's UTC date here,
+// disagreeing with the backend's own Bahrain-day bucketing used everywhere
+// else (Confirmation Sheet, "today's tasks", etc).
 function dateKeyOf(iso: string): string {
-  return new Date(iso).toISOString().slice(0, 10);
+  return dateKeyInBahrain(iso);
 }
 
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+  return dateKeyInBahrain(new Date());
 }
 
 type Stats = {
@@ -130,11 +137,11 @@ export function DashboardPage() {
     <>
       <PageHeader
         title="Dashboard"
-        subtitle={`Showing ${formatDate(selectedDate)}${isToday ? ' (today)' : ''} — click any day on the calendar to view its own numbers.`}
+        subtitle={`Showing ${formatPlainDate(selectedDate)}${isToday ? ' (today)' : ''} — click any day on the calendar to view its own numbers.`}
       />
 
       <div className="mb-6 flex items-center gap-3">
-        <Badge variant={isToday ? 'accent' : 'info'}>{isToday ? 'Today' : formatDate(selectedDate)}</Badge>
+        <Badge variant={isToday ? 'accent' : 'info'}>{isToday ? 'Today' : formatPlainDate(selectedDate)}</Badge>
         {!isToday && (
           <button
             type="button"
