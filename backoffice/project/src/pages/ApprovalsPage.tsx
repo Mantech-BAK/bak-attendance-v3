@@ -9,12 +9,15 @@ import {
   fetchAllPendingOtApprovals,
   approveOtApprovalAdmin,
   rejectOtApprovalAdmin,
+  bulkApprovePunchesAdmin,
+  bulkApproveOtApprovalsAdmin,
   fetchProjects,
   fetchEmployees,
+  fetchTasks,
   fetchPunchById,
   ApiError,
 } from '@/lib/api';
-import type { PendingPunch, OtApproval, Project, Employee, Punch } from '@/lib/api';
+import type { PendingPunch, OtApproval, Project, Employee, Punch, Task, BulkApproveResult } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, Button, Badge, EmptyState, Spinner, Modal, Textarea, Select } from '@/components/ui';
 import { SearchableSelect } from '@/components/SearchableSelect';
@@ -35,8 +38,12 @@ export function ApprovalsPage() {
   const [otApprovals, setOtApprovals] = useState<OtApproval[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  // Only used to detect an odd (missing-closing-punch) count per task for the
+  // "Approve All" warning below (item 3) — never rendered directly here.
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [rejectTarget, setRejectTarget] = useState<RejectTarget>(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -68,16 +75,18 @@ export function ApprovalsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [p, o, prj, emp] = await Promise.all([
+      const [p, o, prj, emp, tsk] = await Promise.all([
         fetchAllPendingPunches(),
         fetchAllPendingOtApprovals(),
         fetchProjects(),
         fetchEmployees(),
+        fetchTasks(),
       ]);
       setPunches(p);
       setOtApprovals(o);
       setProjects(prj);
       setEmployees(emp);
+      setTasks(tsk);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load pending approvals.');
     } finally {
@@ -115,6 +124,52 @@ export function ApprovalsPage() {
   }, [otApprovals, employeeFilter, departmentFilter, dateRange, employeeDeptMap]);
 
   const hasFilters = !isDefaultRange(dateRange) || projectFilter !== 'all' || departmentFilter !== 'all' || employeeFilter !== 'all';
+
+  // task_id -> punch_count (rejected excluded, per Task's own contract) —
+  // odd means that task is still missing its closing punch. Drives the
+  // "Approve All" confirmation's warning line (item 3), not auto-skip: the
+  // admin sees the number and decides, the items themselves are never
+  // filtered out of the bulk call.
+  const taskPunchCountById = useMemo(() => new Map(tasks.map((t) => [t.id, t.punch_count])), [tasks]);
+  const oddTaskPunchCount = useMemo(
+    () => filteredPunches.filter((p) => p.task_id != null && (taskPunchCountById.get(p.task_id) ?? 0) % 2 === 1).length,
+    [filteredPunches, taskPunchCountById],
+  );
+
+  // Approve All (2026-09-28) — 'punches' | 'ot' | null selects which
+  // confirmation dialog is open; the ids sent are always exactly the
+  // currently-filtered set at the moment the dialog was confirmed, never a
+  // client-side "select all" that could drift from what's on screen.
+  const [bulkConfirmKind, setBulkConfirmKind] = useState<'punches' | 'ot' | null>(null);
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+
+  function formatBulkResult(result: BulkApproveResult): string {
+    const base = `${result.approved.length} approved, ${result.skipped.length} skipped`;
+    if (result.skipped.length === 0) return base;
+    return `${base} (${result.skipped.map((s) => `#${s.id}: ${s.reason}`).join('; ')})`;
+  }
+
+  async function handleConfirmBulkApprove() {
+    if (!bulkConfirmKind) return;
+    setBulkProcessing(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      if (bulkConfirmKind === 'punches') {
+        const result = await bulkApprovePunchesAdmin(filteredPunches.map((p) => p.id));
+        setSuccessMessage(`Attendance: ${formatBulkResult(result)}`);
+      } else {
+        const result = await bulkApproveOtApprovalsAdmin(filteredOtApprovals.map((o) => o.id));
+        setSuccessMessage(`Overtime: ${formatBulkResult(result)}`);
+      }
+      setBulkConfirmKind(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not complete the bulk approval. Please try again.');
+    } finally {
+      setBulkProcessing(false);
+    }
+  }
 
   function clearFilters() {
     setDateRange(todayRange());
@@ -224,6 +279,15 @@ export function ApprovalsPage() {
         </div>
       )}
 
+      {successMessage && (
+        <div className="mb-6 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />{successMessage}
+          <button onClick={() => setSuccessMessage(null)} className="ml-auto text-emerald-600 hover:text-emerald-800">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* Sticky (2026-09-24): filters stay pinned; each section heading (with its count) pins to the top of the scrolling area while its rows scroll beneath. z-20 keeps filter dropdowns above the headings. */}
       <Card className="relative z-20 mb-3 shrink-0 p-3">
         <div className="mb-2 flex items-center gap-2">
@@ -277,6 +341,16 @@ export function ApprovalsPage() {
             <Clock className="h-5 w-5 text-slate-400" />
             <h2 className="text-base font-semibold tracking-tight text-slate-900">Pending Punches</h2>
             <Badge variant="neutral">{filteredPunches.length}</Badge>
+            <Button
+              size="sm"
+              variant="success"
+              className="ml-auto"
+              onClick={() => setBulkConfirmKind('punches')}
+              disabled={filteredPunches.length === 0}
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              Approve Attendance ({filteredPunches.length})
+            </Button>
           </div>
 
           {filteredPunches.length === 0 ? (
@@ -353,6 +427,16 @@ export function ApprovalsPage() {
             <Timer className="h-5 w-5 text-slate-400" />
             <h2 className="text-base font-semibold tracking-tight text-slate-900">Pending Overtime</h2>
             <Badge variant="neutral">{filteredOtApprovals.length}</Badge>
+            <Button
+              size="sm"
+              variant="success"
+              className="ml-auto"
+              onClick={() => setBulkConfirmKind('ot')}
+              disabled={filteredOtApprovals.length === 0}
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              Approve Overtime ({filteredOtApprovals.length})
+            </Button>
           </div>
 
           {filteredOtApprovals.length === 0 ? (
@@ -413,6 +497,37 @@ export function ApprovalsPage() {
           load();
         }}
       />
+
+      <Modal
+        open={bulkConfirmKind !== null}
+        onClose={() => !bulkProcessing && setBulkConfirmKind(null)}
+        title={
+          bulkConfirmKind === 'punches'
+            ? `Approve ${filteredPunches.length} attendance record${filteredPunches.length === 1 ? '' : 's'}?`
+            : `Approve ${filteredOtApprovals.length} overtime record${filteredOtApprovals.length === 1 ? '' : 's'}?`
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            Date range: {formatPlainDate(dateRange.start)} – {formatPlainDate(dateRange.end)}. Approved{' '}
+            {bulkConfirmKind === 'punches' ? 'punches' : 'overtime requests'} can't be edited afterward.
+          </p>
+          {bulkConfirmKind === 'punches' && oddTaskPunchCount > 0 && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2.5 text-sm text-amber-800 ring-1 ring-inset ring-amber-200">
+              {oddTaskPunchCount} of these belong to a task with an odd punch count — likely a lone punch-in with no
+              closing punch yet. They will still be approved unless you cancel.
+            </p>
+          )}
+          <div className="flex gap-3 pt-1">
+            <Button type="button" variant="secondary" onClick={() => setBulkConfirmKind(null)} disabled={bulkProcessing} className="flex-1">
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleConfirmBulkApprove} disabled={bulkProcessing} variant="success" className="flex-1">
+              {bulkProcessing ? (<><Loader2 className="h-4 w-4 animate-spin" /> Approving…</>) : 'Approve'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={rejectTarget !== null} onClose={() => setRejectTarget(null)} title="Reject">
         <div className="space-y-4">

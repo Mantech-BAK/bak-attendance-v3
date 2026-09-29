@@ -439,6 +439,60 @@ router.patch('/:id/reject', async (req, res, next) => {
   }
 });
 
+// Backoffice-only "Approve All" (2026-09-28) — the client sends the exact
+// ids of whatever it currently has visible after its own date-range/filter
+// selection; approved_by always comes from the session (req.backofficeEmpId),
+// never the client. Each id is re-validated against live DB state right
+// here (the UPDATE's own WHERE approval_status = 'pending' is what actually
+// makes this race-safe — two overlapping bulk calls, or a bulk call racing
+// a single approve/reject, can never both win the same row), so the client
+// count is never trusted, only used to build the list of ids to attempt.
+// One id failing (not found, already approved/rejected by someone else
+// meanwhile) never aborts the rest — each is independent. Extra OT is
+// deliberately never granted here, same as it never is on Reject.
+router.post('/bulk-approve', requireBackofficeAuth, async (req, res, next) => {
+  try {
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids must be a non-empty array' });
+    }
+
+    const approved = [];
+    const skipped = [];
+
+    for (const rawId of ids) {
+      const id = Number(rawId);
+      if (!Number.isInteger(id)) {
+        skipped.push({ id: rawId, reason: 'invalid id' });
+        continue;
+      }
+
+      const result = await pool.query(
+        `UPDATE punches
+         SET approval_status = 'approved', approved_by = $1, approved_at = now()
+         WHERE id = $2 AND approval_status = 'pending'
+         RETURNING id`,
+        [req.backofficeEmpId, id]
+      );
+
+      if (result.rows.length === 1) {
+        approved.push(id);
+        continue;
+      }
+
+      const existing = await pool.query('SELECT approval_status FROM punches WHERE id = $1', [id]);
+      skipped.push({
+        id,
+        reason: existing.rows.length === 0 ? 'punch no longer exists' : `already ${existing.rows[0].approval_status}`,
+      });
+    }
+
+    res.json({ approved, skipped });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/', async (req, res, next) => {
   try {
     const { emp_id, task_id, project_code, lat, lng, entered_by, device_ref, out_remark, revalidation_face_embedding, revalidation_login_code } = req.body;

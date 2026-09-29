@@ -671,6 +671,30 @@ export function rejectPunchAdmin(id: number, reason: string): Promise<Punch> {
   });
 }
 
+// "Approve All" (2026-09-28) — ids are exactly whatever the Approvals page
+// currently has visible after its own date-range/filter selection; the
+// server re-validates each one against live status rather than trusting
+// this list's length. approved is the ids that actually went through;
+// skipped carries each id's reason (already handled by someone else, or no
+// longer exists) so the UI can report both counts precisely.
+export type BulkApproveResult = { approved: number[]; skipped: { id: number; reason: string }[] };
+
+export function bulkApprovePunchesAdmin(ids: number[]): Promise<BulkApproveResult> {
+  return request('/api/punches/bulk-approve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+}
+
+export function bulkApproveOtApprovalsAdmin(ids: number[]): Promise<BulkApproveResult> {
+  return request('/api/ot-approvals/bulk-approve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+}
+
 export function approveOtApprovalAdmin(id: number): Promise<OtApproval> {
   return request(`/api/ot-approvals/${encodeURIComponent(id)}/approve`, {
     method: 'PATCH',

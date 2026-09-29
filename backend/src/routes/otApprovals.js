@@ -151,4 +151,54 @@ router.patch('/:id/reject', async (req, res, next) => {
   }
 });
 
+// Backoffice-only "Approve All" (2026-09-28) — same contract as
+// punches.js's own /bulk-approve: client sends the exact ids of whatever it
+// currently has visible after its own date-range/filter selection,
+// approved_by always comes from the session, and each id is re-validated
+// against live DB state via the UPDATE's own WHERE status = 'pending'
+// (what actually makes this race-safe). One id failing never aborts the
+// rest — each is independent.
+router.post('/bulk-approve', requireBackofficeAuth, async (req, res, next) => {
+  try {
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids must be a non-empty array' });
+    }
+
+    const approved = [];
+    const skipped = [];
+
+    for (const rawId of ids) {
+      const id = Number(rawId);
+      if (!Number.isInteger(id)) {
+        skipped.push({ id: rawId, reason: 'invalid id' });
+        continue;
+      }
+
+      const result = await pool.query(
+        `UPDATE ot_approvals
+         SET status = 'approved', approved_by = $1, approved_at = now()
+         WHERE id = $2 AND status = 'pending'
+         RETURNING id`,
+        [req.backofficeEmpId, id]
+      );
+
+      if (result.rows.length === 1) {
+        approved.push(id);
+        continue;
+      }
+
+      const existing = await pool.query('SELECT status FROM ot_approvals WHERE id = $1', [id]);
+      skipped.push({
+        id,
+        reason: existing.rows.length === 0 ? 'OT request no longer exists' : `already ${existing.rows[0].status}`,
+      });
+    }
+
+    res.json({ approved, skipped });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
